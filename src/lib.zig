@@ -7,7 +7,17 @@ pub const varint = @import("varint.zig");
 pub const header = @import("header.zig");
 pub const nid = @import("nid.zig");
 pub const reader = @import("reader.zig");
+pub const writer = @import("writer.zig");
 pub const metadata = @import("metadata.zig");
+pub const encoder = @import("encoder.zig");
+pub const archive = @import("archive.zig");
+pub const ffi = @import("ffi.zig");
+pub const interop_test = @import("interop_test.zig");
+
+// Force analysis of C FFI module so export symbols are emitted.
+comptime {
+    _ = @import("ffi.zig");
+}
 
 test {
     _ = crc32;
@@ -15,5 +25,10 @@ test {
     _ = header;
     _ = nid;
     _ = reader;
+    _ = writer;
     _ = metadata;
+    _ = encoder;
+    _ = archive;
+    _ = ffi;
+    _ = interop_test;
 }

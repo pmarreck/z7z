@@ -387,8 +387,28 @@ fn parseSubStreamsInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.
         }
     }
 
-    // Compute inferred last sizes
-    if (all_sizes.items.len > 0) {
+    // If no kSize section was present, infer sizes from folder unpack sizes
+    // (default: 1 substream per folder, size = folder's final unpack size)
+    if (all_sizes.items.len == 0) {
+        for (0..num_folders) |fi| {
+            const n: usize = @intCast(num_unpack_streams[fi]);
+            if (n == 1) {
+                // Single substream — size is the folder's unpack size
+                const folder_size = if (result.folders[fi].unpack_sizes.len > 0)
+                    result.folders[fi].unpack_sizes[result.folders[fi].unpack_sizes.len - 1]
+                else
+                    0;
+                try all_sizes.append(allocator, folder_size);
+            } else {
+                // Multiple substreams without kSize is a structural error
+                // (kSize is required when NumUnPackStream > 1)
+                for (0..n) |_| {
+                    try all_sizes.append(allocator, 0);
+                }
+            }
+        }
+    } else {
+        // Compute inferred last sizes for folders with explicit kSize
         var size_idx: usize = 0;
         for (0..num_folders) |fi| {
             const n: usize = @intCast(num_unpack_streams[fi]);

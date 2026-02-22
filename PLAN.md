@@ -1,34 +1,37 @@
 # z7z — Implementation Plan
 
 ## Phase 1: Foundation (Complete)
-- [x] flake.nix with Zig 0.15.x, 7zz oracle, hyperfine (~2026-02-22 EST)
-- [x] build.zig with test step, ReleaseFast default (~2026-02-22 EST)
-- [x] CRC-32 — stdlib wrapper, verified against spec TV-A (~2026-02-22 EST)
-- [x] Variable UINT64 — encode/decode with roundtrip tests (~2026-02-22 EST)
-- [x] Signature header — parse/encode, all 3 test vectors, mutation detection (~2026-02-22 EST)
-- [x] ./build and ./test scripts (~2026-02-22 EST)
+- [x] flake.nix with Zig 0.15.x, 7zz oracle, hyperfine
+- [x] build.zig with test step, ReleaseFast default
+- [x] CRC-32 — stdlib wrapper, verified against spec TV-A
+- [x] Variable UINT64 — encode/decode with roundtrip tests
+- [x] Signature header — parse/encode, all 3 test vectors, mutation detection
+- [x] ./build and ./test scripts
 
-## Phase 2: Header Metadata Parsing
-- [ ] NID constants enum
-- [ ] Header tree parser (kHeader → StreamsInfo → FilesInfo → kEnd)
-- [ ] PackInfo parsing
-- [ ] UnpackInfo / Folder record parsing
-- [ ] SubStreamsInfo parsing
-- [ ] FilesInfo parsing (names, timestamps, attributes)
-- [ ] Encoded header support (kEncodedHeader → decode → kHeader)
+## Phase 2: Header Metadata (Complete)
+- [x] NID constants enum
+- [x] Sequential reader/writer utilities
+- [x] Header tree parser (kHeader → StreamsInfo → FilesInfo → kEnd)
+- [x] PackInfo parsing
+- [x] UnpackInfo / Folder record parsing
+- [x] SubStreamsInfo parsing (with inferred sizes for default case)
+- [x] FilesInfo parsing (names UTF-16LE→UTF-8, timestamps, attributes)
+- [x] Metadata encoder (byte-identical roundtrip on TV-A)
+- [ ] Encoded header support (kEncodedHeader → decode → kHeader) — deferred to Phase 5
 
-## Phase 3: Copy Codec (First End-to-End)
-- [ ] Copy method encode/decode (passthrough)
-- [ ] Archive creation: one file, Copy method, plain header
-- [ ] Archive extraction: read packstream, apply Copy, emit file data
-- [ ] Three-way interop: z7z↔z7z, z7z→7z, 7z→z7z
+## Phase 3: Copy Codec + End-to-End (Complete)
+- [x] Archive creation: single and multi-file, Copy method, plain header
+- [x] Archive extraction: read packstream, apply Copy, emit file data
+- [x] Three-way interop: z7z↔z7z, z7z→7zz, 7zz→z7z (5 tests)
 
-## Phase 4: C FFI + C CLI
+## Phase 4: C FFI + C CLI ← NEXT
 - [ ] C FFI header (z7z.h) with list/extract/create functions
+- [ ] Zig exports via `export` keyword
 - [ ] C CLI that dogfoods the FFI
-- [ ] CLI tests in Bash
+- [ ] CLI tests via shell scripts
 
 ## Phase 5: Compression Codecs
+- [ ] Encoded header support (kEncodedHeader → decompress → parse)
 - [ ] LZMA2 decode
 - [ ] LZMA2 encode
 - [ ] BCJ filters

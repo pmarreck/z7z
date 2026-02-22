@@ -14,9 +14,14 @@ else
 	((FAILURES++))
 fi
 
-# Integration tests will be added here later
-# echo "=== Integration tests (CLI) ==="
-# if bash tests/integration/run.sh; then ...
+echo ""
+echo "=== CLI integration tests ==="
+if nix develop -c ./test-cli 2>&1; then
+	echo "PASS: CLI tests"
+else
+	echo "FAIL: CLI tests"
+	((FAILURES++))
+fi
 
 if [ "$FAILURES" -gt 0 ]; then
 	echo ""

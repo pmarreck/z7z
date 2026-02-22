@@ -1,0 +1,169 @@
+#!/usr/bin/env bash
+# CLI integration tests for z7z.
+# Run from project root: nix develop -c ./test-cli
+
+set -euo pipefail
+
+Z7Z="./zig-out/bin/z7z"
+PASS=0
+FAIL=0
+TMPDIR=""
+
+cleanup() {
+	[ -n "$TMPDIR" ] && rm -rf "$TMPDIR"
+}
+trap cleanup EXIT
+
+fail() {
+	echo "  FAIL: $1"
+	FAIL=$((FAIL + 1))
+}
+
+pass() {
+	echo "  PASS: $1"
+	PASS=$((PASS + 1))
+}
+
+assert_file_exists() {
+	if [ -f "$2" ]; then pass "$1"; else fail "$1"; fi
+}
+
+assert_files_equal() {
+	if diff -q "$2" "$3" > /dev/null 2>&1; then pass "$1"; else fail "$1"; fi
+}
+
+assert_contains() {
+	if echo "$2" | grep -q "$3"; then pass "$1"; else fail "$1 (expected '$3')"; fi
+}
+
+assert_cmd_fails() {
+	if "$@" > /dev/null 2>&1; then fail "$1"; else pass "$1"; fi
+}
+
+# Build first
+echo "Building z7z..."
+zig build
+echo ""
+
+TMPDIR=$(mktemp -d)
+
+# ============================================================================
+# Test: create single file
+# ============================================================================
+echo "--- create + list + extract single file ---"
+
+echo -n "Hello from CLI test!" > "$TMPDIR/hello.txt"
+$Z7Z create "$TMPDIR/single.7z" "$TMPDIR/hello.txt"
+
+assert_file_exists "create single file" "$TMPDIR/single.7z"
+
+LIST_OUT=$($Z7Z list "$TMPDIR/single.7z")
+assert_contains "list shows file count" "$LIST_OUT" "Files: 1"
+assert_contains "list shows filename" "$LIST_OUT" "hello.txt"
+assert_contains "list shows size 20" "$LIST_OUT" "20"
+
+mkdir -p "$TMPDIR/out_single"
+$Z7Z extract "$TMPDIR/single.7z" "$TMPDIR/out_single"
+assert_file_exists "extract produces file" "$TMPDIR/out_single/hello.txt"
+assert_files_equal "extract content matches" "$TMPDIR/hello.txt" "$TMPDIR/out_single/hello.txt"
+
+# ============================================================================
+# Test: create multi-file
+# ============================================================================
+echo ""
+echo "--- create + list + extract multi-file ---"
+
+echo -n "Alpha" > "$TMPDIR/a.txt"
+echo -n "Beta" > "$TMPDIR/b.txt"
+printf '\xDE\xAD\xBE\xEF' > "$TMPDIR/c.bin"
+$Z7Z create "$TMPDIR/multi.7z" "$TMPDIR/a.txt" "$TMPDIR/b.txt" "$TMPDIR/c.bin"
+
+LIST_OUT=$($Z7Z list "$TMPDIR/multi.7z")
+assert_contains "multi list shows 3 files" "$LIST_OUT" "Files: 3"
+assert_contains "multi list shows a.txt" "$LIST_OUT" "a.txt"
+assert_contains "multi list shows b.txt" "$LIST_OUT" "b.txt"
+assert_contains "multi list shows c.bin" "$LIST_OUT" "c.bin"
+
+mkdir -p "$TMPDIR/out_multi"
+$Z7Z extract "$TMPDIR/multi.7z" "$TMPDIR/out_multi"
+assert_files_equal "multi extract a.txt" "$TMPDIR/a.txt" "$TMPDIR/out_multi/a.txt"
+assert_files_equal "multi extract b.txt" "$TMPDIR/b.txt" "$TMPDIR/out_multi/b.txt"
+assert_files_equal "multi extract c.bin" "$TMPDIR/c.bin" "$TMPDIR/out_multi/c.bin"
+
+# ============================================================================
+# Test: 7zz validates z7z output
+# ============================================================================
+echo ""
+echo "--- 7zz oracle validation ---"
+
+if command -v 7zz &>/dev/null; then
+	ORACLE_OUT=$(7zz t "$TMPDIR/single.7z" 2>&1)
+	assert_contains "7zz single: Everything is Ok" "$ORACLE_OUT" "Everything is Ok"
+
+	ORACLE_OUT=$(7zz t "$TMPDIR/multi.7z" 2>&1)
+	assert_contains "7zz multi: Everything is Ok" "$ORACLE_OUT" "Everything is Ok"
+
+	# Extract with 7zz and compare
+	mkdir -p "$TMPDIR/out_7zz"
+	7zz x -y -o"$TMPDIR/out_7zz" "$TMPDIR/single.7z" > /dev/null
+	assert_files_equal "7zz extraction matches" "$TMPDIR/hello.txt" "$TMPDIR/out_7zz/hello.txt"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# ============================================================================
+# Test: z7z reads 7zz-created archive
+# ============================================================================
+echo ""
+echo "--- z7z reads 7zz-created archive ---"
+
+if command -v 7zz &>/dev/null; then
+	echo -n "Oracle content" > "$TMPDIR/oracle.txt"
+	7zz a -m0=Copy "$TMPDIR/oracle.7z" "$TMPDIR/oracle.txt" > /dev/null
+
+	LIST_OUT=$($Z7Z list "$TMPDIR/oracle.7z")
+	assert_contains "z7z lists 7zz archive" "$LIST_OUT" "Files: 1"
+
+	mkdir -p "$TMPDIR/out_oracle"
+	$Z7Z extract "$TMPDIR/oracle.7z" "$TMPDIR/out_oracle"
+	assert_files_equal "z7z extracts 7zz archive" "$TMPDIR/oracle.txt" "$TMPDIR/out_oracle/oracle.txt"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# ============================================================================
+# Test: error handling
+# ============================================================================
+echo ""
+echo "--- error handling ---"
+
+echo "not a 7z archive" > "$TMPDIR/bad.7z"
+if $Z7Z list "$TMPDIR/bad.7z" > /dev/null 2>&1; then
+	fail "should reject bad archive"
+else
+	pass "rejects bad archive"
+fi
+
+if $Z7Z list "$TMPDIR/nonexistent.7z" > /dev/null 2>&1; then
+	fail "should fail on missing file"
+else
+	pass "fails on missing file"
+fi
+
+if $Z7Z > /dev/null 2>&1; then
+	fail "should fail with no args"
+else
+	pass "fails with no args"
+fi
+
+# ============================================================================
+# Summary
+# ============================================================================
+echo ""
+TOTAL=$((PASS + FAIL))
+echo "CLI tests: $PASS/$TOTAL passed"
+if [ "$FAIL" -gt 0 ]; then
+	echo "FAILURES: $FAIL"
+	exit 1
+fi
+echo "All CLI tests passed!"
