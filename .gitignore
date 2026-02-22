@@ -1,0 +1,4 @@
+.zig-cache/
+zig-out/
+AGENTS.md
+CLAUDE.md
