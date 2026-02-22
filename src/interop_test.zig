@@ -259,6 +259,92 @@ test "interop: multi-file roundtrip through z7z and 7zz" {
 	try std.testing.expect(std.mem.indexOf(u8, result.stdout, "Everything is Ok") != null);
 }
 
+test "interop: z7z LZMA2 archive accepted by 7zz" {
+	const allocator = std.testing.allocator;
+
+	const files = [_]archive.FileEntry{
+		.{ .name = "compressed.txt", .data = "Hello from z7z LZMA2 encoder!\n" },
+	};
+
+	const archive_data = try archive.createWithMethod(&files, .lzma2, allocator);
+	defer allocator.free(archive_data);
+
+	// Write to temp file
+	var tmp_dir = std.testing.tmpDir(.{});
+	defer tmp_dir.cleanup();
+
+	const file = try tmp_dir.dir.createFile("lzma2_z7z.7z", .{});
+	try file.writeAll(archive_data);
+	file.close();
+
+	const path = try tmp_dir.dir.realpathAlloc(allocator, "lzma2_z7z.7z");
+	defer allocator.free(path);
+
+	// Run 7zz t (test integrity)
+	const result = run7zz(&.{ "7zz", "t", path }, allocator) orelse return;
+	defer allocator.free(result.stdout);
+	defer allocator.free(result.stderr);
+
+	switch (result.term) {
+		.Exited => |code| {
+			if (code != 0) {
+				std.debug.print("7zz t LZMA2 failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
+			}
+			try std.testing.expectEqual(@as(u8, 0), code);
+		},
+		else => return error.TestUnexpectedResult,
+	}
+
+	try std.testing.expect(std.mem.indexOf(u8, result.stdout, "Everything is Ok") != null);
+}
+
+test "interop: z7z LZMA2 extraction matches via 7zz" {
+	const allocator = std.testing.allocator;
+
+	const content = "The quick brown fox jumps over the lazy dog.\n" ** 10;
+	const files = [_]archive.FileEntry{
+		.{ .name = "fox_lzma2.txt", .data = content },
+	};
+
+	const archive_data = try archive.createWithMethod(&files, .lzma2, allocator);
+	defer allocator.free(archive_data);
+
+	var tmp_dir = std.testing.tmpDir(.{});
+	defer tmp_dir.cleanup();
+
+	const archive_file = try tmp_dir.dir.createFile("fox_lzma2.7z", .{});
+	try archive_file.writeAll(archive_data);
+	archive_file.close();
+
+	const archive_path = try tmp_dir.dir.realpathAlloc(allocator, "fox_lzma2.7z");
+	defer allocator.free(archive_path);
+
+	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	defer allocator.free(dir_path);
+
+	const output_arg = try std.fmt.allocPrint(allocator, "-o{s}", .{dir_path});
+	defer allocator.free(output_arg);
+
+	const result = run7zz(&.{ "7zz", "x", "-y", archive_path, output_arg }, allocator) orelse return;
+	defer allocator.free(result.stdout);
+	defer allocator.free(result.stderr);
+
+	switch (result.term) {
+		.Exited => |code| {
+			if (code != 0) {
+				std.debug.print("7zz x LZMA2 failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
+			}
+			try std.testing.expectEqual(@as(u8, 0), code);
+		},
+		else => return error.TestUnexpectedResult,
+	}
+
+	// Read extracted file and compare
+	const extracted = try tmp_dir.dir.readFileAlloc(allocator, "fox_lzma2.txt", 1024 * 1024);
+	defer allocator.free(extracted);
+	try std.testing.expectEqualStrings(content, extracted);
+}
+
 test "interop: 7zz LZMA2 archive readable by z7z" {
 	const allocator = std.testing.allocator;
 

@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const meta = @import("metadata.zig");
+const lzma2_enc = @import("lzma2_encoder.zig");
 
 pub const CodecError = error{
 	UnsupportedMethod,
@@ -103,6 +104,12 @@ fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.All
 	}
 
 	return out_buf;
+}
+
+/// Compress data using LZMA2.
+/// Returns owned slice of LZMA2-compressed bytes.
+pub fn compressLzma2(data: []const u8, allocator: std.mem.Allocator) CodecError![]u8 {
+	return lzma2_enc.compress(data, allocator) catch return CodecError.OutOfMemory;
 }
 
 // ============================================================================

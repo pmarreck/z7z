@@ -20,6 +20,12 @@ pub const ArchiveError = error{
     OutOfMemory,
 };
 
+/// Compression method for archive creation.
+pub const Method = enum {
+    copy,
+    lzma2,
+};
+
 /// A file entry for creating an archive.
 pub const FileEntry = struct {
     name: []const u8, // UTF-8 filename
@@ -45,6 +51,160 @@ pub const ArchiveContents = struct {
 
 /// Create a .7z archive in memory using Copy method (no compression).
 pub fn create(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
+    return createWithMethod(files, .copy, allocator);
+}
+
+/// Create a .7z archive in memory using the specified compression method.
+pub fn createWithMethod(files: []const FileEntry, method: Method, allocator: std.mem.Allocator) ![]u8 {
+    return switch (method) {
+        .copy => createCopy(files, allocator),
+        .lzma2 => createLzma2(files, allocator),
+    };
+}
+
+/// Create a .7z archive in memory using LZMA2 compression.
+fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
+    // Concatenate all file data
+    var total_unpack_size: u64 = 0;
+    for (files) |f| {
+        total_unpack_size += f.data.len;
+    }
+
+    var raw_data = try allocator.alloc(u8, @intCast(total_unpack_size));
+    defer allocator.free(raw_data);
+    {
+        var offset: usize = 0;
+        for (files) |f| {
+            @memcpy(raw_data[offset .. offset + f.data.len], f.data);
+            offset += f.data.len;
+        }
+    }
+
+    // Compress with LZMA2
+    const compressed = codec.compressLzma2(raw_data, allocator) catch return error.OutOfMemory;
+    defer allocator.free(compressed);
+
+    // Build metadata
+    var coders = try allocator.alloc(meta.Coder, 1);
+    errdefer allocator.free(coders);
+
+    // LZMA2 method: CodecId = 0x21, properties = 1 byte (dict size indicator)
+    const method_id = try allocator.alloc(u8, 1);
+    method_id[0] = 0x21;
+
+    // LZMA2 property byte: encodes dictionary size
+    // Property byte p: dict_size = (2 | (p & 1)) << (p/2 + 11) for p >= 1
+    // For small data, use a reasonable dict size indicator
+    // p=24 → 16MB dict, p=20 → 4MB dict, p=16 → 1MB dict
+    const props = try allocator.alloc(u8, 1);
+    const data_len = @as(u32, @intCast(@min(total_unpack_size, 0xFFFFFFFF)));
+    props[0] = calcLzma2DictProp(data_len);
+
+    coders[0] = .{
+        .method_id = method_id,
+        .properties = props,
+        .num_in_streams = 1,
+        .num_out_streams = 1,
+    };
+
+    const unpack_sizes = try allocator.alloc(u64, 1);
+    unpack_sizes[0] = total_unpack_size;
+
+    var folders = try allocator.alloc(meta.Folder, 1);
+    folders[0] = .{
+        .coders = coders,
+        .bind_pairs = &.{},
+        .packed_indices = &.{},
+        .unpack_sizes = unpack_sizes,
+        .unpack_crc = null,
+    };
+
+    var pack_sizes = try allocator.alloc(u64, 1);
+    pack_sizes[0] = compressed.len;
+
+    // Build substream info
+    var sub_sizes = try allocator.alloc(u64, files.len);
+    var sub_digests = try allocator.alloc(?u32, files.len);
+    for (files, 0..) |f, i| {
+        sub_sizes[i] = f.data.len;
+        sub_digests[i] = crc32.hash(f.data);
+    }
+
+    // Build file info
+    var file_infos = try allocator.alloc(meta.FileInfo, files.len);
+    for (files, 0..) |f, i| {
+        const name_copy = try allocator.dupe(u8, f.name);
+        file_infos[i] = .{
+            .name = name_copy,
+            .is_empty_stream = false,
+            .is_empty_file = false,
+            .is_anti = false,
+            .ctime = null,
+            .atime = null,
+            .mtime = f.mtime,
+            .win_attrib = f.win_attrib,
+            .start_pos = null,
+        };
+    }
+
+    var archive_meta = meta.ArchiveMetadata{
+        .pack_info = .{
+            .pack_pos = 0,
+            .pack_sizes = pack_sizes,
+            .pack_crcs = null,
+        },
+        .folders = folders,
+        .sub_streams = .{
+            .unpack_sizes = sub_sizes,
+            .digests = sub_digests,
+        },
+        .files = file_infos,
+        .allocator = allocator,
+    };
+    defer archive_meta.deinit();
+
+    // Encode next-header
+    const next_header = try encoder.encodeNextHeader(archive_meta, allocator);
+    defer allocator.free(next_header);
+
+    const next_header_crc = crc32.hash(next_header);
+
+    // Build signature header
+    const sig = sig_header.encode(.{
+        .major_version = 0,
+        .minor_version = 4,
+        .next_header_offset = compressed.len,
+        .next_header_size = next_header.len,
+        .next_header_crc = next_header_crc,
+    });
+
+    // Assemble final archive: signature header + compressed data + next header
+    const total_size = sig_header.HEADER_SIZE + compressed.len + next_header.len;
+    const archive_out = try allocator.alloc(u8, total_size);
+    @memcpy(archive_out[0..sig_header.HEADER_SIZE], &sig);
+    @memcpy(archive_out[sig_header.HEADER_SIZE .. sig_header.HEADER_SIZE + compressed.len], compressed);
+    @memcpy(archive_out[sig_header.HEADER_SIZE + compressed.len ..], next_header);
+
+    return archive_out;
+}
+
+/// Calculate LZMA2 dictionary size property byte for a given data length.
+fn calcLzma2DictProp(data_len: u32) u8 {
+    // Property byte p encodes dict size:
+    // p=0: dict_size not specified (use default)
+    // p>=1: dict_size = (2 | (p & 1)) << (p/2 + 11)
+    // We want the smallest dict that covers the data.
+    if (data_len <= 4096) return 0; // 4KB default
+    var p: u8 = 1;
+    while (p < 40) : (p += 1) {
+        const ds = @as(u64, 2 | (p & 1)) << @intCast(p / 2 + 11);
+        if (ds >= data_len) return p;
+    }
+    return 40; // max
+}
+
+/// Create a .7z archive in memory using Copy method (no compression).
+fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     // Build packed data (concatenated file contents for Copy method)
     var total_pack_size: u64 = 0;
     for (files) |f| {
@@ -340,6 +500,73 @@ test "archive: read TV-B (LZMA2)" {
     try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
     try std.testing.expectEqualStrings("hello.txt", contents.metadata.files[0].name.?);
     try std.testing.expectEqualStrings("hello\n", contents.file_data[0]);
+}
+
+test "archive: create LZMA2 and read back single file" {
+    const allocator = std.testing.allocator;
+
+    const files = [_]FileEntry{
+        .{ .name = "test.txt", .data = "hello world" },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    // Should be smaller than or comparable to the Copy version
+    // (for small data LZMA2 may be slightly larger due to headers, that's ok)
+
+    // Read it back — exercises our LZMA2 decoder too
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
+    try std.testing.expectEqualStrings("test.txt", contents.metadata.files[0].name.?);
+    try std.testing.expectEqualStrings("hello world", contents.file_data[0]);
+}
+
+test "archive: create LZMA2 multi-file roundtrip" {
+    const allocator = std.testing.allocator;
+
+    const files = [_]FileEntry{
+        .{ .name = "alpha.txt", .data = "First file content\n" },
+        .{ .name = "beta.txt", .data = "Second file content\n" },
+        .{ .name = "gamma.bin", .data = &[_]u8{ 0x00, 0x01, 0x02, 0x03, 0xFF } },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 3), contents.metadata.files.len);
+    try std.testing.expectEqualStrings("First file content\n", contents.file_data[0]);
+    try std.testing.expectEqualStrings("Second file content\n", contents.file_data[1]);
+    try std.testing.expectEqualSlices(u8, &[_]u8{ 0x00, 0x01, 0x02, 0x03, 0xFF }, contents.file_data[2]);
+}
+
+test "archive: LZMA2 compresses repetitive data" {
+    const allocator = std.testing.allocator;
+
+    // Highly repetitive data should compress well
+    const repeated = "ABCDEFGHIJ" ** 100; // 1000 bytes of repetitive content
+    const files = [_]FileEntry{
+        .{ .name = "repeat.txt", .data = repeated },
+    };
+
+    const lzma2_archive = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(lzma2_archive);
+
+    const copy_archive = try create(&files, allocator);
+    defer allocator.free(copy_archive);
+
+    // LZMA2 should be meaningfully smaller for repetitive data
+    try std.testing.expect(lzma2_archive.len < copy_archive.len);
+
+    // Verify roundtrip
+    var contents = try read(lzma2_archive, allocator);
+    defer contents.deinit();
+    try std.testing.expectEqualStrings(repeated, contents.file_data[0]);
 }
 
 test "archive: reject bad signature" {

@@ -17,23 +17,24 @@
 - [x] SubStreamsInfo parsing (with inferred sizes for default case)
 - [x] FilesInfo parsing (names UTF-16LE→UTF-8, timestamps, attributes)
 - [x] Metadata encoder (byte-identical roundtrip on TV-A)
-- [ ] Encoded header support (kEncodedHeader → decode → kHeader) — deferred to Phase 5
 
 ## Phase 3: Copy Codec + End-to-End (Complete)
 - [x] Archive creation: single and multi-file, Copy method, plain header
 - [x] Archive extraction: read packstream, apply Copy, emit file data
 - [x] Three-way interop: z7z↔z7z, z7z→7zz, 7zz→z7z (5 tests)
 
-## Phase 4: C FFI + C CLI ← NEXT
-- [ ] C FFI header (z7z.h) with list/extract/create functions
-- [ ] Zig exports via `export` keyword
-- [ ] C CLI that dogfoods the FFI
-- [ ] CLI tests via shell scripts
+## Phase 4: C FFI + C CLI (Complete)
+- [x] C FFI header (z7z.h) with list/extract/create functions
+- [x] Zig exports via `export` keyword
+- [x] C CLI that dogfoods the FFI
+- [x] CLI tests via shell scripts (21 tests)
 
-## Phase 5: Compression Codecs
-- [ ] Encoded header support (kEncodedHeader → decompress → parse)
-- [ ] LZMA2 decode
-- [ ] LZMA2 encode
+## Phase 5: Compression Codecs (In Progress)
+- [x] LZMA2 decode (wrapping std.compress.lzma2)
+- [x] LZMA decode (wrapping std.compress.lzma)
+- [x] Encoded header support (kEncodedHeader → decompress → parse)
+- [x] Codec dispatch module (codec.zig)
+- [x] LZMA2 encode (cleanroom implementation: range encoder + LZ77 match finder + LZMA state machine)
 - [ ] BCJ filters
 - [ ] Coder graph pipeline (multi-coder folders)
 
