@@ -1,13 +1,14 @@
 //! 7z archive-level operations.
 //!
 //! Creates and reads complete .7z archives in memory.
-//! Currently supports Copy method only (no compression).
+//! Supports Copy and LZMA2 methods for reading.
 
 const std = @import("std");
 const crc32 = @import("crc32.zig");
 const sig_header = @import("header.zig");
 const meta = @import("metadata.zig");
 const encoder = @import("encoder.zig");
+const codec = @import("codec.zig");
 
 pub const ArchiveError = error{
     NotArchive,
@@ -185,8 +186,8 @@ pub fn read(archive_data: []const u8, allocator: std.mem.Allocator) ArchiveError
     const nh_bytes = archive_data[@intCast(nh_start)..@intCast(nh_end)];
     if (crc32.hash(nh_bytes) != hdr.next_header_crc) return ArchiveError.ChecksumError;
 
-    // Parse metadata
-    var metadata = meta.parseNextHeader(nh_bytes, allocator) catch |e| switch (e) {
+    // Parse metadata (pass full archive for encoded header support)
+    var metadata = meta.parseNextHeaderWithArchive(nh_bytes, archive_data, allocator) catch |e| switch (e) {
         error.StructuralError => return ArchiveError.StructuralError,
         error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
         error.EndOfStream => return ArchiveError.EndOfStream,
@@ -194,36 +195,49 @@ pub fn read(archive_data: []const u8, allocator: std.mem.Allocator) ArchiveError
     };
     errdefer metadata.deinit();
 
-    // Extract file data (Copy method only for now)
+    // Extract file data via codec dispatch
     const file_data = try allocator.alloc([]const u8, metadata.files.len);
     errdefer allocator.free(file_data);
 
     if (metadata.pack_info) |pi| {
         if (metadata.folders.len > 0) {
             const folder = metadata.folders[0];
+            const pack_start = sig_header.HEADER_SIZE + @as(usize, @intCast(pi.pack_pos));
 
-            // Verify it's Copy method
-            if (folder.coders.len != 1) return ArchiveError.UnsupportedFeature;
-            const coder = folder.coders[0];
-            if (coder.method_id.len == 1 and coder.method_id[0] == 0x00) {
-                // Copy method — data is uncompressed
-                const pack_start = sig_header.HEADER_SIZE + @as(usize, @intCast(pi.pack_pos));
-                var offset: usize = 0;
+            // Get total packed size for this folder
+            const pack_size: usize = if (pi.pack_sizes.len > 0)
+                @intCast(pi.pack_sizes[0])
+            else
+                0;
 
-                for (0..metadata.files.len) |fi| {
-                    const file_size = if (metadata.sub_streams) |ss|
-                        (if (fi < ss.unpack_sizes.len) @as(usize, @intCast(ss.unpack_sizes[fi])) else 0)
-                    else if (fi == 0)
-                        @as(usize, @intCast(folder.unpack_sizes[0]))
-                    else
-                        0;
+            // Get folder unpack size
+            const unpack_size: u64 = if (folder.unpack_sizes.len > 0)
+                folder.unpack_sizes[folder.unpack_sizes.len - 1]
+            else
+                0;
 
-                    const src = archive_data[pack_start + offset .. pack_start + offset + file_size];
-                    file_data[fi] = try allocator.dupe(u8, src);
-                    offset += file_size;
-                }
-            } else {
-                return ArchiveError.UnsupportedFeature;
+            const packed_data = archive_data[pack_start .. pack_start + pack_size];
+
+            // Decompress entire folder
+            const unpacked = codec.decompressFolder(folder, packed_data, unpack_size, allocator) catch |e| switch (e) {
+                error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
+                error.DecompressFailed => return ArchiveError.StructuralError,
+                error.OutOfMemory => return ArchiveError.OutOfMemory,
+            };
+            defer allocator.free(unpacked);
+
+            // Split decompressed data into per-file slices
+            var offset: usize = 0;
+            for (0..metadata.files.len) |fi| {
+                const file_size = if (metadata.sub_streams) |ss|
+                    (if (fi < ss.unpack_sizes.len) @as(usize, @intCast(ss.unpack_sizes[fi])) else 0)
+                else if (fi == 0)
+                    @as(usize, @intCast(unpack_size))
+                else
+                    0;
+
+                file_data[fi] = try allocator.dupe(u8, unpacked[offset .. offset + file_size]);
+                offset += file_size;
             }
         }
     } else {
@@ -302,6 +316,30 @@ test "archive: created archive has valid CRCs" {
     const nh_end = nh_start + hdr.next_header_size;
     const nh_bytes = archive[@intCast(nh_start)..@intCast(nh_end)];
     try std.testing.expectEqual(hdr.next_header_crc, crc32.hash(nh_bytes));
+}
+
+test "archive: read TV-B (LZMA2)" {
+    const allocator = std.testing.allocator;
+
+    // TV-B: LZMA2-compressed archive containing "hello\n"
+    const tv_b = [132]u8{
+        0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00, 0x04, 0x6D, 0xE0, 0xCC, 0x1D, 0x0A, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x5A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xDA, 0x13, 0xAD, 0xAC,
+        0x01, 0x00, 0x05, 0x68, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x00, 0x01, 0x04, 0x06, 0x00, 0x01, 0x09,
+        0x0A, 0x00, 0x07, 0x0B, 0x01, 0x00, 0x01, 0x21, 0x21, 0x01, 0x00, 0x0C, 0x06, 0x00, 0x08, 0x0A,
+        0x01, 0x20, 0x30, 0x3A, 0x36, 0x00, 0x00, 0x05, 0x01, 0x19, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x15, 0x00, 0x68, 0x00, 0x65, 0x00, 0x6C, 0x00,
+        0x6C, 0x00, 0x6F, 0x00, 0x2E, 0x00, 0x74, 0x00, 0x78, 0x00, 0x74, 0x00, 0x00, 0x00, 0x14, 0x0A,
+        0x01, 0x00, 0x80, 0xCA, 0x91, 0x2A, 0x0D, 0xA4, 0xDC, 0x01, 0x15, 0x06, 0x01, 0x00, 0x20, 0x80,
+        0xA4, 0x81, 0x00, 0x00,
+    };
+
+    var contents = try read(&tv_b, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
+    try std.testing.expectEqualStrings("hello.txt", contents.metadata.files[0].name.?);
+    try std.testing.expectEqualStrings("hello\n", contents.file_data[0]);
 }
 
 test "archive: reject bad signature" {

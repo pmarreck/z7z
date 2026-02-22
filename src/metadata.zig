@@ -8,6 +8,7 @@ const nid = @import("nid.zig");
 const Reader = @import("reader.zig").Reader;
 const ReadError = @import("reader.zig").ReadError;
 const crc32 = @import("crc32.zig");
+const codec = @import("codec.zig");
 
 pub const ParseError = error{
     StructuralError,
@@ -102,16 +103,83 @@ pub const ArchiveMetadata = struct {
 // ============================================================================
 
 /// Parse a next-header region starting with kHeader or kEncodedHeader.
+/// For kEncodedHeader, `full_archive` must be provided to access packed data.
 pub fn parseNextHeader(data: []const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
+    return parseNextHeaderWithArchive(data, null, allocator);
+}
+
+/// Parse next-header with access to the full archive (needed for encoded headers).
+pub fn parseNextHeaderWithArchive(data: []const u8, full_archive: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
     var r = Reader.init(data);
 
     const first_nid = r.readNid() catch return ParseError.EndOfStream;
 
     return switch (first_nid) {
         .header => parseHeaderBody(&r, allocator),
-        .encoded_header => ParseError.UnsupportedFeature, // TODO: decode then parse
+        .encoded_header => decodeEncodedHeader(&r, full_archive, allocator),
         else => ParseError.StructuralError,
     };
+}
+
+/// Decode an encoded header: parse StreamsInfo, decompress, then parse as kHeader.
+fn decodeEncodedHeader(r: *Reader, full_archive: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
+    const archive_data = full_archive orelse return ParseError.UnsupportedFeature;
+
+    // Parse the StreamsInfo that describes the encoded header
+    var hdr_meta = ArchiveMetadata{
+        .pack_info = null,
+        .folders = &.{},
+        .sub_streams = null,
+        .files = &.{},
+        .allocator = allocator,
+    };
+    defer hdr_meta.deinit();
+
+    // The encoded header contains MainStreamsInfo directly (PackInfo, UnpackInfo, etc.)
+    while (true) {
+        const tag = r.readNid() catch return ParseError.EndOfStream;
+        switch (tag) {
+            .end => break,
+            .pack_info => {
+                hdr_meta.pack_info = try parsePackInfo(r, allocator);
+            },
+            .unpack_info => {
+                try parseUnpackInfo(r, &hdr_meta, allocator);
+            },
+            .sub_streams_info => {
+                try parseSubStreamsInfo(r, &hdr_meta, allocator);
+            },
+            else => return ParseError.StructuralError,
+        }
+    }
+
+    // We need pack_info and at least one folder
+    const pi = hdr_meta.pack_info orelse return ParseError.StructuralError;
+    if (hdr_meta.folders.len == 0) return ParseError.StructuralError;
+
+    const folder = hdr_meta.folders[0];
+    const header_size = @import("header.zig").HEADER_SIZE;
+    const pack_start = header_size + @as(usize, @intCast(pi.pack_pos));
+    const pack_size: usize = if (pi.pack_sizes.len > 0) @intCast(pi.pack_sizes[0]) else 0;
+
+    if (pack_start + pack_size > archive_data.len) return ParseError.EndOfStream;
+
+    const packed_data = archive_data[pack_start .. pack_start + pack_size];
+    const unpack_size: u64 = if (folder.unpack_sizes.len > 0)
+        folder.unpack_sizes[folder.unpack_sizes.len - 1]
+    else
+        0;
+
+    // Decompress using codec dispatch
+    const decoded = codec.decompressFolder(folder, packed_data, unpack_size, allocator) catch |e| switch (e) {
+        error.UnsupportedMethod => return ParseError.UnsupportedFeature,
+        error.DecompressFailed => return ParseError.StructuralError,
+        error.OutOfMemory => return ParseError.OutOfMemory,
+    };
+    defer allocator.free(decoded);
+
+    // The decoded data should start with kHeader
+    return parseNextHeader(decoded, allocator);
 }
 
 fn parseHeaderBody(r: *Reader, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {

@@ -10,6 +10,7 @@ pub const reader = @import("reader.zig");
 pub const writer = @import("writer.zig");
 pub const metadata = @import("metadata.zig");
 pub const encoder = @import("encoder.zig");
+pub const codec = @import("codec.zig");
 pub const archive = @import("archive.zig");
 pub const ffi = @import("ffi.zig");
 pub const interop_test = @import("interop_test.zig");
@@ -28,6 +29,7 @@ test {
     _ = writer;
     _ = metadata;
     _ = encoder;
+    _ = codec;
     _ = archive;
     _ = ffi;
     _ = interop_test;
