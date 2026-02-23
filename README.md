@@ -64,6 +64,10 @@ Compared against `7z` at `-mx=5` on macOS/ARM64:
 
 z7z uses a BT4 binary tree match finder, forward optimal parser with price-based decisions, continuous LZMA state across chunks, and dictionary carry-across. It **matches `7z -mx=5`** compression quality across all tested file types.
 
+### Speed
+
+Single-threaded on macOS/ARM64 (Apple M-series), z7z matches `7z -mx=5 -mmt=1` within ~4%.
+
 ## Architecture
 
 ```

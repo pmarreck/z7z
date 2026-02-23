@@ -21,6 +21,17 @@ Root module. Re-exports all submodules. Contains test references.
 - `encode(header) → [32]u8` — encode with computed StartHeaderCRC
 - Constants: `HEADER_SIZE`, `SIGNATURE`
 
+## src/lzma2_encoder.zig
+LZMA2 compression encoder with forward optimal parser.
+- `LzmaEncoder` — LZMA1 state machine: range encoder, probability models, rep distances
+- `encodeLzma2()` — top-level LZMA2 encoder: splits input into chunks, writes LZMA2 framing
+- `encodeLzma1ChunkOptimal()` — forward DP optimal parser over 64KB chunks
+  - Pre-computes price tables (length, distance, pos_slot, align) before DP loop
+  - Evaluates literals, short reps, rep matches (4 distances × all lengths), new matches
+  - Uses pre-computed position-dependent price invariants per position
+- `MatchFinder` — BT4 binary tree match finder (BT_DEPTH=64, common-prefix optimization)
+- `priceLenVal`, `probPrice0/1`, `priceBitTreeVal`, `priceRevBitTree` — price estimation primitives
+
 ## build.zig
 Build configuration. Static lib + test step. ReleaseFast default.
 

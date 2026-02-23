@@ -225,7 +225,6 @@ const MatchFinder = struct {
             if (dist > self.dict_size) break;
 
             const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
-            // Start comparison from known common prefix
             var common = @min(best_left_len, best_right_len);
             while (common < max_len and self.data[pos + common] == self.data[match_pos + common]) {
                 common += 1;
@@ -235,7 +234,6 @@ const MatchFinder = struct {
                 candidates.add(.{ .distance = dist - 1, .length = common });
                 best_len = common;
                 if (common == max_len) {
-                    // Perfect match — inherit cur's children
                     left_ptr.* = self.bt_left[match_pos];
                     right_ptr.* = self.bt_right[match_pos];
                     return candidates;
@@ -243,13 +241,11 @@ const MatchFinder = struct {
             }
 
             if (common < max_len and self.data[pos + common] < self.data[match_pos + common]) {
-                // pos < match_pos lexicographically: match_pos goes to right
                 right_ptr.* = cur;
                 right_ptr = &self.bt_left[match_pos];
                 cur = self.bt_left[match_pos];
                 best_right_len = common;
             } else {
-                // pos >= match_pos: match_pos goes to left
                 left_ptr.* = cur;
                 left_ptr = &self.bt_right[match_pos];
                 cur = self.bt_right[match_pos];
@@ -1044,6 +1040,43 @@ fn encodeLzma1ChunkOptimal(
     nodes[0].state = enc.state;
     nodes[0].rep = enc.rep;
 
+    // Pre-compute length price tables — turns priceLenVal calls into array lookups.
+    // Prices are stable during the DP phase (probabilities only update during encoding).
+    var len_prices: [NUM_POS_STATES_MAX][272]u32 = undefined;
+    var rep_len_prices: [NUM_POS_STATES_MAX][272]u32 = undefined;
+    for (0..NUM_POS_STATES_MAX) |ps| {
+        for (0..272) |rl| {
+            len_prices[ps][rl] = priceLenVal(&enc.len_encoder, @intCast(rl), @intCast(ps));
+            rep_len_prices[ps][rl] = priceLenVal(&enc.rep_len_encoder, @intCast(rl), @intCast(ps));
+        }
+    }
+
+    // Pre-compute distance price tables — replaces tree walks with array lookups.
+    // pos_slot_prices: 4 len_states × 64 pos_slots, each is a 6-level bit tree walk
+    var pos_slot_prices: [NUM_LEN_STATES][64]u32 = undefined;
+    for (0..NUM_LEN_STATES) |ls| {
+        for (0..64) |ps| {
+            pos_slot_prices[ls][ps] = priceBitTreeVal(&enc.pos_slot_encoders[ls], 6, @intCast(ps));
+        }
+    }
+    // align_prices: 16 values for the 4-bit alignment tree (pos_slot >= 14)
+    var align_prices: [16]u32 = undefined;
+    for (0..16) |v| {
+        align_prices[v] = priceRevBitTree(&enc.align_encoder, 4, @intCast(v));
+    }
+    // special_dist_prices: reverse bit tree prices for pos_slots 4-13
+    // Indexed by [offset + remainder] where offset = base - pos_slot
+    var special_dist_prices: [128]u32 = undefined;
+    for (4..14) |slot| {
+        const num_direct_bits: u5 = @intCast((slot >> 1) - 1);
+        const base = (@as(u32, 2) | @as(u32, @intCast(slot & 1))) << num_direct_bits;
+        const offset = base - @as(u32, @intCast(slot));
+        const num_remainders = @as(u32, 1) << num_direct_bits;
+        for (0..num_remainders) |r| {
+            special_dist_prices[offset + r] = priceRevBitTree(enc.pos_encoders[offset..], num_direct_bits, @intCast(r));
+        }
+    }
+
     // Forward DP pass
     const NICE_LEN: u32 = 128;
     var skip_until: usize = 0;
@@ -1065,11 +1098,18 @@ fn encodeLzma1ChunkOptimal(
         const cur_state = nodes[i].state;
         const cur_rep = nodes[i].rep;
         const remaining: u32 = @intCast(chunk_len - i);
+        const base_price = nodes[i].price;
+
+        // Pre-compute position-dependent invariants once per position
+        const ps: usize = abs_pos & ((@as(usize, 1) << @as(u5, enc.pb)) - 1);
+        const is_match_price = probPrice1(enc.is_match[@as(usize, cur_state) * NUM_POS_STATES_MAX + ps]);
+        const is_rep_price = is_match_price + probPrice1(enc.is_rep[cur_state]);
+        const is_match_not_rep_price = is_match_price + probPrice0(enc.is_rep[cur_state]);
 
         // --- Option 1: Literal ---
         if (i + 1 <= chunk_len) {
             const match_byte: u8 = if (cur_state >= 7 and cur_rep[0] < abs_pos) full_data[abs_pos - cur_rep[0] - 1] else 0;
-            const lit_price = nodes[i].price + enc.priceLiteralAt(cur_byte, abs_pos, prev_byte, match_byte, cur_state);
+            const lit_price = base_price + enc.priceLiteralAt(cur_byte, abs_pos, prev_byte, match_byte, cur_state);
             if (lit_price < nodes[i + 1].price) {
                 nodes[i + 1] = .{
                     .price = lit_price,
@@ -1084,6 +1124,18 @@ fn encodeLzma1ChunkOptimal(
         }
 
         // --- Option 2: Rep matches ---
+        // Pre-compute rep selection base prices (everything except length)
+        const rep_g0_price = is_rep_price + probPrice0(enc.is_rep_g0[cur_state]);
+        const rep_g1_base = is_rep_price + probPrice1(enc.is_rep_g0[cur_state]);
+        const rep_base_prices = [4]u32{
+            rep_g0_price + probPrice1(enc.is_rep_0long[@as(usize, cur_state) * NUM_POS_STATES_MAX + ps]), // rep0 long
+            rep_g1_base + probPrice0(enc.is_rep_g1[cur_state]), // rep1
+            rep_g1_base + probPrice1(enc.is_rep_g1[cur_state]) + probPrice0(enc.is_rep_g2[cur_state]), // rep2
+            rep_g1_base + probPrice1(enc.is_rep_g1[cur_state]) + probPrice1(enc.is_rep_g2[cur_state]), // rep3
+        };
+        // Short rep price (rep0, length 1)
+        const short_rep_price = base_price + rep_g0_price + probPrice0(enc.is_rep_0long[@as(usize, cur_state) * NUM_POS_STATES_MAX + ps]);
+
         for (0..4) |ri| {
             const rep_dist = cur_rep[ri];
             if (rep_dist >= abs_pos) continue;
@@ -1102,10 +1154,9 @@ fn encodeLzma1ChunkOptimal(
 
             // Short rep (length 1, rep[0] only)
             if (ri == 0 and rep_len >= 1 and i + 1 <= chunk_len) {
-                const sr_price = nodes[i].price + enc.priceRepMatchAt(0, 1, abs_pos, cur_state);
-                if (sr_price < nodes[i + 1].price) {
+                if (short_rep_price < nodes[i + 1].price) {
                     nodes[i + 1] = .{
-                        .price = sr_price,
+                        .price = short_rep_price,
                         .state = nextStateShortRep(cur_state),
                         .rep = cur_rep,
                         .action = .short_rep,
@@ -1116,7 +1167,7 @@ fn encodeLzma1ChunkOptimal(
                 }
             }
 
-            // Rep matches length 2+: try all lengths for optimal selection
+            // Rep matches length 2+
             if (rep_len >= 2) {
                 var new_rep = cur_rep;
                 if (ri > 0) {
@@ -1126,11 +1177,12 @@ fn encodeLzma1ChunkOptimal(
                     new_rep[0] = dist;
                 }
                 const new_state = nextStateRep(cur_state);
+                const rep_base = base_price + rep_base_prices[ri];
 
                 var try_len: u32 = 2;
                 while (try_len <= rep_len) : (try_len += 1) {
                     if (i + try_len > chunk_len) break;
-                    const rp = nodes[i].price + enc.priceRepMatchAt(rep_idx, try_len, abs_pos, cur_state);
+                    const rp = rep_base + rep_len_prices[ps][try_len - 2];
                     if (rp < nodes[i + try_len].price) {
                         nodes[i + try_len] = .{
                             .price = rp,
@@ -1151,17 +1203,38 @@ fn encodeLzma1ChunkOptimal(
         const matches = candidates.slice();
         if (matches.len > 0) {
             const new_state = nextStateMatch(cur_state);
-            // Matches sorted by increasing length. For each candidate,
-            // try all lengths from previous candidate's length to current,
-            // using the best (closest) distance available at each level.
+            const match_base = base_price + is_match_not_rep_price;
+
             var prev_len: u32 = 1;
             for (matches) |m| {
+                // Compute distance price via pre-computed tables (no tree walks)
+                const pos_slot = getPosSlot(m.distance);
+                var remainder_price: u32 = 0;
+                if (pos_slot >= 4) {
+                    const num_direct_bits: u5 = @intCast((pos_slot >> 1) - 1);
+                    const base_dist = (@as(u32, 2) | (pos_slot & 1)) << num_direct_bits;
+                    const remainder = m.distance - base_dist;
+                    if (pos_slot < 14) {
+                        const offset = base_dist - pos_slot;
+                        remainder_price = special_dist_prices[offset + remainder];
+                    } else {
+                        remainder_price = @as(u32, num_direct_bits - 4) * (1 << PRICE_SHIFT) + align_prices[remainder & 0xF];
+                    }
+                }
+                const dist_prices = [4]u32{
+                    pos_slot_prices[0][pos_slot] + remainder_price,
+                    pos_slot_prices[1][pos_slot] + remainder_price,
+                    pos_slot_prices[2][pos_slot] + remainder_price,
+                    pos_slot_prices[3][pos_slot] + remainder_price,
+                };
+                const new_rep = [4]u32{ m.distance, cur_rep[0], cur_rep[1], cur_rep[2] };
+
                 const min_useful: u32 = @max(prev_len + 1, if (m.distance < 128) @as(u32, 2) else if (m.distance < 2048) @as(u32, 3) else if (m.distance < 32768) @as(u32, 4) else @as(u32, 5));
                 var try_len = min_useful;
                 while (try_len <= m.length) : (try_len += 1) {
                     if (i + try_len > chunk_len) break;
-                    const new_rep = [4]u32{ m.distance, cur_rep[0], cur_rep[1], cur_rep[2] };
-                    const mp = nodes[i].price + enc.priceMatchAt(try_len, m.distance, abs_pos, cur_state);
+                    const len_state_idx = @min(try_len - 2, 3);
+                    const mp = match_base + len_prices[ps][try_len - 2] + dist_prices[len_state_idx];
                     if (mp < nodes[i + try_len].price) {
                         nodes[i + try_len] = .{
                             .price = mp,
