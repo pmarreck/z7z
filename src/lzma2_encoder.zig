@@ -27,6 +27,16 @@ const RangeEncoder = struct {
         self.output.deinit(allocator);
     }
 
+    /// Reset the range encoder for a new LZMA2 chunk, keeping state in the
+    /// parent LzmaEncoder but starting a fresh bitstream.
+    fn resetForNewChunk(self: *RangeEncoder) void {
+        self.output.clearRetainingCapacity();
+        self.low = 0;
+        self.range = 0xFFFF_FFFF;
+        self.cache_size = 1;
+        self.cache = 0;
+    }
+
     fn shiftLow(self: *RangeEncoder, allocator: std.mem.Allocator) !void {
         const low32 = @as(u32, @truncate(self.low));
         const carry: u8 = @intCast(self.low >> 32);
@@ -125,7 +135,7 @@ const RangeEncoder = struct {
 // LZ77 Match Finder (Hash Chain)
 // ============================================================================
 
-const HASH_BITS = 16;
+const HASH_BITS = 20;
 const HASH_SIZE = 1 << HASH_BITS;
 const MIN_MATCH = 2;
 const MAX_MATCH = 273;
@@ -136,7 +146,7 @@ const Match = struct {
 };
 
 const MatchFinder = struct {
-    head: [HASH_SIZE]u32,
+    head: []u32,
     chain: []u32,
     data: []const u8,
     dict_size: u32,
@@ -144,24 +154,31 @@ const MatchFinder = struct {
     fn init(data: []const u8, dict_size: u32, allocator: std.mem.Allocator) !MatchFinder {
         const chain = try allocator.alloc(u32, data.len);
         @memset(chain, 0);
-        var mf = MatchFinder{
-            .head = undefined,
+        const head = try allocator.alloc(u32, HASH_SIZE);
+        @memset(head, 0);
+        return .{
+            .head = head,
             .chain = chain,
             .data = data,
             .dict_size = dict_size,
         };
-        @memset(&mf.head, 0);
-        return mf;
     }
 
     fn deinit(self: *MatchFinder, allocator: std.mem.Allocator) void {
         allocator.free(self.chain);
+        allocator.free(self.head);
     }
 
-    fn hash3(data: []const u8, pos: usize) u32 {
-        if (pos + 2 >= data.len) return 0;
-        const h = @as(u32, data[pos]) ^ (@as(u32, data[pos + 1]) << 8) ^ (@as(u32, data[pos + 2]) << 5);
-        return h & (HASH_SIZE - 1);
+    /// 4-byte hash for fewer collisions and better match quality.
+    fn hash4(data: []const u8, pos: usize) u32 {
+        if (pos + 3 >= data.len) return 0;
+        const v = @as(u32, data[pos]) |
+            (@as(u32, data[pos + 1]) << 8) |
+            (@as(u32, data[pos + 2]) << 16) |
+            (@as(u32, data[pos + 3]) << 24);
+        // CRC-style hash mixing
+        const h = v *% 0x9E3779B1;
+        return h >> (32 - HASH_BITS);
     }
 
     /// Find the best match at the given position.
@@ -169,7 +186,7 @@ const MatchFinder = struct {
     fn findMatch(self: *MatchFinder, pos: usize) ?Match {
         if (pos + MIN_MATCH > self.data.len) return null;
 
-        const h = hash3(self.data, pos);
+        const h = hash4(self.data, pos);
         const prev = self.head[h];
         self.chain[pos] = prev;
         self.head[h] = @intCast(pos + 1); // +1 so 0 means "no entry"
@@ -178,14 +195,21 @@ const MatchFinder = struct {
         var best_dist: u32 = 0;
         var cur = prev;
         var depth: u32 = 0;
-        const max_depth: u32 = 64; // limit search depth for speed
+        const max_depth: u32 = 256;
 
         while (cur > 0 and depth < max_depth) : (depth += 1) {
-            const match_pos = cur - 1; // convert back from 1-based
+            const match_pos = cur - 1;
+            if (pos < match_pos) break; // safety
             const dist = @as(u32, @intCast(pos - match_pos));
             if (dist > self.dict_size) break;
 
-            // Compare bytes
+            // Quick check: if we already have a long match, only consider
+            // candidates that match at the current best_len position
+            if (best_len >= MIN_MATCH and self.data[match_pos + best_len] != self.data[pos + best_len]) {
+                cur = self.chain[match_pos];
+                continue;
+            }
+
             const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
             var len: u32 = 0;
             while (len < max_len and self.data[match_pos + len] == self.data[pos + len]) {
@@ -196,6 +220,8 @@ const MatchFinder = struct {
                 best_len = len;
                 best_dist = dist - 1; // 0-based distance
                 if (len == max_len) break;
+                // Nice length: stop searching once we find a good-enough match
+                if (len >= 64) break;
             }
 
             cur = self.chain[match_pos];
@@ -209,8 +235,8 @@ const MatchFinder = struct {
 
     /// Insert position into hash chain without searching.
     fn skip(self: *MatchFinder, pos: usize) void {
-        if (pos + 2 >= self.data.len) return;
-        const h = hash3(self.data, pos);
+        if (pos + 3 >= self.data.len) return;
+        const h = hash4(self.data, pos);
         self.chain[pos] = self.head[h];
         self.head[h] = @intCast(pos + 1);
     }
@@ -276,6 +302,26 @@ const LzmaEncoder = struct {
             allocator.free(self.literal_probs);
         }
         self.rc.deinit(allocator);
+    }
+
+    /// Reset all mutable LZMA state to initial values.
+    /// Used when the decoder will also reset (reset_mode >= 1) or when
+    /// a chunk was emitted uncompressed (decoder has no LZMA context).
+    fn resetState(self: *LzmaEncoder) void {
+        self.state = 0;
+        self.rep = .{ 0, 0, 0, 0 };
+        self.is_match = [_]u16{0x400} ** (NUM_STATES * NUM_POS_STATES_MAX);
+        self.is_rep = [_]u16{0x400} ** NUM_STATES;
+        self.is_rep_g0 = [_]u16{0x400} ** NUM_STATES;
+        self.is_rep_g1 = [_]u16{0x400} ** NUM_STATES;
+        self.is_rep_g2 = [_]u16{0x400} ** NUM_STATES;
+        self.is_rep_0long = [_]u16{0x400} ** (NUM_STATES * NUM_POS_STATES_MAX);
+        @memset(self.literal_probs, 0x400);
+        self.len_encoder = .{};
+        self.rep_len_encoder = .{};
+        self.pos_slot_encoders = [_][64]u16{[_]u16{0x400} ** 64} ** NUM_LEN_STATES;
+        self.pos_encoders = [_]u16{0x400} ** 115;
+        self.align_encoder = [_]u16{0x400} ** 16;
     }
 
     fn getPropsBytes(self: *const LzmaEncoder) u8 {
@@ -575,72 +621,244 @@ pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
     return try allocator.dupe(u8, output.items);
 }
 
-/// Compress data in multiple LZMA2 chunks for large inputs.
+/// Compress data in multiple LZMA2 chunks with continuous LZMA state.
+/// A single MatchFinder and LzmaEncoder span the entire input:
+/// - Dictionary carries across chunks (cross-chunk match references)
+/// - Probability tables carry across chunks (better adaptation)
+/// - Only the range coder resets between chunks (as LZMA2 requires)
 fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, allocator: std.mem.Allocator) ![]u8 {
     var output = std.ArrayListUnmanaged(u8){};
     defer output.deinit(allocator);
 
-    // Start with 64KB chunks — small enough that LZMA1 output typically
-    // fits in the 65536-byte LZMA2 packed size limit.
-    const initial_chunk_size: usize = 0x10000; // 64KB
+    // Single match finder over the entire input
+    var mf = try MatchFinder.init(data, dict_size, allocator);
+    defer mf.deinit(allocator);
+
+    // Single LZMA encoder — state carries across all chunks
+    var enc = try LzmaEncoder.init(lc, lp, pb, allocator);
+    defer enc.deinit(allocator);
+
+    const chunk_size: usize = 0x10000; // 64KB chunks
     var offset: usize = 0;
+    var dict_reset_done = false;
+    var props_sent = false;
+    var state_valid = false; // Whether encoder state matches what decoder would have
 
     while (offset < data.len) {
-        var chunk_size = initial_chunk_size;
-        var compressed = false;
+        const this_chunk = @min(chunk_size, data.len - offset);
+        const chunk_end = offset + this_chunk;
 
-        // Try to compress, reducing chunk size if LZMA1 output > 65536
-        while (chunk_size >= 1024) {
-            const this_chunk = @min(chunk_size, data.len - offset);
-            const chunk_data = data[offset .. offset + this_chunk];
+        // Determine reset mode BEFORE encoding so we can sync encoder/decoder state:
+        // - First ever: reset_mode=3 (dict + state + props)
+        // - After uncompressed or first props: reset_mode=2 (state + props)
+        // - After compressed (continuous state): reset_mode=0
+        const reset_mode: u2 = if (!dict_reset_done) 3 else if (!props_sent or !state_valid) 2 else 0;
 
-            const lzma_data = try compressLzma1(chunk_data, lc, lp, pb, dict_size, allocator);
-
-            if (lzma_data.len <= 65536 and lzma_data.len < chunk_data.len) {
-                // Compressed chunk fits — emit it
-                // Full reset for every chunk since each is compressed independently
-                const reset_mode: u2 = 3;
-                const unpack_size_m1: u32 = @intCast(this_chunk - 1);
-                const control: u8 = 0x80 | (@as(u8, reset_mode) << 5) | @as(u8, @intCast((unpack_size_m1 >> 16) & 0x1F));
-                try output.append(allocator, control);
-
-                try output.append(allocator, @intCast((unpack_size_m1 >> 8) & 0xFF));
-                try output.append(allocator, @intCast(unpack_size_m1 & 0xFF));
-
-                const pack_size_m1: u16 = @intCast(lzma_data.len - 1);
-                try output.append(allocator, @intCast(pack_size_m1 >> 8));
-                try output.append(allocator, @intCast(pack_size_m1 & 0xFF));
-
-                try output.append(allocator, @as(u8, lc) + 9 * (@as(u8, lp) + 5 * @as(u8, pb)));
-                try output.appendSlice(allocator, lzma_data);
-
-                allocator.free(lzma_data);
-                offset += this_chunk;
-                compressed = true;
-                break;
-            }
-
-            allocator.free(lzma_data);
-
-            // LZMA output too large or didn't compress — try smaller chunk
-            chunk_size /= 2;
+        // If resetting, sync encoder state with what decoder will have
+        if (reset_mode >= 1) {
+            enc.resetState();
         }
 
-        if (!compressed) {
-            // Even small chunks don't compress — emit uncompressed
-            const this_chunk = @min(@as(usize, 65536), data.len - offset);
-            const control: u8 = 0x01; // uncompressed with dictionary reset
+        // Reset range encoder for this chunk (always — each chunk has its own range stream)
+        enc.rc.resetForNewChunk();
+
+        // Encode this chunk using the shared encoder and match finder
+        try encodeLzma1Chunk(&enc, &mf, data, offset, chunk_end, allocator);
+
+        // Flush range encoder for this chunk
+        try enc.rc.flush(allocator);
+        const lzma_data = enc.rc.getOutput();
+
+        if (lzma_data.len <= 65536 and lzma_data.len < this_chunk) {
+            // Compressed chunk fits — emit it
+            const unpack_size_m1: u32 = @intCast(this_chunk - 1);
+            const control: u8 = 0x80 | (@as(u8, reset_mode) << 5) | @as(u8, @intCast((unpack_size_m1 >> 16) & 0x1F));
+            try output.append(allocator, control);
+
+            try output.append(allocator, @intCast((unpack_size_m1 >> 8) & 0xFF));
+            try output.append(allocator, @intCast(unpack_size_m1 & 0xFF));
+
+            const pack_size_m1: u16 = @intCast(lzma_data.len - 1);
+            try output.append(allocator, @intCast(pack_size_m1 >> 8));
+            try output.append(allocator, @intCast(pack_size_m1 & 0xFF));
+
+            if (reset_mode >= 2) {
+                try output.append(allocator, @as(u8, lc) + 9 * (@as(u8, lp) + 5 * @as(u8, pb)));
+                props_sent = true;
+            }
+
+            try output.appendSlice(allocator, lzma_data);
+            dict_reset_done = true;
+            state_valid = true; // Decoder now has valid LZMA state from this chunk
+        } else {
+            // Uncompressed fallback — decoder gets raw data in its dictionary
+            // but has no LZMA state context from this chunk
+            const control: u8 = if (!dict_reset_done) 0x01 else 0x02;
             try output.append(allocator, control);
             const size_m1: u16 = @intCast(this_chunk - 1);
             try output.append(allocator, @intCast(size_m1 >> 8));
             try output.append(allocator, @intCast(size_m1 & 0xFF));
-            try output.appendSlice(allocator, data[offset .. offset + this_chunk]);
-            offset += this_chunk;
+            try output.appendSlice(allocator, data[offset..chunk_end]);
+            dict_reset_done = true;
+            state_valid = false; // Encoder processed this but decoder didn't
+            enc.resetState(); // Undo encoder's state changes from the failed attempt
         }
+
+        offset = chunk_end;
     }
 
     try output.append(allocator, 0x00); // end of stream
     return try allocator.dupe(u8, output.items);
+}
+
+/// Encode a chunk of data into an existing LzmaEncoder (continuous state).
+/// Uses abs_pos for LZMA pos_state/lit_state (must match decoder's buffer.len).
+/// Uses abs_pos for data access and match finding.
+/// Implements lazy matching: before committing to a match, checks if the next
+/// position has a better match and emits a literal instead if so.
+fn encodeLzma1Chunk(
+    enc: *LzmaEncoder,
+    mf: *MatchFinder,
+    full_data: []const u8,
+    encode_start: usize,
+    encode_end: usize,
+    allocator: std.mem.Allocator,
+) !void {
+    var abs_pos: usize = encode_start;
+
+    while (abs_pos < encode_end) {
+        const cur_byte = full_data[abs_pos];
+        const pb_val: u8 = if (abs_pos > 0) full_data[abs_pos - 1] else 0;
+        const remaining: u32 = @intCast(encode_end - abs_pos);
+
+        const rep_match = findRepMatchRange(enc, full_data, abs_pos, remaining);
+        const new_match = findNewMatch(mf, abs_pos, remaining);
+
+        // Pick the best match at the current position
+        const best = pickBestMatch(rep_match, new_match);
+
+        if (best) |m| {
+            // Lazy matching: if the match is short, check if next position is better
+            if (m.length < 64 and abs_pos + 1 < encode_end) {
+                const next_remaining: u32 = @intCast(encode_end - abs_pos - 1);
+                const next_rep = findRepMatchRange(enc, full_data, abs_pos + 1, next_remaining);
+
+                // Peek at next position's match (without updating hash chain yet)
+                const next_new = peekMatch(mf, abs_pos + 1, next_remaining);
+
+                const next_best = pickBestMatch(next_rep, next_new);
+
+                if (next_best) |nm| {
+                    if (nm.length > m.length + 1) {
+                        // Next position has a better match — emit literal now
+                        const match_byte: u8 = if (enc.state >= 7 and enc.rep[0] < abs_pos) full_data[abs_pos - enc.rep[0] - 1] else 0;
+                        try enc.encodeLiteral(cur_byte, abs_pos, pb_val, match_byte, allocator);
+                        abs_pos += 1;
+                        continue;
+                    }
+                }
+            }
+
+            // Emit the match
+            if (m.is_rep) {
+                try enc.encodeRepMatch(m.rep_idx, m.length, abs_pos, allocator);
+            } else {
+                try enc.encodeMatch(m.length, m.distance, abs_pos, allocator);
+            }
+            var skip_i: usize = 1;
+            while (skip_i < m.length) : (skip_i += 1) {
+                mf.skip(abs_pos + skip_i);
+            }
+            abs_pos += m.length;
+        } else {
+            const match_byte: u8 = if (enc.state >= 7 and enc.rep[0] < abs_pos) full_data[abs_pos - enc.rep[0] - 1] else 0;
+            try enc.encodeLiteral(cur_byte, abs_pos, pb_val, match_byte, allocator);
+            abs_pos += 1;
+        }
+    }
+}
+
+const BestMatch = struct {
+    distance: u32,
+    length: u32,
+    is_rep: bool,
+    rep_idx: u2,
+};
+
+fn pickBestMatch(rep_match: ?RepMatch, new_match: ?Match) ?BestMatch {
+    if (rep_match) |rm| {
+        if (new_match) |nm| {
+            if (nm.length > rm.length + 1) {
+                return .{ .distance = nm.distance, .length = nm.length, .is_rep = false, .rep_idx = 0 };
+            } else {
+                return .{ .distance = 0, .length = rm.length, .is_rep = true, .rep_idx = rm.rep_idx };
+            }
+        } else {
+            return .{ .distance = 0, .length = rm.length, .is_rep = true, .rep_idx = rm.rep_idx };
+        }
+    } else if (new_match) |nm| {
+        if (nm.length >= 2) {
+            return .{ .distance = nm.distance, .length = nm.length, .is_rep = false, .rep_idx = 0 };
+        }
+    }
+    return null;
+}
+
+fn findNewMatch(mf: *MatchFinder, pos: usize, remaining: u32) ?Match {
+    const raw = mf.findMatch(pos);
+    if (raw) |nm| {
+        const capped = @min(nm.length, remaining);
+        if (capped >= MIN_MATCH) {
+            return .{ .distance = nm.distance, .length = capped };
+        }
+    }
+    return null;
+}
+
+/// Peek at matches at a position without updating the hash chain.
+/// Used for lazy matching lookahead.
+fn peekMatch(mf: *MatchFinder, pos: usize, remaining: u32) ?Match {
+    if (pos + MIN_MATCH > mf.data.len) return null;
+
+    const h = MatchFinder.hash4(mf.data, pos);
+    const head_entry = mf.head[h];
+
+    // Search chain without inserting
+    var best_len: u32 = MIN_MATCH - 1;
+    var best_dist: u32 = 0;
+    var cur = head_entry;
+    var depth: u32 = 0;
+
+    while (cur > 0 and depth < 32) : (depth += 1) {
+        const match_pos = cur - 1;
+        if (pos < match_pos) break;
+        const dist = @as(u32, @intCast(pos - match_pos));
+        if (dist > mf.dict_size) break;
+
+        if (best_len >= MIN_MATCH and mf.data[match_pos + best_len] != mf.data[pos + best_len]) {
+            cur = mf.chain[match_pos];
+            continue;
+        }
+
+        const max_len = @min(MAX_MATCH, @min(remaining, @as(u32, @intCast(mf.data.len - pos))));
+        var len: u32 = 0;
+        while (len < max_len and mf.data[match_pos + len] == mf.data[pos + len]) {
+            len += 1;
+        }
+
+        if (len > best_len) {
+            best_len = len;
+            best_dist = dist - 1;
+            if (len >= 64) break;
+        }
+
+        cur = mf.chain[match_pos];
+    }
+
+    if (best_len >= MIN_MATCH) {
+        return .{ .distance = best_dist, .length = best_len };
+    }
+    return null;
 }
 
 /// Compress a block of data using LZMA1.
@@ -740,6 +958,37 @@ const RepMatch = struct {
     rep_idx: u2,
     length: u32,
 };
+
+/// Find rep match with explicit max length (for chunked encoding with dictionary carry).
+fn findRepMatchRange(enc: *const LzmaEncoder, data: []const u8, pos: usize, max_remaining: u32) ?RepMatch {
+    var best_idx: u2 = 0;
+    var best_len: u32 = 0;
+
+    for (0..4) |i| {
+        const dist = enc.rep[i];
+        if (dist >= pos) continue;
+
+        const match_pos = pos - dist - 1;
+        if (match_pos >= data.len) continue;
+
+        var len: u32 = 0;
+        const max_len: u32 = @min(MAX_MATCH, max_remaining);
+        while (len < max_len and data[match_pos + len] == data[pos + len]) {
+            len += 1;
+        }
+
+        const min_len: u32 = if (i == 0) 1 else 2;
+        if (len >= min_len and len > best_len) {
+            best_len = len;
+            best_idx = @intCast(i);
+        }
+    }
+
+    if (best_len >= 1) {
+        return .{ .rep_idx = best_idx, .length = best_len };
+    }
+    return null;
+}
 
 fn findRepMatch(enc: *const LzmaEncoder, data: []const u8, pos: usize) ?RepMatch {
     var best_idx: u2 = 0;
@@ -868,6 +1117,44 @@ test "lzma2 encoder: roundtrip binary data" {
     var out_stream = std.io.fixedBufferStream(&out_buf);
     try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
     try std.testing.expectEqualSlices(u8, &input, out_stream.getWritten());
+}
+
+test "lzma2 encoder: cross-chunk dictionary carry" {
+    const allocator = std.testing.allocator;
+
+    const block_size = 64 * 1024;
+    const num_blocks = 4;
+
+    // Generate one block of pseudo-random data (incompressible on its own)
+    const block = try allocator.alloc(u8, block_size);
+    defer allocator.free(block);
+    var seed: u32 = 42;
+    for (block) |*b| {
+        seed = seed *% 1103515245 +% 12345;
+        b.* = @intCast((seed >> 16) & 0xFF);
+    }
+
+    // Create 4 identical copies — only cross-chunk matches can compress this
+    const input = try allocator.alloc(u8, block_size * num_blocks);
+    defer allocator.free(input);
+    for (0..num_blocks) |i| {
+        @memcpy(input[i * block_size .. (i + 1) * block_size], block);
+    }
+
+    const compressed = try compress(input, allocator);
+    defer allocator.free(compressed);
+
+    // Without dictionary carry: each block ~100% (random) = ~256KB total
+    // With dictionary carry: block 1 ~100% + blocks 2-4 ~0% each = ~65KB
+    try std.testing.expect(compressed.len < input.len / 2);
+
+    // Verify roundtrip decompression
+    var in_stream = std.io.fixedBufferStream(compressed);
+    const decompressed = try allocator.alloc(u8, input.len);
+    defer allocator.free(decompressed);
+    var out_stream = std.io.fixedBufferStream(decompressed);
+    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
+    try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
 }
 
 test "pos_slot calculation" {

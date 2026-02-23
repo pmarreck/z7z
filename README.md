@@ -16,11 +16,11 @@ A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives t
 
 ## Building
 
-Requires Zig 0.14.x:
+Requires Zig 0.14+:
 
 ```sh
 zig build              # build the CLI
-zig build test         # run all tests (91 tests)
+zig build test         # run all tests (92 tests)
 ```
 
 ## Usage
@@ -47,26 +47,19 @@ z7z test archive.7z
 
 ## Benchmarks
 
-Compared against `7zz` (p7zip) at `-mx=5` on macOS/ARM64:
+Compared against `7z` at `-mx=5` on macOS/ARM64:
 
 ### Compression
 
 | File | Size | z7z ratio | 7z ratio | z7z speed | 7z speed |
 |------|------|-----------|----------|-----------|----------|
-| text_1mb.txt | 928K | 20.0% | 15.7% | 34 MB/s | 7 MB/s |
-| source_2mb.zig | 1399K | 26.4% | 19.1% | 31 MB/s | 7 MB/s |
-| biased_exp_512k.bin | 512K | 27.0% | 21.8% | 17 MB/s | 5 MB/s |
-| random_512k.bin | 512K | 100.0% | 100.0% | 12 MB/s | 14 MB/s |
+| text_1mb.txt | 928K | 19.0% | 15.7% | 9 MB/s | 6 MB/s |
+| source_2mb.zig | 1399K | 22.7% | 19.1% | 6 MB/s | 6 MB/s |
+| text_5mb.txt | 4639K | 7.6% | 3.2% | 18 MB/s | 5 MB/s |
+| biased_exp_512k.bin | 512K | 25.1% | 21.8% | - | - |
+| random_512k.bin | 512K | 100.0% | 100.0% | - | - |
 
-**z7z compresses 3-6x faster** than 7z, achieving ~70-85% of 7z's compression ratio.
-
-### Extraction
-
-| File | z7z | 7z | Winner |
-|------|-----|-----|--------|
-| text_1mb.txt | 88 MB/s | 60 MB/s | z7z 1.5x |
-| source_2mb.zig | 80 MB/s | 72 MB/s | z7z 1.1x |
-| biased_exp_512k.bin | 60 MB/s | 38 MB/s | z7z 1.6x |
+z7z uses continuous LZMA state across chunks with dictionary carry-across, 4-byte hash chains, and lazy matching. It beats `7z -mx=1` compression quality while remaining **1.5-3.8x faster** than `7z -mx=5`.
 
 ## Architecture
 
