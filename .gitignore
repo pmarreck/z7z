@@ -1,4 +1,5 @@
 .zig-cache/
 zig-out/
+.codescan/
 AGENTS.md
 CLAUDE.md

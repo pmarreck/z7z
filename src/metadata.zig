@@ -39,6 +39,34 @@ pub const Folder = struct {
     packed_indices: []u64,
     unpack_sizes: []u64, // populated after kCodersUnpackSize
     unpack_crc: ?u32,
+
+    /// Get the final output unpack size (unbound output stream).
+    /// For multi-coder pipelines, this finds the coder whose output
+    /// is not consumed by any bind pair (i.e. the final output).
+    pub fn getFinalUnpackSize(self: Folder) u64 {
+        if (self.unpack_sizes.len == 0) return 0;
+        if (self.coders.len <= 1) return self.unpack_sizes[0];
+
+        // Find the unbound output: the coder index whose output
+        // is not listed as out_index in any bind pair.
+        for (0..self.coders.len) |i| {
+            var bound = false;
+            for (self.bind_pairs) |bp| {
+                if (bp.out_index == i) {
+                    bound = true;
+                    break;
+                }
+            }
+            if (!bound) {
+                return if (i < self.unpack_sizes.len)
+                    self.unpack_sizes[i]
+                else
+                    self.unpack_sizes[0];
+            }
+        }
+        // Fallback: first entry
+        return self.unpack_sizes[0];
+    }
 };
 
 pub const PackInfo = struct {
@@ -105,24 +133,29 @@ pub const ArchiveMetadata = struct {
 /// Parse a next-header region starting with kHeader or kEncodedHeader.
 /// For kEncodedHeader, `full_archive` must be provided to access packed data.
 pub fn parseNextHeader(data: []const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
-    return parseNextHeaderWithArchive(data, null, allocator);
+    return parseNextHeaderFull(data, null, null, allocator);
 }
 
 /// Parse next-header with access to the full archive (needed for encoded headers).
 pub fn parseNextHeaderWithArchive(data: []const u8, full_archive: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
+    return parseNextHeaderFull(data, full_archive, null, allocator);
+}
+
+/// Parse next-header with full archive and optional password (for encrypted headers).
+pub fn parseNextHeaderFull(data: []const u8, full_archive: ?[]const u8, password: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
     var r = Reader.init(data);
 
     const first_nid = r.readNid() catch return ParseError.EndOfStream;
 
     return switch (first_nid) {
         .header => parseHeaderBody(&r, allocator),
-        .encoded_header => decodeEncodedHeader(&r, full_archive, allocator),
+        .encoded_header => decodeEncodedHeader(&r, full_archive, password, allocator),
         else => ParseError.StructuralError,
     };
 }
 
 /// Decode an encoded header: parse StreamsInfo, decompress, then parse as kHeader.
-fn decodeEncodedHeader(r: *Reader, full_archive: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
+fn decodeEncodedHeader(r: *Reader, full_archive: ?[]const u8, password: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
     const archive_data = full_archive orelse return ParseError.UnsupportedFeature;
 
     // Parse the StreamsInfo that describes the encoded header
@@ -171,7 +204,7 @@ fn decodeEncodedHeader(r: *Reader, full_archive: ?[]const u8, allocator: std.mem
         0;
 
     // Decompress using codec dispatch
-    const decoded = codec.decompressFolder(folder, packed_data, unpack_size, allocator) catch |e| switch (e) {
+    const decoded = codec.decompressFolder(folder, packed_data, unpack_size, password, allocator) catch |e| switch (e) {
         error.UnsupportedMethod => return ParseError.UnsupportedFeature,
         error.DecompressFailed => return ParseError.StructuralError,
         error.OutOfMemory => return ParseError.OutOfMemory,
@@ -461,11 +494,8 @@ fn parseSubStreamsInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.
         for (0..num_folders) |fi| {
             const n: usize = @intCast(num_unpack_streams[fi]);
             if (n == 1) {
-                // Single substream — size is the folder's unpack size
-                const folder_size = if (result.folders[fi].unpack_sizes.len > 0)
-                    result.folders[fi].unpack_sizes[result.folders[fi].unpack_sizes.len - 1]
-                else
-                    0;
+                // Single substream — size is the folder's final output size
+                const folder_size = result.folders[fi].getFinalUnpackSize();
                 try all_sizes.append(allocator, folder_size);
             } else {
                 // Multiple substreams without kSize is a structural error
@@ -486,11 +516,8 @@ fn parseSubStreamsInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.
                 sum += all_sizes.items[size_idx];
                 size_idx += 1;
             }
-            // Last size = folder unpack size - sum of previous
-            const folder_size = if (result.folders[fi].unpack_sizes.len > 0)
-                result.folders[fi].unpack_sizes[result.folders[fi].unpack_sizes.len - 1]
-            else
-                0;
+            // Last size = folder final output size - sum of previous
+            const folder_size = result.folders[fi].getFinalUnpackSize();
             all_sizes.items[size_idx] = folder_size - sum;
             size_idx += 1;
         }

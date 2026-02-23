@@ -12,6 +12,7 @@ pub const metadata = @import("metadata.zig");
 pub const encoder = @import("encoder.zig");
 pub const codec = @import("codec.zig");
 pub const lzma2_encoder = @import("lzma2_encoder.zig");
+pub const aes_crypt = @import("aes_crypt.zig");
 pub const archive = @import("archive.zig");
 pub const ffi = @import("ffi.zig");
 pub const interop_test = @import("interop_test.zig");
@@ -32,6 +33,7 @@ test {
     _ = encoder;
     _ = codec;
     _ = lzma2_encoder;
+    _ = aes_crypt;
     _ = archive;
     _ = ffi;
     _ = interop_test;

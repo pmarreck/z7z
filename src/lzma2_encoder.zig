@@ -523,9 +523,15 @@ pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
     const lc: u3 = 3;
     const lp: u2 = 0;
     const pb: u2 = 2;
-    const dict_size: u32 = @min(@as(u32, @intCast(data.len)), 1 << 24); // up to 16MB
+    const dict_size: u32 = @min(@as(u32, @intCast(@min(data.len, 0xFFFFFFFF))), 1 << 24); // up to 16MB
 
-    // Compress the data as a single LZMA chunk
+    // For data that might produce LZMA1 output > 65536 bytes (the LZMA2
+    // packed size limit), use chunked compression with adaptive chunk sizing.
+    if (data.len > 0x10000) {
+        return compressChunked(data, lc, lp, pb, dict_size, allocator);
+    }
+
+    // Small data: compress as single LZMA2 chunk
     const lzma_data = try compressLzma1(data, lc, lp, pb, dict_size, allocator);
     defer allocator.free(lzma_data);
 
@@ -533,29 +539,35 @@ pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
     var output = std.ArrayListUnmanaged(u8){};
     defer output.deinit(allocator);
 
-    if (data.len > 0x200000) {
-        return compressChunked(data, lc, lp, pb, dict_size, allocator);
+    if (lzma_data.len >= data.len) {
+        // LZMA didn't help — emit uncompressed chunk
+        const control: u8 = 0x01; // uncompressed with reset
+        try output.append(allocator, control);
+        const size_m1: u16 = @intCast(data.len - 1);
+        try output.append(allocator, @intCast(size_m1 >> 8));
+        try output.append(allocator, @intCast(size_m1 & 0xFF));
+        try output.appendSlice(allocator, data);
+    } else {
+        // Control byte: bit7=1, bits6-5=11 (full reset), bits4-0=high 5 of unpack size
+        const unpack_size_m1: u32 = @intCast(data.len - 1);
+        const control: u8 = 0x80 | (3 << 5) | @as(u8, @intCast((unpack_size_m1 >> 16) & 0x1F));
+        try output.append(allocator, control);
+
+        // Unpacked size low 16 bits (big-endian)
+        try output.append(allocator, @intCast((unpack_size_m1 >> 8) & 0xFF));
+        try output.append(allocator, @intCast(unpack_size_m1 & 0xFF));
+
+        // Packed size - 1, big-endian u16
+        const pack_size_m1: u16 = @intCast(lzma_data.len - 1);
+        try output.append(allocator, @intCast(pack_size_m1 >> 8));
+        try output.append(allocator, @intCast(pack_size_m1 & 0xFF));
+
+        // Properties byte
+        try output.append(allocator, @as(u8, lc) + 9 * (@as(u8, lp) + 5 * @as(u8, pb)));
+
+        // LZMA data (already includes range coder init)
+        try output.appendSlice(allocator, lzma_data);
     }
-
-    // Control byte: bit7=1, bits6-5=11 (full reset), bits4-0=high 5 of unpack size
-    const unpack_size_m1: u32 = @intCast(data.len - 1);
-    const control: u8 = 0x80 | (3 << 5) | @as(u8, @intCast((unpack_size_m1 >> 16) & 0x1F));
-    try output.append(allocator, control);
-
-    // Unpacked size low 16 bits (big-endian)
-    try output.append(allocator, @intCast((unpack_size_m1 >> 8) & 0xFF));
-    try output.append(allocator, @intCast(unpack_size_m1 & 0xFF));
-
-    // Packed size - 1, big-endian u16
-    const pack_size_m1: u16 = @intCast(lzma_data.len - 1);
-    try output.append(allocator, @intCast(pack_size_m1 >> 8));
-    try output.append(allocator, @intCast(pack_size_m1 & 0xFF));
-
-    // Properties byte
-    try output.append(allocator, @as(u8, lc) + 9 * (@as(u8, lp) + 5 * @as(u8, pb)));
-
-    // LZMA data (already includes range coder init)
-    try output.appendSlice(allocator, lzma_data);
 
     // End of stream marker
     try output.append(allocator, 0x00);
@@ -568,61 +580,63 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
     var output = std.ArrayListUnmanaged(u8){};
     defer output.deinit(allocator);
 
-    const chunk_size: usize = 0x200000; // 2MB per chunk
+    // Start with 64KB chunks — small enough that LZMA1 output typically
+    // fits in the 65536-byte LZMA2 packed size limit.
+    const initial_chunk_size: usize = 0x10000; // 64KB
     var offset: usize = 0;
-    var first = true;
 
     while (offset < data.len) {
-        const this_chunk = @min(chunk_size, data.len - offset);
-        const chunk_data = data[offset .. offset + this_chunk];
+        var chunk_size = initial_chunk_size;
+        var compressed = false;
 
-        const lzma_data = try compressLzma1(chunk_data, lc, lp, pb, dict_size, allocator);
-        defer allocator.free(lzma_data);
+        // Try to compress, reducing chunk size if LZMA1 output > 65536
+        while (chunk_size >= 1024) {
+            const this_chunk = @min(chunk_size, data.len - offset);
+            const chunk_data = data[offset .. offset + this_chunk];
 
-        if (lzma_data.len >= chunk_data.len and chunk_data.len <= 65536) {
-            // Use uncompressed chunk
-            const control: u8 = if (first) 0x01 else 0x02;
-            try output.append(allocator, control);
-            const size_m1: u16 = @intCast(chunk_data.len - 1);
-            try output.append(allocator, @intCast(size_m1 >> 8));
-            try output.append(allocator, @intCast(size_m1 & 0xFF));
-            try output.appendSlice(allocator, chunk_data);
-        } else if (lzma_data.len > 65536) {
-            // LZMA too large for a single chunk — use uncompressed
-            var sub_offset: usize = 0;
-            while (sub_offset < chunk_data.len) {
-                const sub_chunk = @min(chunk_data.len - sub_offset, @as(usize, 65536));
-                const control: u8 = if (first and sub_offset == 0) 0x01 else 0x02;
+            const lzma_data = try compressLzma1(chunk_data, lc, lp, pb, dict_size, allocator);
+
+            if (lzma_data.len <= 65536 and lzma_data.len < chunk_data.len) {
+                // Compressed chunk fits — emit it
+                // Full reset for every chunk since each is compressed independently
+                const reset_mode: u2 = 3;
+                const unpack_size_m1: u32 = @intCast(this_chunk - 1);
+                const control: u8 = 0x80 | (@as(u8, reset_mode) << 5) | @as(u8, @intCast((unpack_size_m1 >> 16) & 0x1F));
                 try output.append(allocator, control);
-                const size_m1: u16 = @intCast(sub_chunk - 1);
-                try output.append(allocator, @intCast(size_m1 >> 8));
-                try output.append(allocator, @intCast(size_m1 & 0xFF));
-                try output.appendSlice(allocator, chunk_data[sub_offset .. sub_offset + sub_chunk]);
-                sub_offset += sub_chunk;
-            }
-        } else {
-            // LZMA compressed chunk
-            const reset_mode: u2 = if (first) 3 else 2; // full reset first, then props reset
-            const unpack_size_m1: u32 = @intCast(this_chunk - 1);
-            const control: u8 = 0x80 | (@as(u8, reset_mode) << 5) | @as(u8, @intCast((unpack_size_m1 >> 16) & 0x1F));
-            try output.append(allocator, control);
 
-            try output.append(allocator, @intCast((unpack_size_m1 >> 8) & 0xFF));
-            try output.append(allocator, @intCast(unpack_size_m1 & 0xFF));
+                try output.append(allocator, @intCast((unpack_size_m1 >> 8) & 0xFF));
+                try output.append(allocator, @intCast(unpack_size_m1 & 0xFF));
 
-            const pack_size_m1: u16 = @intCast(lzma_data.len - 1);
-            try output.append(allocator, @intCast(pack_size_m1 >> 8));
-            try output.append(allocator, @intCast(pack_size_m1 & 0xFF));
+                const pack_size_m1: u16 = @intCast(lzma_data.len - 1);
+                try output.append(allocator, @intCast(pack_size_m1 >> 8));
+                try output.append(allocator, @intCast(pack_size_m1 & 0xFF));
 
-            if (first or true) { // always emit props for safety
                 try output.append(allocator, @as(u8, lc) + 9 * (@as(u8, lp) + 5 * @as(u8, pb)));
+                try output.appendSlice(allocator, lzma_data);
+
+                allocator.free(lzma_data);
+                offset += this_chunk;
+                compressed = true;
+                break;
             }
 
-            try output.appendSlice(allocator, lzma_data);
+            allocator.free(lzma_data);
+
+            // LZMA output too large or didn't compress — try smaller chunk
+            chunk_size /= 2;
         }
 
-        first = false;
-        offset += this_chunk;
+        if (!compressed) {
+            // Even small chunks don't compress — emit uncompressed
+            const this_chunk = @min(@as(usize, 65536), data.len - offset);
+            const control: u8 = 0x01; // uncompressed with dictionary reset
+            try output.append(allocator, control);
+            const size_m1: u16 = @intCast(this_chunk - 1);
+            try output.append(allocator, @intCast(size_m1 >> 8));
+            try output.append(allocator, @intCast(size_m1 & 0xFF));
+            try output.appendSlice(allocator, data[offset .. offset + this_chunk]);
+            offset += this_chunk;
+        }
     }
 
     try output.append(allocator, 0x00); // end of stream
@@ -744,13 +758,15 @@ fn findRepMatch(enc: *const LzmaEncoder, data: []const u8, pos: usize) ?RepMatch
             len += 1;
         }
 
-        if (len > best_len) {
+        // rep[0] can match length 1 (ShortRep), rep[1..3] need length >= 2
+        const min_len: u32 = if (i == 0) 1 else 2;
+        if (len >= min_len and len > best_len) {
             best_len = len;
             best_idx = @intCast(i);
         }
     }
 
-    if (best_len >= 1) { // rep matches can be length 1 (short rep)
+    if (best_len >= 1) {
         return .{ .rep_idx = best_idx, .length = best_len };
     }
     return null;
@@ -818,6 +834,21 @@ test "lzma2 encoder: roundtrip repetitive data" {
     // Verify roundtrip
     var in_stream = std.io.fixedBufferStream(compressed);
     var out_buf: [1024]u8 = undefined;
+    var out_stream = std.io.fixedBufferStream(&out_buf);
+    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
+    try std.testing.expectEqualStrings(input, out_stream.getWritten());
+}
+
+test "lzma2 encoder: roundtrip varied text with matches" {
+    const allocator = std.testing.allocator;
+    // This specific input triggers match/rep-match encoding paths
+    // that previously produced data 7zz couldn't decode.
+    const input = "quick the jumps fox fox brown quick and quick cat lazy";
+    const compressed = try compress(input, allocator);
+    defer allocator.free(compressed);
+
+    var in_stream = std.io.fixedBufferStream(compressed);
+    var out_buf: [256]u8 = undefined;
     var out_stream = std.io.fixedBufferStream(&out_buf);
     try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
     try std.testing.expectEqualStrings(input, out_stream.getWritten());

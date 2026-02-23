@@ -9,6 +9,7 @@ const sig_header = @import("header.zig");
 const meta = @import("metadata.zig");
 const encoder = @import("encoder.zig");
 const codec = @import("codec.zig");
+const aes_crypt = @import("aes_crypt.zig");
 
 pub const ArchiveError = error{
     NotArchive,
@@ -24,6 +25,7 @@ pub const ArchiveError = error{
 pub const Method = enum {
     copy,
     lzma2,
+    lzma2_aes,
 };
 
 /// A file entry for creating an archive.
@@ -51,14 +53,20 @@ pub const ArchiveContents = struct {
 
 /// Create a .7z archive in memory using Copy method (no compression).
 pub fn create(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
-    return createWithMethod(files, .copy, allocator);
+    return createWithMethod(files, .lzma2, allocator);
 }
 
 /// Create a .7z archive in memory using the specified compression method.
 pub fn createWithMethod(files: []const FileEntry, method: Method, allocator: std.mem.Allocator) ![]u8 {
+    return createWithMethodAndPassword(files, method, null, allocator);
+}
+
+/// Create a .7z archive with optional password for encryption methods.
+pub fn createWithMethodAndPassword(files: []const FileEntry, method: Method, password: ?[]const u8, allocator: std.mem.Allocator) ![]u8 {
     return switch (method) {
         .copy => createCopy(files, allocator),
         .lzma2 => createLzma2(files, allocator),
+        .lzma2_aes => createLzma2Aes(files, password orelse return error.OutOfMemory, allocator),
     };
 }
 
@@ -184,6 +192,171 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     @memcpy(archive_out[0..sig_header.HEADER_SIZE], &sig);
     @memcpy(archive_out[sig_header.HEADER_SIZE .. sig_header.HEADER_SIZE + compressed.len], compressed);
     @memcpy(archive_out[sig_header.HEADER_SIZE + compressed.len ..], next_header);
+
+    return archive_out;
+}
+
+/// Create a .7z archive with LZMA2 compression + AES-256-CBC encryption.
+fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std.mem.Allocator) ![]u8 {
+    // Step 1: Concatenate all file data
+    var total_unpack_size: u64 = 0;
+    for (files) |f| {
+        total_unpack_size += f.data.len;
+    }
+
+    var raw_data = try allocator.alloc(u8, @intCast(total_unpack_size));
+    defer allocator.free(raw_data);
+    {
+        var offset: usize = 0;
+        for (files) |f| {
+            @memcpy(raw_data[offset .. offset + f.data.len], f.data);
+            offset += f.data.len;
+        }
+    }
+
+    // Step 2: Compress with LZMA2
+    const compressed = codec.compressLzma2(raw_data, allocator) catch return error.OutOfMemory;
+    defer allocator.free(compressed);
+
+    // Step 3: Encrypt with AES-256-CBC
+    // Generate random salt and IV
+    var salt: [8]u8 = undefined;
+    var iv: [16]u8 = undefined;
+    std.crypto.random.bytes(&salt);
+    std.crypto.random.bytes(&iv);
+
+    const aes_props = aes_crypt.AesProperties{
+        .num_cycles_power = 19, // 2^19 = 524288 iterations (7zz default)
+        .salt = salt ++ ([_]u8{0} ** 8),
+        .salt_size = 8,
+        .iv = iv,
+        .iv_size = 16,
+    };
+
+    const key = aes_crypt.deriveKey(password, aes_props);
+
+    // Pad compressed data to 16-byte boundary for AES-CBC
+    const padded_len = (compressed.len + 15) & ~@as(usize, 15);
+    var encrypted = try allocator.alloc(u8, padded_len);
+    defer allocator.free(encrypted);
+    @memcpy(encrypted[0..compressed.len], compressed);
+    if (padded_len > compressed.len) {
+        @memset(encrypted[compressed.len..], 0);
+    }
+
+    aes_crypt.encryptCbc(encrypted, key, iv) catch return error.OutOfMemory;
+
+    // Step 4: Build metadata with 2-coder folder (LZMA2 + 7zAES)
+    // Coder 0: LZMA2
+    const lzma2_mid = try allocator.alloc(u8, 1);
+    lzma2_mid[0] = 0x21;
+    const lzma2_props = try allocator.alloc(u8, 1);
+    lzma2_props[0] = calcLzma2DictProp(@intCast(@min(total_unpack_size, 0xFFFFFFFF)));
+
+    // Coder 1: 7zAES
+    const aes_mid = try allocator.alloc(u8, 4);
+    @memcpy(aes_mid, &[_]u8{ 0x06, 0xF1, 0x07, 0x01 });
+    const encoded_aes_props = aes_crypt.encodeProperties(aes_props);
+    const aes_prop_data = try allocator.alloc(u8, encoded_aes_props.len);
+    @memcpy(aes_prop_data, encoded_aes_props.data[0..encoded_aes_props.len]);
+
+    var coders = try allocator.alloc(meta.Coder, 2);
+    coders[0] = .{
+        .method_id = lzma2_mid,
+        .properties = lzma2_props,
+        .num_in_streams = 1,
+        .num_out_streams = 1,
+    };
+    coders[1] = .{
+        .method_id = aes_mid,
+        .properties = aes_prop_data,
+        .num_in_streams = 1,
+        .num_out_streams = 1,
+    };
+
+    // Bind pair: AES output (stream 1) → LZMA2 input (stream 0)
+    var bind_pairs = try allocator.alloc(meta.BindPair, 1);
+    bind_pairs[0] = .{ .in_index = 0, .out_index = 1 };
+
+    // Unpack sizes: [0]=LZMA2 output (final), [1]=AES output (intermediate=compressed len)
+    var unpack_sizes = try allocator.alloc(u64, 2);
+    unpack_sizes[0] = total_unpack_size;
+    unpack_sizes[1] = compressed.len;
+
+    var folders = try allocator.alloc(meta.Folder, 1);
+    folders[0] = .{
+        .coders = coders,
+        .bind_pairs = bind_pairs,
+        .packed_indices = &.{},
+        .unpack_sizes = unpack_sizes,
+        .unpack_crc = null,
+    };
+
+    var pack_sizes = try allocator.alloc(u64, 1);
+    pack_sizes[0] = encrypted.len;
+
+    // Build substream info
+    var sub_sizes = try allocator.alloc(u64, files.len);
+    var sub_digests = try allocator.alloc(?u32, files.len);
+    for (files, 0..) |f, i| {
+        sub_sizes[i] = f.data.len;
+        sub_digests[i] = crc32.hash(f.data);
+    }
+
+    // Build file info
+    var file_infos = try allocator.alloc(meta.FileInfo, files.len);
+    for (files, 0..) |f, i| {
+        const name_copy = try allocator.dupe(u8, f.name);
+        file_infos[i] = .{
+            .name = name_copy,
+            .is_empty_stream = false,
+            .is_empty_file = false,
+            .is_anti = false,
+            .ctime = null,
+            .atime = null,
+            .mtime = f.mtime,
+            .win_attrib = f.win_attrib,
+            .start_pos = null,
+        };
+    }
+
+    var archive_meta = meta.ArchiveMetadata{
+        .pack_info = .{
+            .pack_pos = 0,
+            .pack_sizes = pack_sizes,
+            .pack_crcs = null,
+        },
+        .folders = folders,
+        .sub_streams = .{
+            .unpack_sizes = sub_sizes,
+            .digests = sub_digests,
+        },
+        .files = file_infos,
+        .allocator = allocator,
+    };
+    defer archive_meta.deinit();
+
+    // Encode next-header
+    const next_header = try encoder.encodeNextHeader(archive_meta, allocator);
+    defer allocator.free(next_header);
+
+    const next_header_crc = crc32.hash(next_header);
+
+    // Build signature header
+    const sig = sig_header.encode(.{
+        .major_version = 0,
+        .minor_version = 4,
+        .next_header_offset = encrypted.len,
+        .next_header_size = next_header.len,
+        .next_header_crc = next_header_crc,
+    });
+
+    // Assemble final archive
+    const total_size = sig_header.HEADER_SIZE + encrypted.len + next_header.len;
+    const archive_out = try allocator.alloc(u8, total_size);
+    @memcpy(archive_out[0..sig_header.HEADER_SIZE], &sig);
+    @memcpy(archive_out[sig_header.HEADER_SIZE .. sig_header.HEADER_SIZE + encrypted.len], encrypted);
+    @memcpy(archive_out[sig_header.HEADER_SIZE + encrypted.len ..], next_header);
 
     return archive_out;
 }
@@ -328,8 +501,12 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
 }
 
 /// Read a .7z archive from memory, extracting file contents.
-/// Currently supports Copy method only.
 pub fn read(archive_data: []const u8, allocator: std.mem.Allocator) ArchiveError!ArchiveContents {
+    return readWithPassword(archive_data, null, allocator);
+}
+
+/// Read a .7z archive from memory with optional password for encrypted archives.
+pub fn readWithPassword(archive_data: []const u8, password: ?[]const u8, allocator: std.mem.Allocator) ArchiveError!ArchiveContents {
     // Parse signature header
     const hdr = sig_header.parse(archive_data) catch |e| switch (e) {
         error.NotArchive => return ArchiveError.NotArchive,
@@ -347,7 +524,7 @@ pub fn read(archive_data: []const u8, allocator: std.mem.Allocator) ArchiveError
     if (crc32.hash(nh_bytes) != hdr.next_header_crc) return ArchiveError.ChecksumError;
 
     // Parse metadata (pass full archive for encoded header support)
-    var metadata = meta.parseNextHeaderWithArchive(nh_bytes, archive_data, allocator) catch |e| switch (e) {
+    var metadata = meta.parseNextHeaderFull(nh_bytes, archive_data, password, allocator) catch |e| switch (e) {
         error.StructuralError => return ArchiveError.StructuralError,
         error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
         error.EndOfStream => return ArchiveError.EndOfStream,
@@ -370,16 +547,13 @@ pub fn read(archive_data: []const u8, allocator: std.mem.Allocator) ArchiveError
             else
                 0;
 
-            // Get folder unpack size
-            const unpack_size: u64 = if (folder.unpack_sizes.len > 0)
-                folder.unpack_sizes[folder.unpack_sizes.len - 1]
-            else
-                0;
+            // Get folder unpack size (unbound output stream)
+            const unpack_size: u64 = folder.getFinalUnpackSize();
 
             const packed_data = archive_data[pack_start .. pack_start + pack_size];
 
             // Decompress entire folder
-            const unpacked = codec.decompressFolder(folder, packed_data, unpack_size, allocator) catch |e| switch (e) {
+            const unpacked = codec.decompressFolder(folder, packed_data, unpack_size, password, allocator) catch |e| switch (e) {
                 error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
                 error.DecompressFailed => return ArchiveError.StructuralError,
                 error.OutOfMemory => return ArchiveError.OutOfMemory,
@@ -557,7 +731,7 @@ test "archive: LZMA2 compresses repetitive data" {
     const lzma2_archive = try createWithMethod(&files, .lzma2, allocator);
     defer allocator.free(lzma2_archive);
 
-    const copy_archive = try create(&files, allocator);
+    const copy_archive = try createWithMethod(&files, .copy, allocator);
     defer allocator.free(copy_archive);
 
     // LZMA2 should be meaningfully smaller for repetitive data
@@ -566,6 +740,71 @@ test "archive: LZMA2 compresses repetitive data" {
     // Verify roundtrip
     var contents = try read(lzma2_archive, allocator);
     defer contents.deinit();
+    try std.testing.expectEqualStrings(repeated, contents.file_data[0]);
+}
+
+test "archive: create encrypted and read back" {
+    const allocator = std.testing.allocator;
+    const password = "test_password_123";
+    const content = "Secret data for z7z AES roundtrip test.\n";
+    const files = [_]FileEntry{
+        .{ .name = "secret.txt", .data = content },
+    };
+
+    const archive_data = try createWithMethodAndPassword(&files, .lzma2_aes, password, allocator);
+    defer allocator.free(archive_data);
+
+    // Should NOT be readable without password
+    try std.testing.expectError(ArchiveError.UnsupportedFeature, read(archive_data, allocator));
+
+    // Should be readable WITH correct password
+    var contents = try readWithPassword(archive_data, password, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
+    try std.testing.expectEqualStrings("secret.txt", contents.metadata.files[0].name.?);
+    try std.testing.expectEqualStrings(content, contents.file_data[0]);
+}
+
+test "archive: encrypted multi-file roundtrip" {
+    const allocator = std.testing.allocator;
+    const password = "multi_file_pass";
+    const files = [_]FileEntry{
+        .{ .name = "alpha.txt", .data = "First secret file\n" },
+        .{ .name = "beta.txt", .data = "Second secret file\n" },
+    };
+
+    const archive_data = try createWithMethodAndPassword(&files, .lzma2_aes, password, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try readWithPassword(archive_data, password, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), contents.metadata.files.len);
+    try std.testing.expectEqualStrings("First secret file\n", contents.file_data[0]);
+    try std.testing.expectEqualStrings("Second secret file\n", contents.file_data[1]);
+}
+
+test "archive: default create compresses data" {
+    const allocator = std.testing.allocator;
+
+    // 10K of highly compressible repeated text
+    const repeated = "ABCDEFGHIJ" ** 1000;
+    const files = [_]FileEntry{
+        .{ .name = "repeated.txt", .data = repeated },
+    };
+
+    const archive_data = try create(&files, allocator);
+    defer allocator.free(archive_data);
+
+    // Archive MUST be significantly smaller than raw data.
+    // 10K of 10-byte repeated pattern should compress to well under 1K.
+    try std.testing.expect(archive_data.len < repeated.len / 2);
+
+    // Must still roundtrip correctly
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
     try std.testing.expectEqualStrings(repeated, contents.file_data[0]);
 }
 
