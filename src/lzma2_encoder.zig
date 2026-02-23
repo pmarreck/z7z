@@ -145,8 +145,12 @@ const Match = struct {
     length: u32,
 };
 
+const HASH3_BITS = 16;
+const HASH3_SIZE = 1 << HASH3_BITS;
+
 const MatchFinder = struct {
-    head: []u32,
+    head4: []u32, // 4-byte hash table for long matches
+    head3: []u32, // 3-byte hash table for short matches
     chain: []u32,
     data: []const u8,
     dict_size: u32,
@@ -154,10 +158,13 @@ const MatchFinder = struct {
     fn init(data: []const u8, dict_size: u32, allocator: std.mem.Allocator) !MatchFinder {
         const chain = try allocator.alloc(u32, data.len);
         @memset(chain, 0);
-        const head = try allocator.alloc(u32, HASH_SIZE);
-        @memset(head, 0);
+        const head4 = try allocator.alloc(u32, HASH_SIZE);
+        @memset(head4, 0);
+        const head3 = try allocator.alloc(u32, HASH3_SIZE);
+        @memset(head3, 0);
         return .{
-            .head = head,
+            .head4 = head4,
+            .head3 = head3,
             .chain = chain,
             .data = data,
             .dict_size = dict_size,
@@ -166,45 +173,76 @@ const MatchFinder = struct {
 
     fn deinit(self: *MatchFinder, allocator: std.mem.Allocator) void {
         allocator.free(self.chain);
-        allocator.free(self.head);
+        allocator.free(self.head4);
+        allocator.free(self.head3);
     }
 
-    /// 4-byte hash for fewer collisions and better match quality.
     fn hash4(data: []const u8, pos: usize) u32 {
         if (pos + 3 >= data.len) return 0;
         const v = @as(u32, data[pos]) |
             (@as(u32, data[pos + 1]) << 8) |
             (@as(u32, data[pos + 2]) << 16) |
             (@as(u32, data[pos + 3]) << 24);
-        // CRC-style hash mixing
         const h = v *% 0x9E3779B1;
         return h >> (32 - HASH_BITS);
     }
 
-    /// Find the best match at the given position.
-    /// Returns null if no match found of length >= MIN_MATCH.
+    fn hash3(data: []const u8, pos: usize) u32 {
+        if (pos + 2 >= data.len) return 0;
+        const h = @as(u32, data[pos]) ^
+            (@as(u32, data[pos + 1]) << 8) ^
+            (@as(u32, data[pos + 2]) << 5);
+        return h & (HASH3_SIZE - 1);
+    }
+
+    /// Find the best match using dual hash chains.
     fn findMatch(self: *MatchFinder, pos: usize) ?Match {
         if (pos + MIN_MATCH > self.data.len) return null;
 
-        const h = hash4(self.data, pos);
-        const prev = self.head[h];
-        self.chain[pos] = prev;
-        self.head[h] = @intCast(pos + 1); // +1 so 0 means "no entry"
+        // Insert into both hash tables
+        const h4 = hash4(self.data, pos);
+        const h3 = hash3(self.data, pos);
+        const prev4 = self.head4[h4];
+        self.chain[pos] = prev4;
+        self.head4[h4] = @intCast(pos + 1);
+
+        // Check 3-byte hash for a quick short match
+        const prev3 = self.head3[h3];
+        self.head3[h3] = @intCast(pos + 1);
 
         var best_len: u32 = MIN_MATCH - 1;
         var best_dist: u32 = 0;
-        var cur = prev;
+
+        // Check 3-byte hash match first (finds 2-3 byte matches)
+        if (prev3 > 0) {
+            const match_pos = prev3 - 1;
+            if (pos >= match_pos) {
+                const dist = @as(u32, @intCast(pos - match_pos));
+                if (dist <= self.dict_size and dist < 4096) { // only use short matches at short distances
+                    const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
+                    var len: u32 = 0;
+                    while (len < max_len and self.data[match_pos + len] == self.data[pos + len]) {
+                        len += 1;
+                    }
+                    if (len >= MIN_MATCH) {
+                        best_len = len;
+                        best_dist = dist - 1;
+                    }
+                }
+            }
+        }
+
+        // Search 4-byte hash chain for longer matches
+        var cur = prev4;
         var depth: u32 = 0;
         const max_depth: u32 = 256;
 
         while (cur > 0 and depth < max_depth) : (depth += 1) {
             const match_pos = cur - 1;
-            if (pos < match_pos) break; // safety
+            if (pos < match_pos) break;
             const dist = @as(u32, @intCast(pos - match_pos));
             if (dist > self.dict_size) break;
 
-            // Quick check: if we already have a long match, only consider
-            // candidates that match at the current best_len position
             if (best_len >= MIN_MATCH and self.data[match_pos + best_len] != self.data[pos + best_len]) {
                 cur = self.chain[match_pos];
                 continue;
@@ -218,9 +256,8 @@ const MatchFinder = struct {
 
             if (len > best_len) {
                 best_len = len;
-                best_dist = dist - 1; // 0-based distance
+                best_dist = dist - 1;
                 if (len == max_len) break;
-                // Nice length: stop searching once we find a good-enough match
                 if (len >= 64) break;
             }
 
@@ -233,12 +270,101 @@ const MatchFinder = struct {
         return null;
     }
 
-    /// Insert position into hash chain without searching.
     fn skip(self: *MatchFinder, pos: usize) void {
-        if (pos + 3 >= self.data.len) return;
-        const h = hash4(self.data, pos);
-        self.chain[pos] = self.head[h];
-        self.head[h] = @intCast(pos + 1);
+        if (pos + 2 >= self.data.len) return;
+        if (pos + 3 < self.data.len) {
+            const h4 = hash4(self.data, pos);
+            self.chain[pos] = self.head4[h4];
+            self.head4[h4] = @intCast(pos + 1);
+        }
+        const h3 = hash3(self.data, pos);
+        self.head3[h3] = @intCast(pos + 1);
+    }
+
+    /// Find all matches at a position, returning them sorted by increasing length.
+    /// Each entry represents the best (closest) distance for that length level.
+    /// Updates the hash chain (like findMatch).
+    fn findMatches(self: *MatchFinder, pos: usize) MatchCandidates {
+        var candidates = MatchCandidates{};
+        if (pos + MIN_MATCH > self.data.len) return candidates;
+
+        const h4 = hash4(self.data, pos);
+        const h3 = hash3(self.data, pos);
+        const prev4 = self.head4[h4];
+        self.chain[pos] = prev4;
+        self.head4[h4] = @intCast(pos + 1);
+
+        const prev3 = self.head3[h3];
+        self.head3[h3] = @intCast(pos + 1);
+
+        var best_len: u32 = MIN_MATCH - 1;
+
+        // Check 3-byte hash for short match
+        if (prev3 > 0) {
+            const match_pos = prev3 - 1;
+            if (pos >= match_pos) {
+                const dist = @as(u32, @intCast(pos - match_pos));
+                if (dist <= self.dict_size and dist < 4096) {
+                    const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
+                    var len: u32 = 0;
+                    while (len < max_len and self.data[match_pos + len] == self.data[pos + len]) {
+                        len += 1;
+                    }
+                    if (len >= MIN_MATCH) {
+                        candidates.add(.{ .distance = dist - 1, .length = len });
+                        best_len = len;
+                    }
+                }
+            }
+        }
+
+        // Walk 4-byte hash chain
+        var cur = prev4;
+        var depth: u32 = 0;
+        while (cur > 0 and depth < 256) : (depth += 1) {
+            const match_pos = cur - 1;
+            if (pos < match_pos) break;
+            const dist = @as(u32, @intCast(pos - match_pos));
+            if (dist > self.dict_size) break;
+
+            if (best_len >= MIN_MATCH and self.data[match_pos + best_len] != self.data[pos + best_len]) {
+                cur = self.chain[match_pos];
+                continue;
+            }
+
+            const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
+            var len: u32 = 0;
+            while (len < max_len and self.data[match_pos + len] == self.data[pos + len]) {
+                len += 1;
+            }
+
+            if (len > best_len) {
+                candidates.add(.{ .distance = dist - 1, .length = len });
+                best_len = len;
+                if (len == max_len or len >= 128) break;
+            }
+
+            cur = self.chain[match_pos];
+        }
+
+        return candidates;
+    }
+};
+
+const MAX_MATCH_CANDIDATES = 32;
+const MatchCandidates = struct {
+    items: [MAX_MATCH_CANDIDATES]Match = undefined,
+    count: u32 = 0,
+
+    fn add(self: *MatchCandidates, m: Match) void {
+        if (self.count < MAX_MATCH_CANDIDATES) {
+            self.items[self.count] = m;
+            self.count += 1;
+        }
+    }
+
+    fn slice(self: *const MatchCandidates) []const Match {
+        return self.items[0..self.count];
     }
 };
 
@@ -515,12 +641,217 @@ const LzmaEncoder = struct {
         // Align bits: 4 bits of 1s
         try self.rc.encodeReverseBitTree(&self.align_encoder, 4, 0xF, allocator);
     }
+
+    // --- Price estimation methods for optimal parsing ---
+
+    fn priceLiteralAt(self: *const LzmaEncoder, cur_byte: u8, pos: usize, prev_byte: u8, match_byte: u8, state: u4) u32 {
+        const ps: usize = pos & ((@as(usize, 1) << @as(u5, self.pb)) - 1);
+        var price: u32 = probPrice0(self.is_match[@as(usize, state) * NUM_POS_STATES_MAX + ps]);
+        const ls = ((@as(usize, pos) & ((@as(usize, 1) << @as(u5, self.lp)) - 1)) << @as(u5, self.lc)) +
+            (@as(usize, prev_byte) >> @as(u5, 8 - @as(u5, self.lc)));
+        const probs = self.literal_probs[ls * 0x300 .. (ls + 1) * 0x300];
+
+        if (state >= 7) {
+            var symbol: u32 = 1;
+            var mb = match_byte;
+            var bit_i: u32 = 8;
+            while (bit_i > 0) {
+                bit_i -= 1;
+                const match_bit: u32 = (mb >> 7) & 1;
+                mb <<= 1;
+                const bit: u1 = @intCast((cur_byte >> @intCast(bit_i)) & 1);
+                const ctx = ((1 + match_bit) << 8) + symbol;
+                price += if (bit == 0) probPrice0(probs[ctx]) else probPrice1(probs[ctx]);
+                symbol = (symbol << 1) | bit;
+                if (match_bit != bit) {
+                    while (bit_i > 0) {
+                        bit_i -= 1;
+                        const b: u1 = @intCast((cur_byte >> @intCast(bit_i)) & 1);
+                        price += if (b == 0) probPrice0(probs[symbol]) else probPrice1(probs[symbol]);
+                        symbol = (symbol << 1) | b;
+                    }
+                    break;
+                }
+            }
+        } else {
+            var symbol: u32 = 1;
+            var bit_i: u32 = 8;
+            while (bit_i > 0) {
+                bit_i -= 1;
+                const bit: u1 = @intCast((cur_byte >> @intCast(bit_i)) & 1);
+                price += if (bit == 0) probPrice0(probs[symbol]) else probPrice1(probs[symbol]);
+                symbol = (symbol << 1) | bit;
+            }
+        }
+        return price;
+    }
+
+    fn priceMatchAt(self: *const LzmaEncoder, length: u32, dist: u32, pos: usize, state: u4) u32 {
+        const ps: usize = pos & ((@as(usize, 1) << @as(u5, self.pb)) - 1);
+        var price: u32 = 0;
+        price += probPrice1(self.is_match[@as(usize, state) * NUM_POS_STATES_MAX + ps]);
+        price += probPrice0(self.is_rep[state]);
+        price += priceLenVal(&self.len_encoder, length - 2, @intCast(ps));
+        price += self.priceDistAt(dist, length);
+        return price;
+    }
+
+    fn priceRepMatchAt(self: *const LzmaEncoder, rep_idx: u2, length: u32, pos: usize, state: u4) u32 {
+        const ps: usize = pos & ((@as(usize, 1) << @as(u5, self.pb)) - 1);
+        var price: u32 = 0;
+        price += probPrice1(self.is_match[@as(usize, state) * NUM_POS_STATES_MAX + ps]);
+        price += probPrice1(self.is_rep[state]);
+
+        if (rep_idx == 0) {
+            price += probPrice0(self.is_rep_g0[state]);
+            if (length == 1) {
+                price += probPrice0(self.is_rep_0long[@as(usize, state) * NUM_POS_STATES_MAX + ps]);
+            } else {
+                price += probPrice1(self.is_rep_0long[@as(usize, state) * NUM_POS_STATES_MAX + ps]);
+            }
+        } else {
+            price += probPrice1(self.is_rep_g0[state]);
+            if (rep_idx == 1) {
+                price += probPrice0(self.is_rep_g1[state]);
+            } else {
+                price += probPrice1(self.is_rep_g1[state]);
+                if (rep_idx == 2) {
+                    price += probPrice0(self.is_rep_g2[state]);
+                } else {
+                    price += probPrice1(self.is_rep_g2[state]);
+                }
+            }
+        }
+
+        if (length > 1) {
+            price += priceLenVal(&self.rep_len_encoder, length - 2, @intCast(ps));
+        }
+        return price;
+    }
+
+    fn priceDistAt(self: *const LzmaEncoder, dist: u32, length: u32) u32 {
+        const len_state: usize = @min(length - 2, NUM_LEN_STATES - 1);
+        const pos_slot = getPosSlot(dist);
+        var price = priceBitTreeVal(&self.pos_slot_encoders[len_state], 6, pos_slot);
+
+        if (pos_slot >= 4) {
+            const num_direct_bits: u5 = @intCast((pos_slot >> 1) - 1);
+            const base = (2 | (pos_slot & 1)) << num_direct_bits;
+            const remainder = dist - base;
+
+            if (pos_slot < 14) {
+                const offset = base - pos_slot;
+                price += priceRevBitTree(self.pos_encoders[offset..], num_direct_bits, remainder);
+            } else {
+                price += @as(u32, num_direct_bits - 4) * (1 << PRICE_SHIFT);
+                price += priceRevBitTree(&self.align_encoder, 4, remainder & 0xF);
+            }
+        }
+        return price;
+    }
 };
+
+fn priceLenVal(len_enc: *const LenEncoder, raw_length: u32, pos_state: u4) u32 {
+    var price: u32 = 0;
+    if (raw_length < 8) {
+        price += probPrice0(len_enc.choice);
+        price += priceBitTreeVal(&len_enc.low[pos_state], 3, raw_length);
+    } else if (raw_length < 16) {
+        price += probPrice1(len_enc.choice);
+        price += probPrice0(len_enc.choice2);
+        price += priceBitTreeVal(&len_enc.mid[pos_state], 3, raw_length - 8);
+    } else {
+        price += probPrice1(len_enc.choice);
+        price += probPrice1(len_enc.choice2);
+        price += priceBitTreeVal(&len_enc.high, 8, raw_length - 16);
+    }
+    return price;
+}
 
 fn getPosSlot(dist: u32) u32 {
     if (dist < 4) return dist;
     const msb = 31 - @as(u5, @intCast(@clz(dist)));
     return @as(u32, msb) * 2 + ((dist >> @intCast(msb - 1)) & 1);
+}
+
+// ============================================================================
+// Price Estimation for Optimal Parsing
+// ============================================================================
+
+const PRICE_SHIFT: u32 = 4;
+const INFINITY_PRICE: u32 = 0x0FFFFFFF;
+
+var prob_prices: [128]u32 = [_]u32{0} ** 128;
+var prob_prices_inited: bool = false;
+
+fn initProbPrices() void {
+    if (prob_prices_inited) return;
+    for (0..128) |i| {
+        var w: u32 = @as(u32, @intCast(i)) * 16 + 8;
+        var bit_count: u32 = 0;
+        for (0..PRICE_SHIFT) |_| {
+            w = w * w;
+            bit_count <<= 1;
+            while (w >= (1 << 16)) {
+                w >>= 1;
+                bit_count += 1;
+            }
+        }
+        prob_prices[i] = (11 << PRICE_SHIFT) - 15 - bit_count;
+    }
+    prob_prices_inited = true;
+}
+
+fn probPrice0(prob: u16) u32 {
+    return prob_prices[prob >> 4];
+}
+
+fn probPrice1(prob: u16) u32 {
+    return prob_prices[(@as(u32, 2048) - prob) >> 4];
+}
+
+fn priceBitTreeVal(probs: []const u16, num_bits: u5, value: u32) u32 {
+    var price: u32 = 0;
+    var idx: u32 = 1;
+    var i = num_bits;
+    while (i > 0) {
+        i -= 1;
+        const bit: u1 = @intCast((value >> i) & 1);
+        price += if (bit == 0) probPrice0(probs[idx]) else probPrice1(probs[idx]);
+        idx = (idx << 1) | bit;
+    }
+    return price;
+}
+
+fn priceRevBitTree(probs: []const u16, num_bits: u5, value: u32) u32 {
+    var price: u32 = 0;
+    var idx: u32 = 1;
+    var val = value;
+    for (0..num_bits) |_| {
+        const bit: u1 = @intCast(val & 1);
+        price += if (bit == 0) probPrice0(probs[idx]) else probPrice1(probs[idx]);
+        idx = (idx << 1) | bit;
+        val >>= 1;
+    }
+    return price;
+}
+
+fn nextStateLiteral(state: u4) u4 {
+    if (state < 4) return 0;
+    if (state < 10) return state - 3;
+    return state - 6;
+}
+
+fn nextStateMatch(state: u4) u4 {
+    return if (state < 7) 7 else 10;
+}
+
+fn nextStateRep(state: u4) u4 {
+    return if (state < 7) 8 else 11;
+}
+
+fn nextStateShortRep(state: u4) u4 {
+    return if (state < 7) 9 else 11;
 }
 
 // ============================================================================
@@ -663,7 +994,7 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
         enc.rc.resetForNewChunk();
 
         // Encode this chunk using the shared encoder and match finder
-        try encodeLzma1Chunk(&enc, &mf, data, offset, chunk_end, allocator);
+        try encodeLzma1ChunkOptimal(&enc, &mf, data, offset, chunk_end, allocator);
 
         // Flush range encoder for this chunk
         try enc.rc.flush(allocator);
@@ -786,8 +1117,23 @@ const BestMatch = struct {
 };
 
 fn pickBestMatch(rep_match: ?RepMatch, new_match: ?Match) ?BestMatch {
-    if (rep_match) |rm| {
+    // Filter new matches by distance-dependent minimum length.
+    // Short matches at large distances cost more bits than literals.
+    const filtered_new = blk: {
         if (new_match) |nm| {
+            const min_len: u32 = if (nm.distance < 128) 2
+                else if (nm.distance < 2048) 3
+                else if (nm.distance < 32768) 4
+                else 5;
+            if (nm.length >= min_len) {
+                break :blk @as(?Match, nm);
+            }
+        }
+        break :blk @as(?Match, null);
+    };
+
+    if (rep_match) |rm| {
+        if (filtered_new) |nm| {
             if (nm.length > rm.length + 1) {
                 return .{ .distance = nm.distance, .length = nm.length, .is_rep = false, .rep_idx = 0 };
             } else {
@@ -796,10 +1142,8 @@ fn pickBestMatch(rep_match: ?RepMatch, new_match: ?Match) ?BestMatch {
         } else {
             return .{ .distance = 0, .length = rm.length, .is_rep = true, .rep_idx = rm.rep_idx };
         }
-    } else if (new_match) |nm| {
-        if (nm.length >= 2) {
-            return .{ .distance = nm.distance, .length = nm.length, .is_rep = false, .rep_idx = 0 };
-        }
+    } else if (filtered_new) |nm| {
+        return .{ .distance = nm.distance, .length = nm.length, .is_rep = false, .rep_idx = 0 };
     }
     return null;
 }
@@ -821,7 +1165,7 @@ fn peekMatch(mf: *MatchFinder, pos: usize, remaining: u32) ?Match {
     if (pos + MIN_MATCH > mf.data.len) return null;
 
     const h = MatchFinder.hash4(mf.data, pos);
-    const head_entry = mf.head[h];
+    const head_entry = mf.head4[h];
 
     // Search chain without inserting
     var best_len: u32 = MIN_MATCH - 1;
@@ -859,6 +1203,238 @@ fn peekMatch(mf: *MatchFinder, pos: usize, remaining: u32) ?Match {
         return .{ .distance = best_dist, .length = best_len };
     }
     return null;
+}
+
+// ============================================================================
+// Optimal Parser
+// ============================================================================
+
+const OptimalAction = enum(u2) { literal, short_rep, rep_match, new_match };
+
+const OptimalNode = struct {
+    price: u32 = INFINITY_PRICE,
+    state: u4 = 0,
+    rep: [4]u32 = .{ 0, 0, 0, 0 },
+    action: OptimalAction = .literal,
+    match_len: u32 = 0,
+    match_dist: u32 = 0,
+    match_rep_idx: u2 = 0,
+};
+
+/// Encode a chunk using forward optimal parsing with price-based decisions.
+fn encodeLzma1ChunkOptimal(
+    enc: *LzmaEncoder,
+    mf: *MatchFinder,
+    full_data: []const u8,
+    encode_start: usize,
+    encode_end: usize,
+    allocator: std.mem.Allocator,
+) !void {
+    initProbPrices();
+
+    const chunk_len = encode_end - encode_start;
+    if (chunk_len == 0) return;
+
+    // Allocate DP nodes: one per position + 1 for the end
+    const nodes = try allocator.alloc(OptimalNode, chunk_len + 1);
+    defer allocator.free(nodes);
+    @memset(nodes, OptimalNode{});
+
+    // Initialize start node
+    nodes[0].price = 0;
+    nodes[0].state = enc.state;
+    nodes[0].rep = enc.rep;
+
+    // Forward DP pass
+    const NICE_LEN: u32 = 128;
+    var skip_until: usize = 0;
+    var i: usize = 0;
+    while (i < chunk_len) : (i += 1) {
+        // Fast-forward: inside a committed long match, just maintain hash chain
+        if (i < skip_until) {
+            mf.skip(encode_start + i);
+            continue;
+        }
+        if (nodes[i].price == INFINITY_PRICE) {
+            mf.skip(encode_start + i);
+            continue;
+        }
+
+        const abs_pos = encode_start + i;
+        const cur_byte = full_data[abs_pos];
+        const prev_byte: u8 = if (abs_pos > 0) full_data[abs_pos - 1] else 0;
+        const cur_state = nodes[i].state;
+        const cur_rep = nodes[i].rep;
+        const remaining: u32 = @intCast(chunk_len - i);
+
+        // --- Option 1: Literal ---
+        if (i + 1 <= chunk_len) {
+            const match_byte: u8 = if (cur_state >= 7 and cur_rep[0] < abs_pos) full_data[abs_pos - cur_rep[0] - 1] else 0;
+            const lit_price = nodes[i].price + enc.priceLiteralAt(cur_byte, abs_pos, prev_byte, match_byte, cur_state);
+            if (lit_price < nodes[i + 1].price) {
+                nodes[i + 1] = .{
+                    .price = lit_price,
+                    .state = nextStateLiteral(cur_state),
+                    .rep = cur_rep,
+                    .action = .literal,
+                    .match_len = 0,
+                    .match_dist = 0,
+                    .match_rep_idx = 0,
+                };
+            }
+        }
+
+        // --- Option 2: Rep matches ---
+        for (0..4) |ri| {
+            const rep_dist = cur_rep[ri];
+            if (rep_dist >= abs_pos) continue;
+            const match_pos = abs_pos - rep_dist - 1;
+            if (match_pos >= full_data.len) continue;
+
+            // Find max rep match length
+            var rep_len: u32 = 0;
+            const max_rep = @min(MAX_MATCH, remaining);
+            while (rep_len < max_rep and full_data[match_pos + rep_len] == full_data[abs_pos + rep_len]) {
+                rep_len += 1;
+            }
+
+            if (rep_len == 0) continue;
+            const rep_idx: u2 = @intCast(ri);
+
+            // Short rep (length 1, rep[0] only)
+            if (ri == 0 and rep_len >= 1 and i + 1 <= chunk_len) {
+                const sr_price = nodes[i].price + enc.priceRepMatchAt(0, 1, abs_pos, cur_state);
+                if (sr_price < nodes[i + 1].price) {
+                    nodes[i + 1] = .{
+                        .price = sr_price,
+                        .state = nextStateShortRep(cur_state),
+                        .rep = cur_rep,
+                        .action = .short_rep,
+                        .match_len = 1,
+                        .match_dist = 0,
+                        .match_rep_idx = 0,
+                    };
+                }
+            }
+
+            // Rep matches length 2+: try all lengths for optimal selection
+            if (rep_len >= 2) {
+                var new_rep = cur_rep;
+                if (ri > 0) {
+                    const dist = cur_rep[ri];
+                    var j: usize = ri;
+                    while (j > 0) : (j -= 1) new_rep[j] = new_rep[j - 1];
+                    new_rep[0] = dist;
+                }
+                const new_state = nextStateRep(cur_state);
+
+                var try_len: u32 = 2;
+                while (try_len <= rep_len) : (try_len += 1) {
+                    if (i + try_len > chunk_len) break;
+                    const rp = nodes[i].price + enc.priceRepMatchAt(rep_idx, try_len, abs_pos, cur_state);
+                    if (rp < nodes[i + try_len].price) {
+                        nodes[i + try_len] = .{
+                            .price = rp,
+                            .state = new_state,
+                            .rep = new_rep,
+                            .action = .rep_match,
+                            .match_len = try_len,
+                            .match_dist = 0,
+                            .match_rep_idx = rep_idx,
+                        };
+                    }
+                }
+            }
+        }
+
+        // --- Option 3: New matches ---
+        const candidates = mf.findMatches(abs_pos);
+        const matches = candidates.slice();
+        if (matches.len > 0) {
+            const new_state = nextStateMatch(cur_state);
+            // Matches sorted by increasing length. For each candidate,
+            // try all lengths from previous candidate's length to current,
+            // using the best (closest) distance available at each level.
+            var prev_len: u32 = 1;
+            for (matches) |m| {
+                const min_useful: u32 = @max(prev_len + 1, if (m.distance < 128) @as(u32, 2) else if (m.distance < 2048) @as(u32, 3) else if (m.distance < 32768) @as(u32, 4) else @as(u32, 5));
+                var try_len = min_useful;
+                while (try_len <= m.length) : (try_len += 1) {
+                    if (i + try_len > chunk_len) break;
+                    const new_rep = [4]u32{ m.distance, cur_rep[0], cur_rep[1], cur_rep[2] };
+                    const mp = nodes[i].price + enc.priceMatchAt(try_len, m.distance, abs_pos, cur_state);
+                    if (mp < nodes[i + try_len].price) {
+                        nodes[i + try_len] = .{
+                            .price = mp,
+                            .state = new_state,
+                            .rep = new_rep,
+                            .match_len = try_len,
+                            .match_dist = m.distance,
+                            .action = .new_match,
+                            .match_rep_idx = 0,
+                        };
+                    }
+                }
+                prev_len = m.length;
+            }
+
+            // Fast-forward past very long matches — the DP benefit is
+            // negligible for matches >= nice_len
+            if (matches.len > 0) {
+                const longest = matches[matches.len - 1].length;
+                if (longest >= NICE_LEN and i + longest <= chunk_len) {
+                    skip_until = i + longest;
+                }
+            }
+        }
+    }
+
+    // Backtrack to build encoding sequence
+    const actions = try allocator.alloc(struct { pos: usize, node: OptimalNode }, chunk_len);
+    defer allocator.free(actions);
+    var action_count: usize = 0;
+
+    var pos = chunk_len;
+    while (pos > 0) {
+        const node = nodes[pos];
+        const step: usize = if (node.action == .literal) 1 else node.match_len;
+        actions[action_count] = .{ .pos = pos - step, .node = node };
+        action_count += 1;
+        pos -= step;
+    }
+
+    // Reverse to get forward order
+    var lo: usize = 0;
+    var hi: usize = action_count;
+    while (lo < hi) {
+        hi -= 1;
+        const tmp = actions[lo];
+        actions[lo] = actions[hi];
+        actions[hi] = tmp;
+        lo += 1;
+    }
+
+    // Encode the optimal sequence
+    for (actions[0..action_count]) |act| {
+        const abs_pos = encode_start + act.pos;
+        switch (act.node.action) {
+            .literal => {
+                const cur_byte = full_data[abs_pos];
+                const prev_byte: u8 = if (abs_pos > 0) full_data[abs_pos - 1] else 0;
+                const match_byte: u8 = if (enc.state >= 7 and enc.rep[0] < abs_pos) full_data[abs_pos - enc.rep[0] - 1] else 0;
+                try enc.encodeLiteral(cur_byte, abs_pos, prev_byte, match_byte, allocator);
+            },
+            .short_rep => {
+                try enc.encodeRepMatch(0, 1, abs_pos, allocator);
+            },
+            .rep_match => {
+                try enc.encodeRepMatch(act.node.match_rep_idx, act.node.match_len, abs_pos, allocator);
+            },
+            .new_match => {
+                try enc.encodeMatch(act.node.match_len, act.node.match_dist, abs_pos, allocator);
+            },
+        }
+    }
 }
 
 /// Compress a block of data using LZMA1.

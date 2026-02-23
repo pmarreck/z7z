@@ -51,15 +51,15 @@ Compared against `7z` at `-mx=5` on macOS/ARM64:
 
 ### Compression
 
-| File | Size | z7z ratio | 7z ratio | z7z speed | 7z speed |
-|------|------|-----------|----------|-----------|----------|
-| text_1mb.txt | 928K | 19.0% | 15.7% | 9 MB/s | 6 MB/s |
-| source_2mb.zig | 1399K | 22.7% | 19.1% | 6 MB/s | 6 MB/s |
-| text_5mb.txt | 4639K | 7.6% | 3.2% | 18 MB/s | 5 MB/s |
-| biased_exp_512k.bin | 512K | 25.1% | 21.8% | - | - |
-| random_512k.bin | 512K | 100.0% | 100.0% | - | - |
+| File | Size | z7z ratio | 7z ratio |
+|------|------|-----------|----------|
+| text_1mb.txt | 928K | 17.1% | 15.7% |
+| source_2mb.zig | 1399K | 20.1% | 19.0% |
+| text_5mb.txt | 4639K | 6.8% | 3.1% |
+| biased_exp_512k.bin | 512K | 22.8% | 21.7% |
+| random_512k.bin | 512K | 100.0% | 100.0% |
 
-z7z uses continuous LZMA state across chunks with dictionary carry-across, 4-byte hash chains, and lazy matching. It beats `7z -mx=1` compression quality while remaining **1.5-3.8x faster** than `7z -mx=5`.
+z7z uses a forward optimal parser with price-based decisions, continuous LZMA state across chunks, dictionary carry-across, and dual hash chain match finding. It approaches `7z -mx=5` compression quality — within ~1pp on most file types.
 
 ## Architecture
 
