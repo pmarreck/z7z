@@ -41,6 +41,7 @@ pub fn build(b: *std.Build) void {
     cli.root_module.addIncludePath(b.path("include"));
     cli.linkLibrary(lib);
     b.installArtifact(cli);
+    const install_cli = b.addInstallArtifact(cli, .{});
 
     // --- Unit tests ---
     const unit_tests = b.addTest(.{
@@ -53,6 +54,19 @@ pub fn build(b: *std.Build) void {
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
 
-    const test_step = b.step("test", "Run unit tests");
+    // --- CLI integration tests (cross-platform, spawns the CLI binary) ---
+    const cli_tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tests/cli/cli_test.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    const run_cli_tests = b.addRunArtifact(cli_tests);
+    // CLI tests need the CLI binary to be installed first
+    run_cli_tests.step.dependOn(&install_cli.step);
+
+    const test_step = b.step("test", "Run unit tests and CLI integration tests");
     test_step.dependOn(&run_unit_tests.step);
+    test_step.dependOn(&run_cli_tests.step);
 }

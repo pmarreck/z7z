@@ -60,7 +60,7 @@ typedef struct {
 
 /* Create a .7z archive from file entries.
  * Returns Z7Z_OK on success. Caller must free *out_data with z7z_free.
- * Currently uses Copy method (no compression). */
+ * Uses LZMA2 compression with optimal parsing. */
 int z7z_create(const z7z_file_entry *files, size_t count,
                uint8_t **out_data, size_t *out_len);
 
