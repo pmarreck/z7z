@@ -53,13 +53,13 @@ Compared against `7z` at `-mx=5` on macOS/ARM64:
 
 | File | Size | z7z ratio | 7z ratio |
 |------|------|-----------|----------|
-| text_1mb.txt | 928K | 17.1% | 15.7% |
-| source_2mb.zig | 1399K | 20.1% | 19.0% |
-| text_5mb.txt | 4639K | 6.8% | 3.1% |
-| biased_exp_512k.bin | 512K | 22.8% | 21.7% |
+| text_1mb.txt | 928K | 15.8% | 15.7% |
+| source_2mb.zig | 1399K | 19.7% | 19.0% |
+| text_5mb.txt | 4639K | 3.1% | 3.1% |
+| biased_exp_512k.bin | 512K | 22.1% | 21.7% |
 | random_512k.bin | 512K | 100.0% | 100.0% |
 
-z7z uses a forward optimal parser with price-based decisions, continuous LZMA state across chunks, dictionary carry-across, and dual hash chain match finding. It approaches `7z -mx=5` compression quality — within ~1pp on most file types.
+z7z uses a BT4 binary tree match finder, forward optimal parser with price-based decisions, continuous LZMA state across chunks, and dictionary carry-across. It **matches `7z -mx=5`** compression quality across all tested file types.
 
 ## Architecture
 

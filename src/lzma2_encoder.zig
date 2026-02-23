@@ -132,7 +132,7 @@ const RangeEncoder = struct {
 };
 
 // ============================================================================
-// LZ77 Match Finder (Hash Chain)
+// LZ77 Match Finder (Binary Tree — BT4)
 // ============================================================================
 
 const HASH_BITS = 20;
@@ -145,36 +145,40 @@ const Match = struct {
     length: u32,
 };
 
-const HASH3_BITS = 16;
-const HASH3_SIZE = 1 << HASH3_BITS;
-
+/// Binary tree match finder (BT4). At each position, simultaneously inserts
+/// into a binary search tree (keyed by lexicographic order of suffixes) and
+/// finds all matches. The tree structure avoids re-comparing bytes already
+/// known to match, giving O(depth) comparisons per position with each
+/// comparison starting from a known common prefix.
 const MatchFinder = struct {
-    head4: []u32, // 4-byte hash table for long matches
-    head3: []u32, // 3-byte hash table for short matches
-    chain: []u32,
+    hash: []u32, // 4-byte hash table -> most recent pos+1 (0 = empty)
+    bt_left: []u32, // left child array (pos -> pos+1 of left child)
+    bt_right: []u32, // right child array
     data: []const u8,
     dict_size: u32,
 
+    const BT_DEPTH: u32 = 64;
+
     fn init(data: []const u8, dict_size: u32, allocator: std.mem.Allocator) !MatchFinder {
-        const chain = try allocator.alloc(u32, data.len);
-        @memset(chain, 0);
-        const head4 = try allocator.alloc(u32, HASH_SIZE);
-        @memset(head4, 0);
-        const head3 = try allocator.alloc(u32, HASH3_SIZE);
-        @memset(head3, 0);
+        const hash = try allocator.alloc(u32, HASH_SIZE);
+        @memset(hash, 0);
+        const bt_left = try allocator.alloc(u32, data.len);
+        @memset(bt_left, 0);
+        const bt_right = try allocator.alloc(u32, data.len);
+        @memset(bt_right, 0);
         return .{
-            .head4 = head4,
-            .head3 = head3,
-            .chain = chain,
+            .hash = hash,
+            .bt_left = bt_left,
+            .bt_right = bt_right,
             .data = data,
             .dict_size = dict_size,
         };
     }
 
     fn deinit(self: *MatchFinder, allocator: std.mem.Allocator) void {
-        allocator.free(self.chain);
-        allocator.free(self.head4);
-        allocator.free(self.head3);
+        allocator.free(self.hash);
+        allocator.free(self.bt_left);
+        allocator.free(self.bt_right);
     }
 
     fn hash4(data: []const u8, pos: usize) u32 {
@@ -183,171 +187,129 @@ const MatchFinder = struct {
             (@as(u32, data[pos + 1]) << 8) |
             (@as(u32, data[pos + 2]) << 16) |
             (@as(u32, data[pos + 3]) << 24);
-        const h = v *% 0x9E3779B1;
-        return h >> (32 - HASH_BITS);
+        return (v *% 0x9E3779B1) >> (32 - HASH_BITS);
     }
 
-    fn hash3(data: []const u8, pos: usize) u32 {
-        if (pos + 2 >= data.len) return 0;
-        const h = @as(u32, data[pos]) ^
-            (@as(u32, data[pos + 1]) << 8) ^
-            (@as(u32, data[pos + 2]) << 5);
-        return h & (HASH3_SIZE - 1);
-    }
-
-    /// Find the best match using dual hash chains.
+    /// Find the single best (longest) match. Used by compressLzma1 for small files.
     fn findMatch(self: *MatchFinder, pos: usize) ?Match {
-        if (pos + MIN_MATCH > self.data.len) return null;
-
-        // Insert into both hash tables
-        const h4 = hash4(self.data, pos);
-        const h3 = hash3(self.data, pos);
-        const prev4 = self.head4[h4];
-        self.chain[pos] = prev4;
-        self.head4[h4] = @intCast(pos + 1);
-
-        // Check 3-byte hash for a quick short match
-        const prev3 = self.head3[h3];
-        self.head3[h3] = @intCast(pos + 1);
-
-        var best_len: u32 = MIN_MATCH - 1;
-        var best_dist: u32 = 0;
-
-        // Check 3-byte hash match first (finds 2-3 byte matches)
-        if (prev3 > 0) {
-            const match_pos = prev3 - 1;
-            if (pos >= match_pos) {
-                const dist = @as(u32, @intCast(pos - match_pos));
-                if (dist <= self.dict_size and dist < 4096) { // only use short matches at short distances
-                    const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
-                    var len: u32 = 0;
-                    while (len < max_len and self.data[match_pos + len] == self.data[pos + len]) {
-                        len += 1;
-                    }
-                    if (len >= MIN_MATCH) {
-                        best_len = len;
-                        best_dist = dist - 1;
-                    }
-                }
-            }
-        }
-
-        // Search 4-byte hash chain for longer matches
-        var cur = prev4;
-        var depth: u32 = 0;
-        const max_depth: u32 = 256;
-
-        while (cur > 0 and depth < max_depth) : (depth += 1) {
-            const match_pos = cur - 1;
-            if (pos < match_pos) break;
-            const dist = @as(u32, @intCast(pos - match_pos));
-            if (dist > self.dict_size) break;
-
-            if (best_len >= MIN_MATCH and self.data[match_pos + best_len] != self.data[pos + best_len]) {
-                cur = self.chain[match_pos];
-                continue;
-            }
-
-            const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
-            var len: u32 = 0;
-            while (len < max_len and self.data[match_pos + len] == self.data[pos + len]) {
-                len += 1;
-            }
-
-            if (len > best_len) {
-                best_len = len;
-                best_dist = dist - 1;
-                if (len == max_len) break;
-                if (len >= 64) break;
-            }
-
-            cur = self.chain[match_pos];
-        }
-
-        if (best_len >= MIN_MATCH) {
-            return .{ .distance = best_dist, .length = best_len };
+        const candidates = self.findMatches(pos);
+        if (candidates.count > 0) {
+            return candidates.items[candidates.count - 1];
         }
         return null;
     }
 
-    fn skip(self: *MatchFinder, pos: usize) void {
-        if (pos + 2 >= self.data.len) return;
-        if (pos + 3 < self.data.len) {
-            const h4 = hash4(self.data, pos);
-            self.chain[pos] = self.head4[h4];
-            self.head4[h4] = @intCast(pos + 1);
-        }
-        const h3 = hash3(self.data, pos);
-        self.head3[h3] = @intCast(pos + 1);
-    }
-
-    /// Find all matches at a position, returning them sorted by increasing length.
-    /// Each entry represents the best (closest) distance for that length level.
-    /// Updates the hash chain (like findMatch).
+    /// Insert position into the binary tree and find all matches.
+    /// Returns matches sorted by increasing length; each entry has the
+    /// closest distance for that length level. The binary tree walk
+    /// avoids re-comparing known-matching prefix bytes.
     fn findMatches(self: *MatchFinder, pos: usize) MatchCandidates {
         var candidates = MatchCandidates{};
-        if (pos + MIN_MATCH > self.data.len) return candidates;
+        if (pos + 3 >= self.data.len) return candidates;
 
-        const h4 = hash4(self.data, pos);
-        const h3 = hash3(self.data, pos);
-        const prev4 = self.head4[h4];
-        self.chain[pos] = prev4;
-        self.head4[h4] = @intCast(pos + 1);
+        const h = hash4(self.data, pos);
+        var cur = self.hash[h];
+        self.hash[h] = @intCast(pos + 1);
 
-        const prev3 = self.head3[h3];
-        self.head3[h3] = @intCast(pos + 1);
-
+        var left_ptr = &self.bt_left[pos];
+        var right_ptr = &self.bt_right[pos];
+        var best_left_len: u32 = 0;
+        var best_right_len: u32 = 0;
         var best_len: u32 = MIN_MATCH - 1;
-
-        // Check 3-byte hash for short match
-        if (prev3 > 0) {
-            const match_pos = prev3 - 1;
-            if (pos >= match_pos) {
-                const dist = @as(u32, @intCast(pos - match_pos));
-                if (dist <= self.dict_size and dist < 4096) {
-                    const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
-                    var len: u32 = 0;
-                    while (len < max_len and self.data[match_pos + len] == self.data[pos + len]) {
-                        len += 1;
-                    }
-                    if (len >= MIN_MATCH) {
-                        candidates.add(.{ .distance = dist - 1, .length = len });
-                        best_len = len;
-                    }
-                }
-            }
-        }
-
-        // Walk 4-byte hash chain
-        var cur = prev4;
         var depth: u32 = 0;
-        while (cur > 0 and depth < 256) : (depth += 1) {
+
+        while (cur > 0 and depth < BT_DEPTH) : (depth += 1) {
             const match_pos = cur - 1;
-            if (pos < match_pos) break;
+            if (pos <= match_pos) break;
             const dist = @as(u32, @intCast(pos - match_pos));
             if (dist > self.dict_size) break;
 
-            if (best_len >= MIN_MATCH and self.data[match_pos + best_len] != self.data[pos + best_len]) {
-                cur = self.chain[match_pos];
-                continue;
-            }
-
             const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
-            var len: u32 = 0;
-            while (len < max_len and self.data[match_pos + len] == self.data[pos + len]) {
-                len += 1;
+            // Start comparison from known common prefix
+            var common = @min(best_left_len, best_right_len);
+            while (common < max_len and self.data[pos + common] == self.data[match_pos + common]) {
+                common += 1;
             }
 
-            if (len > best_len) {
-                candidates.add(.{ .distance = dist - 1, .length = len });
-                best_len = len;
-                if (len == max_len or len >= 128) break;
+            if (common > best_len) {
+                candidates.add(.{ .distance = dist - 1, .length = common });
+                best_len = common;
+                if (common == max_len) {
+                    // Perfect match — inherit cur's children
+                    left_ptr.* = self.bt_left[match_pos];
+                    right_ptr.* = self.bt_right[match_pos];
+                    return candidates;
+                }
             }
 
-            cur = self.chain[match_pos];
+            if (common < max_len and self.data[pos + common] < self.data[match_pos + common]) {
+                // pos < match_pos lexicographically: match_pos goes to right
+                right_ptr.* = cur;
+                right_ptr = &self.bt_left[match_pos];
+                cur = self.bt_left[match_pos];
+                best_right_len = common;
+            } else {
+                // pos >= match_pos: match_pos goes to left
+                left_ptr.* = cur;
+                left_ptr = &self.bt_right[match_pos];
+                cur = self.bt_right[match_pos];
+                best_left_len = common;
+            }
         }
 
+        left_ptr.* = 0;
+        right_ptr.* = 0;
         return candidates;
+    }
+
+    /// Insert position into the binary tree without recording matches.
+    /// Used for positions inside committed matches (hash chain maintenance).
+    fn skip(self: *MatchFinder, pos: usize) void {
+        if (pos + 3 >= self.data.len) return;
+
+        const h = hash4(self.data, pos);
+        var cur = self.hash[h];
+        self.hash[h] = @intCast(pos + 1);
+
+        var left_ptr = &self.bt_left[pos];
+        var right_ptr = &self.bt_right[pos];
+        var best_left_len: u32 = 0;
+        var best_right_len: u32 = 0;
+        var depth: u32 = 0;
+
+        while (cur > 0 and depth < BT_DEPTH) : (depth += 1) {
+            const match_pos = cur - 1;
+            if (pos <= match_pos) break;
+            const dist = @as(u32, @intCast(pos - match_pos));
+            if (dist > self.dict_size) break;
+
+            const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
+            var common = @min(best_left_len, best_right_len);
+            while (common < max_len and self.data[pos + common] == self.data[match_pos + common]) {
+                common += 1;
+            }
+
+            if (common == max_len) {
+                left_ptr.* = self.bt_left[match_pos];
+                right_ptr.* = self.bt_right[match_pos];
+                return;
+            }
+
+            if (common < max_len and self.data[pos + common] < self.data[match_pos + common]) {
+                right_ptr.* = cur;
+                right_ptr = &self.bt_left[match_pos];
+                cur = self.bt_left[match_pos];
+                best_right_len = common;
+            } else {
+                left_ptr.* = cur;
+                left_ptr = &self.bt_right[match_pos];
+                cur = self.bt_right[match_pos];
+                best_left_len = common;
+            }
+        }
+
+        left_ptr.* = 0;
+        right_ptr.* = 0;
     }
 };
 
@@ -1040,169 +1002,6 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
 
     try output.append(allocator, 0x00); // end of stream
     return try allocator.dupe(u8, output.items);
-}
-
-/// Encode a chunk of data into an existing LzmaEncoder (continuous state).
-/// Uses abs_pos for LZMA pos_state/lit_state (must match decoder's buffer.len).
-/// Uses abs_pos for data access and match finding.
-/// Implements lazy matching: before committing to a match, checks if the next
-/// position has a better match and emits a literal instead if so.
-fn encodeLzma1Chunk(
-    enc: *LzmaEncoder,
-    mf: *MatchFinder,
-    full_data: []const u8,
-    encode_start: usize,
-    encode_end: usize,
-    allocator: std.mem.Allocator,
-) !void {
-    var abs_pos: usize = encode_start;
-
-    while (abs_pos < encode_end) {
-        const cur_byte = full_data[abs_pos];
-        const pb_val: u8 = if (abs_pos > 0) full_data[abs_pos - 1] else 0;
-        const remaining: u32 = @intCast(encode_end - abs_pos);
-
-        const rep_match = findRepMatchRange(enc, full_data, abs_pos, remaining);
-        const new_match = findNewMatch(mf, abs_pos, remaining);
-
-        // Pick the best match at the current position
-        const best = pickBestMatch(rep_match, new_match);
-
-        if (best) |m| {
-            // Lazy matching: if the match is short, check if next position is better
-            if (m.length < 64 and abs_pos + 1 < encode_end) {
-                const next_remaining: u32 = @intCast(encode_end - abs_pos - 1);
-                const next_rep = findRepMatchRange(enc, full_data, abs_pos + 1, next_remaining);
-
-                // Peek at next position's match (without updating hash chain yet)
-                const next_new = peekMatch(mf, abs_pos + 1, next_remaining);
-
-                const next_best = pickBestMatch(next_rep, next_new);
-
-                if (next_best) |nm| {
-                    if (nm.length > m.length + 1) {
-                        // Next position has a better match — emit literal now
-                        const match_byte: u8 = if (enc.state >= 7 and enc.rep[0] < abs_pos) full_data[abs_pos - enc.rep[0] - 1] else 0;
-                        try enc.encodeLiteral(cur_byte, abs_pos, pb_val, match_byte, allocator);
-                        abs_pos += 1;
-                        continue;
-                    }
-                }
-            }
-
-            // Emit the match
-            if (m.is_rep) {
-                try enc.encodeRepMatch(m.rep_idx, m.length, abs_pos, allocator);
-            } else {
-                try enc.encodeMatch(m.length, m.distance, abs_pos, allocator);
-            }
-            var skip_i: usize = 1;
-            while (skip_i < m.length) : (skip_i += 1) {
-                mf.skip(abs_pos + skip_i);
-            }
-            abs_pos += m.length;
-        } else {
-            const match_byte: u8 = if (enc.state >= 7 and enc.rep[0] < abs_pos) full_data[abs_pos - enc.rep[0] - 1] else 0;
-            try enc.encodeLiteral(cur_byte, abs_pos, pb_val, match_byte, allocator);
-            abs_pos += 1;
-        }
-    }
-}
-
-const BestMatch = struct {
-    distance: u32,
-    length: u32,
-    is_rep: bool,
-    rep_idx: u2,
-};
-
-fn pickBestMatch(rep_match: ?RepMatch, new_match: ?Match) ?BestMatch {
-    // Filter new matches by distance-dependent minimum length.
-    // Short matches at large distances cost more bits than literals.
-    const filtered_new = blk: {
-        if (new_match) |nm| {
-            const min_len: u32 = if (nm.distance < 128) 2
-                else if (nm.distance < 2048) 3
-                else if (nm.distance < 32768) 4
-                else 5;
-            if (nm.length >= min_len) {
-                break :blk @as(?Match, nm);
-            }
-        }
-        break :blk @as(?Match, null);
-    };
-
-    if (rep_match) |rm| {
-        if (filtered_new) |nm| {
-            if (nm.length > rm.length + 1) {
-                return .{ .distance = nm.distance, .length = nm.length, .is_rep = false, .rep_idx = 0 };
-            } else {
-                return .{ .distance = 0, .length = rm.length, .is_rep = true, .rep_idx = rm.rep_idx };
-            }
-        } else {
-            return .{ .distance = 0, .length = rm.length, .is_rep = true, .rep_idx = rm.rep_idx };
-        }
-    } else if (filtered_new) |nm| {
-        return .{ .distance = nm.distance, .length = nm.length, .is_rep = false, .rep_idx = 0 };
-    }
-    return null;
-}
-
-fn findNewMatch(mf: *MatchFinder, pos: usize, remaining: u32) ?Match {
-    const raw = mf.findMatch(pos);
-    if (raw) |nm| {
-        const capped = @min(nm.length, remaining);
-        if (capped >= MIN_MATCH) {
-            return .{ .distance = nm.distance, .length = capped };
-        }
-    }
-    return null;
-}
-
-/// Peek at matches at a position without updating the hash chain.
-/// Used for lazy matching lookahead.
-fn peekMatch(mf: *MatchFinder, pos: usize, remaining: u32) ?Match {
-    if (pos + MIN_MATCH > mf.data.len) return null;
-
-    const h = MatchFinder.hash4(mf.data, pos);
-    const head_entry = mf.head4[h];
-
-    // Search chain without inserting
-    var best_len: u32 = MIN_MATCH - 1;
-    var best_dist: u32 = 0;
-    var cur = head_entry;
-    var depth: u32 = 0;
-
-    while (cur > 0 and depth < 32) : (depth += 1) {
-        const match_pos = cur - 1;
-        if (pos < match_pos) break;
-        const dist = @as(u32, @intCast(pos - match_pos));
-        if (dist > mf.dict_size) break;
-
-        if (best_len >= MIN_MATCH and mf.data[match_pos + best_len] != mf.data[pos + best_len]) {
-            cur = mf.chain[match_pos];
-            continue;
-        }
-
-        const max_len = @min(MAX_MATCH, @min(remaining, @as(u32, @intCast(mf.data.len - pos))));
-        var len: u32 = 0;
-        while (len < max_len and mf.data[match_pos + len] == mf.data[pos + len]) {
-            len += 1;
-        }
-
-        if (len > best_len) {
-            best_len = len;
-            best_dist = dist - 1;
-            if (len >= 64) break;
-        }
-
-        cur = mf.chain[match_pos];
-    }
-
-    if (best_len >= MIN_MATCH) {
-        return .{ .distance = best_dist, .length = best_len };
-    }
-    return null;
 }
 
 // ============================================================================
