@@ -1,5 +1,8 @@
 # z7z
 
+[![CI](https://github.com/pmarreck/z7z/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/z7z/actions/workflows/ci.yml)
+[![Garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fpmarreck%2Fz7z%3Fbranch%3Dyolo)](https://garnix.io)
+
 A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives that are fully interoperable with the reference `7-Zip` implementation.
 
 ## Features

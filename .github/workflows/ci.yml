@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [yolo]
+  pull_request:
+    branches: [yolo]
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: Linux x86_64
+          - os: macos-14
+            name: macOS aarch64
+          - os: windows-latest
+            name: Windows x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.15.2"
+
+      - name: Build
+        run: zig build
+
+      - name: Test
+        run: zig build test
+
+  cross:
+    name: Cross ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-linux
+          - target: aarch64-windows
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.15.2"
+
+      - name: Build (${{ matrix.target }})
+        run: zig build -Dtarget=${{ matrix.target }}

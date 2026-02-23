@@ -12,6 +12,11 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#ifdef _WIN32
+#include <direct.h>
+#define mkdir(path, mode) _mkdir(path)
+#endif
+
 #include "z7z.h"
 
 static void usage(const char *prog) {
