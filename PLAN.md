@@ -129,3 +129,25 @@
   - Tunes MatchFinder.nice_len per-chunk: 128/64/32/16 based on entropy thresholds
   - Benefit: ~10% better compression on mixed-file directory archives
   - Cost: added complexity, no improvement on single-file benchmarks
+- [x] Birthtime (kCTime) + atime (kATime) support (~2026-02-24 EST)
+  - Zig core: ctime/atime fields in FileEntry, threaded through all createXxx()
+  - FFI: z7z_file_ctime()/z7z_file_atime() query functions, Z7zFileEntry extended
+  - CLI: --no-ctime (suppress birthtime), --atime (enable access time) flags
+  - macOS: capture via st_birthtimespec, restore via setattrlist ATTR_CMN_CRTIME
+  - Linux: capture via statx() STATX_BTIME (correctly uses birth time, not inode ctime)
+  - Birthtime on by default (unlike 7zz which stores wrong st_ctime)
+  - --no-ctime on extract warns if archive had no creation times
+  - 7zz interop verified: z7z archives with ctime pass `7zz t`, 7zz -mtc archives readable
+- [x] Extended attribute (xattr) preservation via custom property 0x7A (~2026-02-24 EST)
+  - Custom 7z property ID 0x7A ('z'): transparent to 7zz (skips unknown properties by size)
+  - Zig core: NID.xattr, FileInfo.xattrs, parseXattrProperty(), encodeXattrProperty()
+  - FFI: z7z_file_xattrs() query, FileEntry.xattrs, Z7zFileEntry extended
+  - CLI: capture/restore with blocklist (com.apple.quarantine, genstore, diskimages.*)
+  - Blob format: varint count, per-xattr varint:name_len + name + varint:val_len + val
+  - --no-xattr flag works on both create and extract
+  - List command shows [+xattr] marker for entries with xattr data
+  - macOS: listxattr/getxattr/setxattr with XATTR_NOFOLLOW
+  - Linux: llistxattr/lgetxattr/lsetxattr for symlink support
+  - com.apple.ResourceFork preserved (not on blocklist)
+  - 7zz validates z7z archives with 0x7A property ("Everything is Ok")
+  - 89 total CLI tests (20 new), all passing

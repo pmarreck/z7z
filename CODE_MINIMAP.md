@@ -47,11 +47,12 @@ LZMA2 compression encoder with forward optimal parser.
 
 ## src/archive.zig
 Archive-level create and read operations.
-- `FileEntry` — input struct with name, data, is_dir, is_symlink, mtime, win_attrib
+- `FileEntry` — input struct with name, data, is_dir, is_symlink, mtime, win_attrib, ctime, atime, xattrs
 - `ArchiveContents` — result struct with metadata + extracted file data
 - `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
   - Symlinks stored as data-bearing entries (target path as data, S_IFLNK in win_attrib)
+  - Threads ctime, atime, xattrs from FileEntry through to FileInfo for encoding
 - `read()` / `readWithPassword()` — archive extraction
   - Multi-folder support: iterates ALL folders with correct pack offset calculation
   - Per-folder file mapping via SubStreamInfo.num_unpack_per_folder
@@ -59,10 +60,24 @@ Archive-level create and read operations.
 
 ## src/metadata.zig
 7z header metadata parser and structures.
+- `FileInfo` — includes xattrs field (serialized blob, owned, freed in deinit)
 - `SubStreamInfo` — includes `num_unpack_per_folder` for multi-folder file assignment
 - `parseSubStreamsInfo()` — stores per-folder substream counts
+- `parseXattrProperty()` — parse custom 0x7A xattr blobs (BOOL_VECTOR2 + per-file varint+blob)
 - `decodeEncodedHeader()` — decompresses LZMA/LZMA2-compressed headers
 - `getFinalUnpackSize()` — finds unbound output stream in multi-coder pipelines
+
+## src/nid.zig
+7z property ID enum (NID constants from the 7z specification).
+- `Nid` enum — all standard property IDs (header, pack_info, folder, etc.)
+- `xattr = 0x7A` — custom z7z property for extended attribute blobs
+
+## src/encoder.zig
+7z header metadata encoder (writes FilesInfo properties).
+- `encodeFilesInfo()` — encodes names, empty streams, timestamps, attributes, xattrs
+- `encodeTimeProperty()` — encodes mtime/ctime/atime as FILETIME values with BOOL_VECTOR2
+- `encodeXattrProperty()` — encodes xattr blobs under custom NID 0x7A with BOOL_VECTOR2
+- `encodeWinAttrib()` — encodes win_attrib values with BOOL_VECTOR2
 
 ## src/codec.zig
 Codec dispatch: decompress packed data for a folder's coder pipeline.
@@ -80,36 +95,48 @@ C FFI boundary for z7z. All functions use C calling convention.
 - `z7z_file_is_dir` — check if entry is a directory (EmptyStream && !EmptyFile)
 - `z7z_file_is_symlink` — check if entry is a symlink (POSIX S_IFLNK in win_attrib upper bits)
 - `z7z_file_mtime` — get file mtime as Unix timestamp (FILETIME→Unix conversion)
+- `z7z_file_ctime` — get file creation/birth time as Unix timestamp
+- `z7z_file_atime` — get file access time as Unix timestamp
 - `z7z_file_attrib` — get file's win_attrib (POSIX mode in upper 16, Windows attrs in lower 16)
-- `z7z_create` — create archive from file entries (supports Z7Z_FLAG_DIRECTORY, Z7Z_FLAG_SYMLINK, mtime, win_attrib)
+- `z7z_file_xattrs` — get xattr blob pointer + length (NULL if none)
+- `z7z_create` — create archive from file entries (supports flags, mtime, ctime, atime, win_attrib, xattrs)
 - `z7z_close`, `z7z_free` — memory management
 - `z7z_error_string` — human-readable error messages
-- `Z7zFileEntry` — extern struct with name, data, data_len, flags, mtime, win_attrib
+- `Z7zFileEntry` — extern struct with name, data, data_len, flags, mtime, ctime, atime, win_attrib, xattrs, xattrs_len
 
 ## include/z7z.h
 C header for the FFI. Matches ffi.zig exports.
-- `z7z_file_entry` — struct with name, data, data_len, flags, mtime, win_attrib
+- `z7z_file_entry` — struct with name, data, data_len, flags, mtime, win_attrib, ctime, atime, xattrs, xattrs_len
 - `z7z_file_mtime()` — get file modification time as Unix timestamp
+- `z7z_file_ctime()` — get file creation/birth time as Unix timestamp
+- `z7z_file_atime()` — get file access time as Unix timestamp
 - `z7z_file_attrib()` — get file's win_attrib (POSIX mode<<16 | win_flags)
+- `z7z_file_xattrs()` — get xattr blob pointer + length
 - `z7z_file_is_symlink()` — query if archive entry is a symbolic link
 
 ## cli/main.c
 C CLI that dogfoods the FFI (list, extract, create commands).
-- `cmd_create` — accepts files, directories, and symlinks; `--dereference`/`-L` flag to follow symlinks
-  - Captures st_mtime and st_mode from lstat(), passes through FFI as mtime/win_attrib
+- `cmd_create` — accepts files, directories, and symlinks
+  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`
+  - Captures st_mtime, birthtime, atime, st_mode, xattrs from lstat()
 - `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets
-  - Restores file mtime via utimes(), permissions via chmod() from win_attrib POSIX bits
+  - Flags: `--no-ctime`, `--no-xattr`
+  - Restores permissions, mtime+atime via set_times(), birthtime via set_birthtime(), xattrs via restore_xattrs()
   - Deferred directory mtime restoration (deepest-first) to avoid clobbering by child writes
-- `cmd_list` — shows `<dir>` for directories, `<symlink>` with target for symbolic links
-- `win_attrib_from_mode()` — convert POSIX st_mode to 7z win_attrib format
-- `set_mtime()` — restore mtime via utimes()
+  - Warnings: --no-ctime with no ctime in archive, --no-xattr with xattr data present
+- `cmd_list` — shows `<dir>`, `<symlink>` with target, `[+xattr]` marker for xattr data
+- `capture_birthtime()` — macOS: st_birthtimespec; Linux: statx() STATX_BTIME; others: 0
+- `capture_atime()` — returns atime when --atime flag set
+- `set_birthtime()` — macOS: setattrlist ATTR_CMN_CRTIME
+- `capture_xattrs()` — serialize xattrs to blob (varint count + per-xattr name+value), applies blocklist
+- `restore_xattrs()` — deserialize blob and setxattr each entry
+- `xattr_is_blocked()` — blocklist: quarantine, genstore, diskimages.*
+- `set_times()` — restore mtime + optional atime via utimes()
 - `set_permissions()` — restore POSIX permissions from win_attrib upper bits via chmod()
-- `entry_list` — dynamic array for collecting file entries during directory walking
-- `entry_list_add_symlink()` — add symlink entry with target path, mtime, and win_attrib
+- `win_attrib_from_mode()` — convert POSIX st_mode to 7z win_attrib format
+- `entry_list` — dynamic array with xattr_bufs for directory walking
 - `walk_directory()` — recursive POSIX directory traversal using lstat() (preserves symlinks by default)
 - `symlink_target_is_safe()` — security check: rejects absolute paths and ../ traversal
-- `ensure_dir_recursive()` — mkdir -p equivalent
-- `ensure_parent_dir()` — creates parent directories for a file path
 
 ## build.zig
 Build configuration. Static lib + test step. ReleaseFast default.
