@@ -162,3 +162,26 @@
   - CLI: progress bar with rate/ETA on interactive terminals, summary stats on completion
   - isatty() check + --no-progress flag to suppress
   - 106 total CLI tests (7 new progress tests), all passing
+- [x] --password/-p flag for encrypted archive create/extract (~2026-02-24 EST)
+  - z7z_create_ex_pw() FFI export: LZMA2+AES when password set, plain LZMA2 otherwise
+  - CLI: -p/--password on create, extract, and list commands
+  - Wrong password / missing password → proper error handling
+  - 7zz interop verified for encrypted archives
+  - 114 total CLI tests (8 new encryption tests), all passing
+- [x] stdin/stdout support: - and @stdin/@stdout (~2026-02-24 EST)
+  - read_stdin() with dynamic buffer growth for piped archive input
+  - write_file() supports stdout path for archive output
+  - Works with create (output to stdout), extract (input from stdin), list (input from stdin)
+  - 120 total CLI tests (6 new stdio tests), all passing
+- [x] i18n groundwork with --lang flag and Z7Z_LANG env var (~2026-02-24 EST)
+  - English-only for now (groundwork for 30-language translations)
+  - --lang <code> flag overrides Z7Z_LANG env var which overrides locale detection
+  - Refactored flag parsing to support flags before and after command name
+  - 123 total CLI tests (3 new i18n tests), all passing
+
+## TODO
+- [ ] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
+- [ ] Actual i18n translations (30 languages) once textual UI is stable
+- [ ] `--simple` flag (suppress emoji + ANSI)
+- [ ] `--no-ansi`/`--no-color` flags
+- [ ] JSON output option for structured output

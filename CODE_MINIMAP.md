@@ -104,6 +104,7 @@ C FFI boundary for z7z. All functions use C calling convention.
 - `z7z_file_xattrs` — get xattr blob pointer + length (NULL if none)
 - `z7z_create` — create archive from file entries (supports flags, mtime, ctime, atime, win_attrib, xattrs)
 - `z7z_create_ex` — create with progress callback (fires per-chunk/block during compression)
+- `z7z_create_ex_pw` — create with password encryption + progress (LZMA2+AES when password set)
 - `z7z_open_ex` / `z7z_open_ex_pw` — open with progress callback (fires per-folder during decompression)
 - `z7z_close`, `z7z_free` — memory management
 - `z7z_error_string` — human-readable error messages
@@ -115,6 +116,7 @@ C header for the FFI. Matches ffi.zig exports.
 - `z7z_progress_fn` — progress callback typedef: (bytes_done, bytes_total, user_data)
 - `z7z_open_ex()` / `z7z_open_ex_pw()` — open with progress + optional password
 - `z7z_create_ex()` — create with progress callback
+- `z7z_create_ex_pw()` — create with password + progress
 - `z7z_file_mtime()` — get file modification time as Unix timestamp
 - `z7z_file_ctime()` — get file creation/birth time as Unix timestamp
 - `z7z_file_atime()` — get file access time as Unix timestamp
@@ -125,17 +127,20 @@ C header for the FFI. Matches ffi.zig exports.
 ## cli/main.c
 C CLI that dogfoods the FFI (list, extract, create commands).
 - `cmd_create` — accepts files, directories, and symlinks
-  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`
+  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`, `-p`/`--password`
   - Captures st_mtime, birthtime, atime, st_mode, xattrs from lstat()
   - Uses z7z_create_ex() with progress callback for compression progress bar + stats summary
 - `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets
-  - Flags: `--no-ctime`, `--no-xattr`
+  - Flags: `--no-ctime`, `--no-xattr`, `-p`/`--password`
   - Restores permissions, mtime+atime via set_times(), birthtime via set_birthtime(), xattrs via restore_xattrs()
   - Deferred directory mtime restoration (deepest-first) to avoid clobbering by child writes
   - Uses z7z_open_ex() with progress callback for decompression progress bar + stats summary
   - Warnings: --no-ctime with no ctime in archive, --no-xattr with xattr data present
 - `cmd_list` — shows `<dir>`, `<symlink>` with target, `[+xattr]` marker for xattr data
 - `progress_state` / `progress_callback()` — progress bar with rate/ETA, isatty() gated, --no-progress flag
+- `is_stdin_path()` / `is_stdout_path()` — check for `-` or `@stdin`/`@stdout` path aliases
+- `read_stdin()` — read all of stdin into dynamically growing buffer
+- `g_lang` — language selection: Z7Z_LANG env var, overridden by --lang flag (English default)
 - `capture_birthtime()` — macOS: st_birthtimespec; Linux: statx() STATX_BTIME; others: 0
 - `capture_atime()` — returns atime when --atime flag set
 - `set_birthtime()` — macOS: setattrlist ATTR_CMN_CRTIME
