@@ -161,8 +161,10 @@ const MatchFinder = struct {
     bt_right: []u32, // right child array
     data: []const u8,
     dict_size: u32,
+    nice_len: u32,
 
     const BT_DEPTH: u32 = 32;
+    const DEFAULT_NICE_LEN: u32 = 128;
 
     fn init(data: []const u8, dict_size: u32, allocator: std.mem.Allocator) !MatchFinder {
         const hash = try allocator.alloc(u32, HASH_SIZE);
@@ -183,6 +185,7 @@ const MatchFinder = struct {
             .bt_right = bt_right,
             .data = data,
             .dict_size = dict_size,
+            .nice_len = DEFAULT_NICE_LEN,
         };
     }
 
@@ -249,8 +252,6 @@ const MatchFinder = struct {
     /// Returns matches sorted by increasing length; each entry has the
     /// closest distance for that length level. The binary tree walk
     /// avoids re-comparing known-matching prefix bytes.
-    const NICE_LEN: u32 = 128;
-
     fn findMatches(self: *MatchFinder, pos: usize) MatchCandidates {
         var candidates = MatchCandidates{};
         if (pos + 3 >= self.data.len) return candidates;
@@ -337,7 +338,7 @@ const MatchFinder = struct {
                 candidates.add(.{ .distance = dist - 1, .length = common });
                 best_len = common;
                 // Early exit: max_len reached OR match is "nice enough"
-                if (common >= max_len or common >= NICE_LEN) {
+                if (common >= max_len or common >= self.nice_len) {
                     left_ptr.* = self.bt_left[match_pos];
                     right_ptr.* = self.bt_right[match_pos];
                     return candidates;
@@ -1016,23 +1017,79 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
         const this_chunk = @min(chunk_size, data.len - offset);
         const chunk_end = offset + this_chunk;
 
-        // Quick incompressibility probe: count unique byte values in first 2KB.
-        // If nearly all 256 possible values appear, data is high-entropy
-        // (random/encrypted) and LZMA encoding will only waste CPU time.
-        // This avoids running the expensive DP optimal parser on chunks that
-        // will inevitably fall back to uncompressed output anyway.
-        const probe_len = @min(@as(usize, 2048), this_chunk);
+        // === EXPERIMENTAL: Shannon entropy probe + adaptive nice_len ===
+        //
+        // Status: Kept but uncertain whether the benefit justifies the complexity.
+        //
+        // Idea: Measure per-chunk Shannon entropy H = -sum(p * log2(p)) to:
+        //   1. Skip LZMA encoding entirely for near-random data (H >= 7.9)
+        //   2. Tune MatchFinder.nice_len per-chunk based on data compressibility
+        //
+        // Results (2026-02-24 benchmarks):
+        //   - text_1m/text_4m: no speed change, no compression change (good)
+        //   - binary_1m: no change (incompressibility skip was already working)
+        //   - gauss_1m: no improvement (DP optimal parser is the real bottleneck)
+        //   - fake_tree: ~10% BETTER compression (50.2% vs 55.7%), ~10% slower
+        //
+        // Trade-off: One category benefits (mixed-file trees), others unchanged.
+        //   Pro: better compression on heterogeneous real-world directory archives
+        //   Con: added complexity (runtime nice_len, multi-window sampling, f64 math)
+        //
+        // Change sites (for rollback reference):
+        //   1. MatchFinder struct: `nice_len` field + DEFAULT_NICE_LEN constant (~line 164)
+        //   2. MatchFinder.init(): sets nice_len = DEFAULT_NICE_LEN (~line 188)
+        //   3. findMatches(): uses self.nice_len instead of const NICE_LEN (~line 341)
+        //   4. This block: Shannon entropy calculation + nice_len assignment (~line 1030)
+        //   5. encodeLzma1ChunkOptimal(): reads mf.nice_len into local (~line 1421)
+        //
+        // To revert: restore NICE_LEN as comptime const, remove nice_len field,
+        //   replace entropy probe with the simpler unique-byte-count check
+        //   (threshold: unique >= 250 out of 256 in first 2KB).
+        // ================================================================
+        const probe_window: usize = 2048;
+        const probe_len = @min(probe_window, this_chunk);
         if (probe_len >= 512) {
-            var byte_seen = [_]bool{false} ** 256;
-            var unique: u32 = 0;
-            for (0..probe_len) |pi| {
-                const b = data[offset + pi];
-                if (!byte_seen[b]) {
-                    byte_seen[b] = true;
-                    unique += 1;
+            // Sample up to 4 windows spread across the chunk
+            const num_probes: usize = if (this_chunk >= probe_window * 4) 4 else if (this_chunk >= probe_window * 2) 2 else 1;
+            var total_entropy: f64 = 0.0;
+
+            for (0..num_probes) |probe_idx| {
+                const probe_start = offset + (probe_idx * (this_chunk - probe_window)) / @max(num_probes - 1, 1);
+                const plen = @min(probe_window, data.len - probe_start);
+
+                var freq = [_]u32{0} ** 256;
+                for (0..plen) |pi| {
+                    freq[data[probe_start + pi]] += 1;
                 }
+
+                var entropy: f64 = 0.0;
+                const n: f64 = @floatFromInt(plen);
+                for (freq) |f| {
+                    if (f > 0) {
+                        const p: f64 = @as(f64, @floatFromInt(f)) / n;
+                        entropy -= p * @log2(p);
+                    }
+                }
+                total_entropy += entropy;
             }
-            if (unique >= 250) {
+
+            const avg_entropy = total_entropy / @as(f64, @floatFromInt(num_probes));
+
+            // Adaptive nice_len based on entropy:
+            // - Low entropy (<4 bits/byte): highly compressible, long matches likely → nice_len=128
+            // - Medium entropy (4-6): moderately compressible, some long matches → nice_len=64
+            // - High entropy (6-7.5): barely compressible, matches are short → nice_len=32
+            // - Very high (>7.5): near-random, matches are rare → skip or nice_len=16
+            mf.nice_len = if (avg_entropy < 4.0)
+                MatchFinder.DEFAULT_NICE_LEN // 128
+            else if (avg_entropy < 6.0)
+                64
+            else if (avg_entropy < 7.5)
+                32
+            else
+                16;
+
+            if (avg_entropy >= 7.9) {
                 // High entropy — but check if dictionary has cross-chunk matches.
                 // Repeated blocks of random data ARE compressible via dictionary carry.
                 // Probe a few positions: if HC3 finds verified 3-byte matches from
@@ -1382,7 +1439,7 @@ fn encodeLzma1ChunkOptimal(
     }
 
     // Forward DP pass
-    const NICE_LEN: u32 = 128;
+    const nice_len = mf.nice_len;
     var skip_until: usize = 0;
     var i: usize = 0;
     while (i < chunk_len) : (i += 1) {
@@ -1558,7 +1615,7 @@ fn encodeLzma1ChunkOptimal(
             // negligible for matches >= nice_len
             if (matches.len > 0) {
                 const longest = matches[matches.len - 1].length;
-                if (longest >= NICE_LEN and i + longest <= chunk_len) {
+                if (longest >= nice_len and i + longest <= chunk_len) {
                     skip_until = i + longest;
                 }
             }

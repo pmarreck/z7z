@@ -109,4 +109,9 @@
   - 5 new CLI tests: non-solid 3-file extraction, solid multi-block extraction
   - Verified against real-world 107MB archive (16905 files, 2 folders, BCJ+LZMA2)
 - [ ] Symlink support (reading + writing symlinks as 7z stores them)
-- [ ] Shannon entropy adaptive nice_len (uncommitted — decision pending)
+- [x] Shannon entropy adaptive nice_len (~2026-02-24 EST)
+  - Kept as experimental: documented trade-offs and rollback sites in code
+  - Replaces unique-byte-count probe with multi-window Shannon entropy
+  - Tunes MatchFinder.nice_len per-chunk: 128/64/32/16 based on entropy thresholds
+  - Benefit: ~10% better compression on mixed-file directory archives
+  - Cost: added complexity, no improvement on single-file benchmarks
