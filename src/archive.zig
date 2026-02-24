@@ -1048,6 +1048,64 @@ test "archive: symlink LZMA2 roundtrip" {
     try std.testing.expectEqualStrings("content", contents.file_data[2]);
 }
 
+test "archive: metadata roundtrip — mtime preserved" {
+    const allocator = std.testing.allocator;
+
+    // 2024-01-15 12:00:00 UTC as NTFS FILETIME
+    // FILETIME = (unix_ts + 11644473600) * 10_000_000
+    const test_mtime: u64 = (1705320000 + 11644473600) * 10_000_000;
+
+    const files = [_]FileEntry{
+        .{ .name = "timestamped.txt", .data = "hello", .mtime = test_mtime },
+        .{ .name = "no_mtime.txt", .data = "world" },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), contents.metadata.files.len);
+
+    // File with mtime: must be preserved
+    const f0 = contents.metadata.files[0];
+    try std.testing.expectEqualStrings("timestamped.txt", f0.name.?);
+    if (f0.mtime) |m| {
+        try std.testing.expectEqual(test_mtime, m);
+    } else {
+        return error.TestUnexpectedResult; // mtime must round-trip
+    }
+
+    // File without mtime: should remain null
+    // (or be set to something — just verify it doesn't crash)
+    _ = contents.metadata.files[1].mtime;
+}
+
+test "archive: metadata roundtrip — win_attrib preserved for regular files" {
+    const allocator = std.testing.allocator;
+
+    // POSIX 0644 regular file: (0x81A4 << 16) | 0x8020
+    const test_attrib: u32 = 0x81A48020;
+
+    const files = [_]FileEntry{
+        .{ .name = "perms.txt", .data = "data", .win_attrib = test_attrib },
+    };
+
+    const archive_data = try createWithMethod(&files, .copy, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    const f0 = contents.metadata.files[0];
+    if (f0.win_attrib) |attr| {
+        try std.testing.expectEqual(test_attrib, attr);
+    } else {
+        return error.TestUnexpectedResult; // win_attrib must round-trip
+    }
+}
+
 test "archive: reject bad signature" {
     const allocator = std.testing.allocator;
     const bad = [_]u8{0} ** 32;

@@ -151,6 +151,29 @@ export fn z7z_file_is_symlink(handle: ?*const ArchiveHandle, index: usize) c_int
 	return if ((attr >> 16) & 0xF000 == 0xA000) 1 else 0;
 }
 
+// NTFS FILETIME epoch offset: 100ns intervals between 1601-01-01 and 1970-01-01
+const FILETIME_EPOCH_OFFSET: u64 = 11644473600;
+
+/// Get file's modification time as Unix timestamp (seconds since epoch).
+/// Returns 0 if mtime not stored or on error.
+export fn z7z_file_mtime(handle: ?*const ArchiveHandle, index: usize) i64 {
+	const h = handle orelse return 0;
+	if (index >= h.contents.metadata.files.len) return 0;
+	const ft = h.contents.metadata.files[index].mtime orelse return 0;
+	// Convert NTFS FILETIME (100ns since 1601) to Unix timestamp (seconds since 1970)
+	const ticks_per_sec: u64 = 10_000_000;
+	if (ft < FILETIME_EPOCH_OFFSET * ticks_per_sec) return 0;
+	return @intCast((ft / ticks_per_sec) - FILETIME_EPOCH_OFFSET);
+}
+
+/// Get file's win_attrib (POSIX mode in upper 16, Windows attrs in lower 16).
+/// Returns 0 if not stored or on error.
+export fn z7z_file_attrib(handle: ?*const ArchiveHandle, index: usize) u32 {
+	const h = handle orelse return 0;
+	if (index >= h.contents.metadata.files.len) return 0;
+	return h.contents.metadata.files[index].win_attrib orelse 0;
+}
+
 /// Close an archive and free all associated memory.
 export fn z7z_close(handle: ?*ArchiveHandle) void {
 	const h = handle orelse return;
@@ -163,6 +186,8 @@ pub const Z7zFileEntry = extern struct {
 	data: ?[*]const u8,
 	data_len: usize,
 	flags: u32,
+	mtime: i64, // Unix timestamp (0 = not set)
+	win_attrib: u32, // POSIX mode<<16 | win_flags (0 = not set)
 };
 
 const Z7Z_FLAG_DIRECTORY: u32 = 0x01;
@@ -199,11 +224,20 @@ export fn z7z_create(
 		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
 		const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
 		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
+		// Convert Unix timestamp to NTFS FILETIME (or null if 0)
+		const mtime: ?u64 = if (cf.mtime > 0)
+			(@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
+		// Map win_attrib (0 = not set)
+		const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
 		zig_files[i] = .{
 			.name = cf.name[0..name_len],
 			.data = data_slice,
 			.is_dir = is_dir,
 			.is_symlink = is_symlink,
+			.mtime = mtime,
+			.win_attrib = attrib,
 		};
 	}
 
@@ -297,6 +331,8 @@ test "ffi: null handle safety" {
 	try std.testing.expectEqual(@as(usize, 0), z7z_file_size(null, 0));
 	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_dir(null, 0));
 	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_symlink(null, 0));
+	try std.testing.expectEqual(@as(i64, 0), z7z_file_mtime(null, 0));
+	try std.testing.expectEqual(@as(u32, 0), z7z_file_attrib(null, 0));
 	z7z_close(null); // should not crash
 }
 
@@ -309,12 +345,16 @@ test "ffi: symlink create and query via FFI" {
 			.data = target,
 			.data_len = target.len,
 			.flags = Z7Z_FLAG_SYMLINK,
+			.mtime = 0,
+			.win_attrib = 0,
 		},
 		.{
 			.name = "real.txt",
 			.data = "hello",
 			.data_len = 5,
 			.flags = 0,
+			.mtime = 0,
+			.win_attrib = 0,
 		},
 	};
 
@@ -341,6 +381,38 @@ test "ffi: symlink create and query via FFI" {
 	// Second entry: regular file
 	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_symlink(handle, 1));
 	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_dir(handle, 1));
+}
+
+test "ffi: metadata roundtrip via FFI" {
+	const test_mtime: i64 = 1705320000; // 2024-01-15 12:00:00 UTC
+	const test_attrib: u32 = 0x81A48020; // POSIX 0644 regular file
+
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "meta.txt",
+			.data = "data",
+			.data_len = 4,
+			.flags = 0,
+			.mtime = test_mtime,
+			.win_attrib = test_attrib,
+		},
+	};
+
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	const rc = z7z_create(&entries, 1, &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	var handle: ?*ArchiveHandle = null;
+	const rc2 = z7z_open(out_data.?, out_len, &handle);
+	try std.testing.expectEqual(Z7Z_OK, rc2);
+	defer z7z_close(handle);
+
+	// mtime should roundtrip through FILETIME conversion
+	try std.testing.expectEqual(test_mtime, z7z_file_mtime(handle, 0));
+	// win_attrib should roundtrip exactly
+	try std.testing.expectEqual(test_attrib, z7z_file_attrib(handle, 0));
 }
 
 test "ffi: open with invalid data returns error" {

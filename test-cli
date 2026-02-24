@@ -55,6 +55,15 @@ assert_is_symlink() {
 	if [ -L "$2" ]; then pass "$1"; else fail "$1 (not a symlink)"; fi
 }
 
+# Cross-platform stat helpers (GNU coreutils in nix first, then BSD fallback)
+get_mtime() {
+	stat -c "%Y" "$1" 2>/dev/null || stat -f "%m" "$1" 2>/dev/null
+}
+
+get_perms() {
+	stat -c "%a" "$1" 2>/dev/null || stat -f "%Lp" "$1" 2>/dev/null
+}
+
 # Build first
 echo "Building z7z..."
 zig build
@@ -435,6 +444,118 @@ if [ -L "$TMPDIR/out_evil/evil/pwned" ]; then
 	fail "security: absolute symlink should be rejected"
 else
 	assert_contains "security: warns about absolute target" "$EXTRACT_OUT" "absolute"
+fi
+
+# ============================================================================
+# Test: metadata preservation — mtime roundtrip
+# ============================================================================
+echo ""
+echo "--- metadata: mtime preservation ---"
+
+mkdir -p "$TMPDIR/meta"
+echo -n "Metadata test content" > "$TMPDIR/meta/timed.txt"
+# Set a specific mtime: 2024-01-15 12:00:00 UTC
+touch -t 202401151200.00 "$TMPDIR/meta/timed.txt"
+ORIG_MTIME=$(get_mtime "$TMPDIR/meta/timed.txt")
+
+$Z7Z create "$TMPDIR/meta.7z" "$TMPDIR/meta"
+assert_file_exists "mtime: archive created" "$TMPDIR/meta.7z"
+
+mkdir -p "$TMPDIR/out_meta"
+$Z7Z extract "$TMPDIR/meta.7z" "$TMPDIR/out_meta"
+
+RESTORED_MTIME=$(get_mtime "$TMPDIR/out_meta/meta/timed.txt")
+if [ "$ORIG_MTIME" = "$RESTORED_MTIME" ]; then
+	pass "mtime: file timestamp preserved"
+else
+	fail "mtime: file timestamp preserved (orig=$ORIG_MTIME, got=$RESTORED_MTIME)"
+fi
+
+# ============================================================================
+# Test: metadata preservation — permissions roundtrip
+# ============================================================================
+echo ""
+echo "--- metadata: permissions preservation ---"
+
+mkdir -p "$TMPDIR/perms"
+echo -n "Permission test" > "$TMPDIR/perms/secret.txt"
+chmod 0640 "$TMPDIR/perms/secret.txt"
+echo -n "Executable" > "$TMPDIR/perms/run.sh"
+chmod 0755 "$TMPDIR/perms/run.sh"
+
+$Z7Z create "$TMPDIR/perms.7z" "$TMPDIR/perms"
+assert_file_exists "perms: archive created" "$TMPDIR/perms.7z"
+
+mkdir -p "$TMPDIR/out_perms"
+$Z7Z extract "$TMPDIR/perms.7z" "$TMPDIR/out_perms"
+
+# Check permissions are restored (macOS stat -f vs Linux stat -c)
+ORIG_MODE_SECRET=$(get_perms "$TMPDIR/perms/secret.txt")
+RESTORED_MODE_SECRET=$(get_perms "$TMPDIR/out_perms/perms/secret.txt")
+if [ "$ORIG_MODE_SECRET" = "$RESTORED_MODE_SECRET" ]; then
+	pass "perms: 0640 file permissions preserved"
+else
+	fail "perms: 0640 file permissions preserved (orig=$ORIG_MODE_SECRET, got=$RESTORED_MODE_SECRET)"
+fi
+
+ORIG_MODE_EXEC=$(get_perms "$TMPDIR/perms/run.sh")
+RESTORED_MODE_EXEC=$(get_perms "$TMPDIR/out_perms/perms/run.sh")
+if [ "$ORIG_MODE_EXEC" = "$RESTORED_MODE_EXEC" ]; then
+	pass "perms: 0755 executable permissions preserved"
+else
+	fail "perms: 0755 executable permissions preserved (orig=$ORIG_MODE_EXEC, got=$RESTORED_MODE_EXEC)"
+fi
+
+# ============================================================================
+# Test: metadata preservation — directory mtime
+# ============================================================================
+echo ""
+echo "--- metadata: directory mtime ---"
+
+mkdir -p "$TMPDIR/dirmeta/sub"
+echo -n "content" > "$TMPDIR/dirmeta/sub/file.txt"
+# Set directory mtime to a specific time
+touch -t 202306010900.00 "$TMPDIR/dirmeta/sub"
+
+ORIG_DIR_MTIME=$(get_mtime "$TMPDIR/dirmeta/sub")
+
+$Z7Z create "$TMPDIR/dirmeta.7z" "$TMPDIR/dirmeta"
+
+mkdir -p "$TMPDIR/out_dirmeta"
+$Z7Z extract "$TMPDIR/dirmeta.7z" "$TMPDIR/out_dirmeta"
+
+RESTORED_DIR_MTIME=$(get_mtime "$TMPDIR/out_dirmeta/dirmeta/sub")
+if [ "$ORIG_DIR_MTIME" = "$RESTORED_DIR_MTIME" ]; then
+	pass "dirmeta: directory mtime preserved"
+else
+	fail "dirmeta: directory mtime preserved (orig=$ORIG_DIR_MTIME, got=$RESTORED_DIR_MTIME)"
+fi
+
+# ============================================================================
+# Test: 7zz → z7z metadata interop
+# ============================================================================
+echo ""
+echo "--- metadata: 7zz interop ---"
+
+if command -v 7zz &>/dev/null; then
+	mkdir -p "$TMPDIR/7zz_meta"
+	echo -n "7zz metadata test" > "$TMPDIR/7zz_meta/stamp.txt"
+	touch -t 202502010800.00 "$TMPDIR/7zz_meta/stamp.txt"
+	ORIG_7ZZ_MTIME=$(get_mtime "$TMPDIR/7zz_meta/stamp.txt")
+
+	7zz a "$TMPDIR/7zz_meta.7z" "$TMPDIR/7zz_meta/" > /dev/null
+
+	mkdir -p "$TMPDIR/out_7zz_meta"
+	$Z7Z extract "$TMPDIR/7zz_meta.7z" "$TMPDIR/out_7zz_meta"
+
+	RESTORED_7ZZ_MTIME=$(get_mtime "$TMPDIR/out_7zz_meta/7zz_meta/stamp.txt")
+	if [ "$ORIG_7ZZ_MTIME" = "$RESTORED_7ZZ_MTIME" ]; then
+		pass "7zz→z7z: mtime preserved"
+	else
+		fail "7zz→z7z: mtime preserved (orig=$ORIG_7ZZ_MTIME, got=$RESTORED_7ZZ_MTIME)"
+	fi
+else
+	echo "  SKIP: 7zz not found"
 fi
 
 # ============================================================================

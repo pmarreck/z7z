@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <dirent.h>
 #include <unistd.h>
 
@@ -242,7 +243,8 @@ static void entry_list_free(entry_list *list) {
 	free(list->names);
 }
 
-static int entry_list_add_dir(entry_list *list, const char *name) {
+static int entry_list_add_dir(entry_list *list, const char *name,
+                              int64_t mtime, uint32_t win_attrib) {
 	if (list->count >= list->capacity && entry_list_grow(list) != 0) return 1;
 	size_t idx = list->count;
 	list->names[idx] = strdup(name);
@@ -252,12 +254,15 @@ static int entry_list_add_dir(entry_list *list, const char *name) {
 	list->entries[idx].data = NULL;
 	list->entries[idx].data_len = 0;
 	list->entries[idx].flags = Z7Z_FLAG_DIRECTORY;
+	list->entries[idx].mtime = mtime;
+	list->entries[idx].win_attrib = win_attrib;
 	list->count++;
 	return 0;
 }
 
 static int entry_list_add_file(entry_list *list, const char *name,
-                               uint8_t *data, size_t data_len) {
+                               uint8_t *data, size_t data_len,
+                               int64_t mtime, uint32_t win_attrib) {
 	if (list->count >= list->capacity && entry_list_grow(list) != 0) return 1;
 	size_t idx = list->count;
 	list->names[idx] = strdup(name);
@@ -267,12 +272,15 @@ static int entry_list_add_file(entry_list *list, const char *name,
 	list->entries[idx].data = data;
 	list->entries[idx].data_len = data_len;
 	list->entries[idx].flags = 0;
+	list->entries[idx].mtime = mtime;
+	list->entries[idx].win_attrib = win_attrib;
 	list->count++;
 	return 0;
 }
 
 static int entry_list_add_symlink(entry_list *list, const char *name,
-                                  const char *target) {
+                                  const char *target,
+                                  int64_t mtime, uint32_t win_attrib) {
 	if (list->count >= list->capacity && entry_list_grow(list) != 0) return 1;
 	size_t idx = list->count;
 	list->names[idx] = strdup(name);
@@ -284,8 +292,46 @@ static int entry_list_add_symlink(entry_list *list, const char *name,
 	list->entries[idx].data = list->bufs[idx];
 	list->entries[idx].data_len = tlen;
 	list->entries[idx].flags = Z7Z_FLAG_SYMLINK;
+	list->entries[idx].mtime = mtime;
+	list->entries[idx].win_attrib = win_attrib;
 	list->count++;
 	return 0;
+}
+
+/* ========================================================================== */
+/* Metadata helpers                                                           */
+/* ========================================================================== */
+
+/* Compute win_attrib from POSIX st_mode: (st_mode << 16) | 0x8020.
+ * 0x8000 = POSIX bits present, 0x0020 = ARCHIVE flag.
+ * For directories, also sets FILE_ATTRIBUTE_DIRECTORY (0x10). */
+static uint32_t win_attrib_from_mode(mode_t mode) {
+	uint32_t attrib = ((uint32_t)mode << 16) | 0x8020;
+	if (S_ISDIR(mode))
+		attrib |= 0x10; /* FILE_ATTRIBUTE_DIRECTORY */
+	return attrib;
+}
+
+/* Set file mtime using utimes(). Returns 0 on success. */
+static int set_mtime(const char *path, int64_t unix_ts) {
+	if (unix_ts <= 0) return 0;
+	struct timeval tv[2];
+	tv[0].tv_sec = (time_t)unix_ts;  /* atime */
+	tv[0].tv_usec = 0;
+	tv[1].tv_sec = (time_t)unix_ts;  /* mtime */
+	tv[1].tv_usec = 0;
+	return utimes(path, tv);
+}
+
+/* Set file permissions from win_attrib (POSIX mode in upper 16 bits).
+ * Only sets if POSIX bits are present (0x8000 flag in lower word). */
+static int set_permissions(const char *path, uint32_t attrib) {
+	if (attrib == 0) return 0;
+	/* Check for POSIX_PRESENT flag */
+	if (!(attrib & 0x8000)) return 0;
+	mode_t mode = (mode_t)(attrib >> 16) & 07777; /* permission bits only */
+	if (mode == 0) return 0;
+	return chmod(path, mode);
 }
 
 /* ========================================================================== */
@@ -294,7 +340,7 @@ static int entry_list_add_symlink(entry_list *list, const char *name,
 
 /* Read symlink target and add as entry. Returns 0 on success. */
 static int add_symlink_entry(entry_list *list, const char *fs_path,
-                             const char *archive_name) {
+                             const char *archive_name, const struct stat *st) {
 	char target[4096];
 	ssize_t tlen = readlink(fs_path, target, sizeof(target) - 1);
 	if (tlen < 0) {
@@ -303,7 +349,8 @@ static int add_symlink_entry(entry_list *list, const char *fs_path,
 		return 1;
 	}
 	target[tlen] = '\0';
-	return entry_list_add_symlink(list, archive_name, target);
+	return entry_list_add_symlink(list, archive_name, target,
+	                              (int64_t)st->st_mtime, win_attrib_from_mode(st->st_mode));
 }
 
 static int walk_directory(entry_list *list, const char *fs_path,
@@ -334,7 +381,7 @@ static int walk_directory(entry_list *list, const char *fs_path,
 
 		if (S_ISLNK(st.st_mode) && !g_dereference) {
 			/* Symlink — store as link */
-			if (add_symlink_entry(list, full_path, rel_path) != 0) {
+			if (add_symlink_entry(list, full_path, rel_path, &st) != 0) {
 				closedir(d);
 				return 1;
 			}
@@ -349,7 +396,9 @@ static int walk_directory(entry_list *list, const char *fs_path,
 			if (S_ISDIR(target_st.st_mode)) {
 				char dir_name[4096];
 				snprintf(dir_name, sizeof(dir_name), "%s/", rel_path);
-				if (entry_list_add_dir(list, dir_name) != 0) {
+				if (entry_list_add_dir(list, dir_name,
+				                       (int64_t)target_st.st_mtime,
+				                       win_attrib_from_mode(target_st.st_mode)) != 0) {
 					closedir(d);
 					return 1;
 				}
@@ -364,7 +413,9 @@ static int walk_directory(entry_list *list, const char *fs_path,
 					closedir(d);
 					return 1;
 				}
-				if (entry_list_add_file(list, rel_path, data, flen) != 0) {
+				if (entry_list_add_file(list, rel_path, data, flen,
+				                        (int64_t)target_st.st_mtime,
+				                        win_attrib_from_mode(target_st.st_mode)) != 0) {
 					free(data);
 					closedir(d);
 					return 1;
@@ -373,7 +424,9 @@ static int walk_directory(entry_list *list, const char *fs_path,
 		} else if (S_ISDIR(st.st_mode)) {
 			char dir_name[4096];
 			snprintf(dir_name, sizeof(dir_name), "%s/", rel_path);
-			if (entry_list_add_dir(list, dir_name) != 0) {
+			if (entry_list_add_dir(list, dir_name,
+			                       (int64_t)st.st_mtime,
+			                       win_attrib_from_mode(st.st_mode)) != 0) {
 				closedir(d);
 				return 1;
 			}
@@ -388,7 +441,9 @@ static int walk_directory(entry_list *list, const char *fs_path,
 				closedir(d);
 				return 1;
 			}
-			if (entry_list_add_file(list, rel_path, data, flen) != 0) {
+			if (entry_list_add_file(list, rel_path, data, flen,
+			                        (int64_t)st.st_mtime,
+			                        win_attrib_from_mode(st.st_mode)) != 0) {
 				free(data);
 				closedir(d);
 				return 1;
@@ -472,6 +527,14 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 	size_t count = z7z_file_count(ar);
 	int errors = 0;
 
+	/* Track directory paths and their mtimes for deferred restoration.
+	 * Directory mtime must be set AFTER all contents are extracted,
+	 * because writing files inside a dir updates its mtime. */
+	char **dir_paths = NULL;
+	int64_t *dir_mtimes = NULL;
+	size_t dir_count = 0;
+	size_t dir_cap = 0;
+
 	for (size_t i = 0; i < count; i++) {
 		const char *name = z7z_file_name(ar, i);
 		if (!name) {
@@ -493,6 +556,28 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 				errors++;
 			} else {
 				printf("  %s (directory)\n", name);
+				/* Defer directory mtime restoration */
+				int64_t mt = z7z_file_mtime(ar, i);
+				if (mt > 0) {
+					if (dir_count >= dir_cap) {
+						size_t new_cap = dir_cap == 0 ? 16 : dir_cap * 2;
+						char **np = realloc(dir_paths, new_cap * sizeof(char *));
+						int64_t *nm = realloc(dir_mtimes, new_cap * sizeof(int64_t));
+						if (np && nm) {
+							dir_paths = np;
+							dir_mtimes = nm;
+							dir_cap = new_cap;
+						}
+					}
+					if (dir_count < dir_cap) {
+						dir_paths[dir_count] = strdup(out_path);
+						dir_mtimes[dir_count] = mt;
+						dir_count++;
+					}
+				}
+				/* Restore directory permissions */
+				uint32_t attrib = z7z_file_attrib(ar, i);
+				set_permissions(out_path, attrib);
 			}
 		} else if (z7z_file_is_symlink(ar, i)) {
 			/* Symlink entry — create symbolic link */
@@ -541,10 +626,24 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 					errors++;
 				} else {
 					printf("  %s (%zu bytes)\n", name, file_size);
+					/* Restore mtime and permissions */
+					int64_t mt = z7z_file_mtime(ar, i);
+					set_mtime(out_path, mt);
+					uint32_t attrib = z7z_file_attrib(ar, i);
+					set_permissions(out_path, attrib);
 				}
 			}
 		}
 	}
+
+	/* Restore directory mtimes in reverse order (deepest first),
+	 * so parent dirs don't get their mtime clobbered by child restoration. */
+	for (size_t i = dir_count; i > 0; i--) {
+		set_mtime(dir_paths[i - 1], dir_mtimes[i - 1]);
+		free(dir_paths[i - 1]);
+	}
+	free(dir_paths);
+	free(dir_mtimes);
 
 	z7z_close(ar);
 	return errors > 0 ? 1 : 0;
@@ -568,7 +667,7 @@ static int cmd_create(const char *archive_path, int file_count, char **file_path
 
 		if (S_ISLNK(st.st_mode) && !g_dereference) {
 			/* Top-level symlink argument — store as symlink */
-			if (add_symlink_entry(&list, file_paths[i], basename_of(file_paths[i])) != 0) {
+			if (add_symlink_entry(&list, file_paths[i], basename_of(file_paths[i]), &st) != 0) {
 				fprintf(stderr, "error: out of memory\n");
 				entry_list_free(&list);
 				return 1;
@@ -582,6 +681,8 @@ static int cmd_create(const char *archive_path, int file_count, char **file_path
 				entry_list_free(&list);
 				return 1;
 			}
+			/* Use target_st for metadata when dereferencing */
+			memcpy(&st, &target_st, sizeof(st));
 			if (S_ISDIR(target_st.st_mode)) {
 				goto handle_dir;
 			} else {
@@ -607,7 +708,9 @@ handle_dir:;
 			snprintf(prefix, sizeof(prefix), "%s/", dir_base);
 
 			/* Add the directory entry itself */
-			if (entry_list_add_dir(&list, prefix) != 0) {
+			if (entry_list_add_dir(&list, prefix,
+			                       (int64_t)st.st_mtime,
+			                       win_attrib_from_mode(st.st_mode)) != 0) {
 				fprintf(stderr, "error: out of memory\n");
 				entry_list_free(&list);
 				return 1;
@@ -627,7 +730,9 @@ handle_file:;
 				entry_list_free(&list);
 				return 1;
 			}
-			if (entry_list_add_file(&list, basename_of(file_paths[i]), data, flen) != 0) {
+			if (entry_list_add_file(&list, basename_of(file_paths[i]), data, flen,
+			                        (int64_t)st.st_mtime,
+			                        win_attrib_from_mode(st.st_mode)) != 0) {
 				fprintf(stderr, "error: out of memory\n");
 				free(data);
 				entry_list_free(&list);

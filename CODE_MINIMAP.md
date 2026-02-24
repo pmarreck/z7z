@@ -79,23 +79,33 @@ C FFI boundary for z7z. All functions use C calling convention.
 - `z7z_file_count`, `z7z_file_name`, `z7z_file_data`, `z7z_file_size` — query file entries
 - `z7z_file_is_dir` — check if entry is a directory (EmptyStream && !EmptyFile)
 - `z7z_file_is_symlink` — check if entry is a symlink (POSIX S_IFLNK in win_attrib upper bits)
-- `z7z_create` — create archive from file entries (supports Z7Z_FLAG_DIRECTORY, Z7Z_FLAG_SYMLINK)
+- `z7z_file_mtime` — get file mtime as Unix timestamp (FILETIME→Unix conversion)
+- `z7z_file_attrib` — get file's win_attrib (POSIX mode in upper 16, Windows attrs in lower 16)
+- `z7z_create` — create archive from file entries (supports Z7Z_FLAG_DIRECTORY, Z7Z_FLAG_SYMLINK, mtime, win_attrib)
 - `z7z_close`, `z7z_free` — memory management
 - `z7z_error_string` — human-readable error messages
-- `Z7zFileEntry` — extern struct with name, data, data_len, flags
+- `Z7zFileEntry` — extern struct with name, data, data_len, flags, mtime, win_attrib
 
 ## include/z7z.h
 C header for the FFI. Matches ffi.zig exports.
-- `z7z_file_entry` — struct with name, data, data_len, flags (Z7Z_FLAG_DIRECTORY = 0x01, Z7Z_FLAG_SYMLINK = 0x02)
+- `z7z_file_entry` — struct with name, data, data_len, flags, mtime, win_attrib
+- `z7z_file_mtime()` — get file modification time as Unix timestamp
+- `z7z_file_attrib()` — get file's win_attrib (POSIX mode<<16 | win_flags)
 - `z7z_file_is_symlink()` — query if archive entry is a symbolic link
 
 ## cli/main.c
 C CLI that dogfoods the FFI (list, extract, create commands).
 - `cmd_create` — accepts files, directories, and symlinks; `--dereference`/`-L` flag to follow symlinks
+  - Captures st_mtime and st_mode from lstat(), passes through FFI as mtime/win_attrib
 - `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets
+  - Restores file mtime via utimes(), permissions via chmod() from win_attrib POSIX bits
+  - Deferred directory mtime restoration (deepest-first) to avoid clobbering by child writes
 - `cmd_list` — shows `<dir>` for directories, `<symlink>` with target for symbolic links
+- `win_attrib_from_mode()` — convert POSIX st_mode to 7z win_attrib format
+- `set_mtime()` — restore mtime via utimes()
+- `set_permissions()` — restore POSIX permissions from win_attrib upper bits via chmod()
 - `entry_list` — dynamic array for collecting file entries during directory walking
-- `entry_list_add_symlink()` — add symlink entry with target path as data
+- `entry_list_add_symlink()` — add symlink entry with target path, mtime, and win_attrib
 - `walk_directory()` — recursive POSIX directory traversal using lstat() (preserves symlinks by default)
 - `symlink_target_is_safe()` — security check: rejects absolute paths and ../ traversal
 - `ensure_dir_recursive()` — mkdir -p equivalent

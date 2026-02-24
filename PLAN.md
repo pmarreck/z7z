@@ -116,6 +116,13 @@
   - CLI list: <symlink> display with target path
   - Broken symlink preservation, bidirectional 7zz interop verified
   - 62 CLI tests (7 new symlink tests), 2 new Zig unit tests, 2 new FFI tests
+- [x] Metadata preservation: mtime + POSIX permissions on create and extract (~2026-02-24 EST)
+  - FFI: z7z_file_mtime() and z7z_file_attrib() query functions, FILETIME↔Unix conversion
+  - z7z_file_entry struct extended with mtime (int64_t) and win_attrib (uint32_t)
+  - CLI create: captures st_mtime and st_mode from lstat(), encodes as FILETIME + POSIX-in-win_attrib
+  - CLI extract: restores mtime via utimes(), permissions via chmod(), deferred dir mtime
+  - 5 new CLI tests: file mtime, 0640 perms, 0755 perms, directory mtime, 7zz→z7z mtime interop
+  - 69 total CLI tests, all passing
 - [x] Shannon entropy adaptive nice_len (~2026-02-24 EST)
   - Kept as experimental: documented trade-offs and rollback sites in code
   - Replaces unique-byte-count probe with multi-window Shannon entropy
