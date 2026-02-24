@@ -54,6 +54,8 @@
             pkgs.zig
             pkgs._7zz
             pkgs.hyperfine
+            pkgs.luajit
+            pkgs.jq
           ];
 
           shellHook = ''

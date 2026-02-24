@@ -36,7 +36,7 @@ if [ ! -f "$Z7Z" ]; then
 fi
 
 # Check prerequisites
-for cmd in hyperfine 7zz jq; do
+for cmd in hyperfine 7zz jq luajit random; do
 	if ! command -v "$cmd" &>/dev/null; then
 		echo -e "${RED}ERROR: $cmd not found. Run inside nix develop.${RESET}" >&2
 		exit 1
@@ -76,39 +76,26 @@ generate_text() {
 	echo -n "${buf:0:$size}" > "$outfile"
 }
 
-# Deterministic pseudo-random bytes via dd + /dev/urandom isn't reproducible,
-# so use head on a known-seed source. We generate raw bytes with printf + octal.
-generate_binary() {
-	local size=$1 outfile=$2
-	# Use LC_ALL=C to force single-byte locale, ensuring printf %c is one byte
-	LC_ALL=C awk -v size="$size" 'BEGIN {
-		seed = 314159265
-		for (i = 0; i < size; i++) {
-			seed = (seed * 1103515245 + 12345) % 2147483648
-			printf "%c", int(seed / 65536) % 256
-		}
-	}' > "$outfile"
-}
-
 TEXT_1M="$BM_TMPDIR/text_1m.txt"
 TEXT_4M="$BM_TMPDIR/text_4m.txt"
 BIN_1M="$BM_TMPDIR/binary_1m.bin"
+GAUSS_1M="$BM_TMPDIR/gauss_1m.bin"
 
 generate_text 1187840 "$TEXT_1M"  # 1.16MB (1160KB)
 generate_text 4194304 "$TEXT_4M"  # 4MB
-generate_binary 1048576 "$BIN_1M" # 1MB
 
-# Verify binary file size (awk %c can produce multi-byte in some locales)
-actual_bin_size=$(wc -c < "$BIN_1M" | tr -d ' ')
-if [ "$actual_bin_size" -ne 1048576 ]; then
-	echo -e "${YELLOW}NOTE: Binary file is ${actual_bin_size} bytes (expected 1048576), truncating${RESET}"
-	dd if="$BIN_1M" of="$BM_TMPDIR/binary_1m_trunc.bin" bs=1048576 count=1 2>/dev/null
-	mv "$BM_TMPDIR/binary_1m_trunc.bin" "$BIN_1M"
-fi
+# Deterministic pseudo-random binary (uniform distribution via `random`)
+random --seed 314159 -b -c 1048576 > "$BIN_1M"
 
-echo -e "  ${CYAN}text_1m.txt${RESET}  $(wc -c < "$TEXT_1M" | tr -d ' ') bytes (1.16MB prose)"
-echo -e "  ${CYAN}text_4m.txt${RESET}  $(wc -c < "$TEXT_4M" | tr -d ' ') bytes (4MB prose)"
-echo -e "  ${CYAN}binary_1m.bin${RESET} $(wc -c < "$BIN_1M" | tr -d ' ') bytes (1MB pseudo-random)"
+# Semi-compressible: gaussian byte distribution (narrow stddev = many repeated values)
+random --seed 271828 -b -c 1048576 --normalized --mean 128 --stddev 20 > "$GAUSS_1M"
+
+# TODO: Add gen-fake-tree multi-file benchmark once z7z supports directory input
+
+echo -e "  ${CYAN}text_1m.txt${RESET}  $(wc -c < "$TEXT_1M" | tr -d ' ') bytes (1.16MB repeating prose)"
+echo -e "  ${CYAN}text_4m.txt${RESET}  $(wc -c < "$TEXT_4M" | tr -d ' ') bytes (4MB repeating prose)"
+echo -e "  ${CYAN}binary_1m.bin${RESET} $(wc -c < "$BIN_1M" | tr -d ' ') bytes (1MB uniform random)"
+echo -e "  ${CYAN}gauss_1m.bin${RESET}  $(wc -c < "$GAUSS_1M" | tr -d ' ') bytes (1MB gaussian, semi-compressible)"
 echo ""
 
 # ============================================================================
@@ -264,6 +251,7 @@ run_benchmark_group() {
 run_benchmark_group "$TEXT_1M" "text_1m"
 run_benchmark_group "$TEXT_4M" "text_4m"
 run_benchmark_group "$BIN_1M" "binary_1m"
+run_benchmark_group "$GAUSS_1M" "gauss_1m"
 
 # ============================================================================
 # Summary

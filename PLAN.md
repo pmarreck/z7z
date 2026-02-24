@@ -83,3 +83,13 @@
 - [x] Microbenchmark regression guard in lzma2_encoder.zig (~2026-02-23 EST)
   - 256KB deterministic compress, fails if >25% slower than 150ms baseline
   - Runs as part of `./test` to catch algorithmic regressions automatically
+
+## Phase 9: Feature Completion
+- [ ] Directory input support for `create` command (recursive file collection)
+  - Currently only accepts individual files; needed for gen-fake-tree benchmarks
+  - 7zz supports: `7zz a archive.7z directory/`
+  - z7z should match: `z7z create archive.7z directory/`
+  - Must store both file AND directory metadata (timestamps, attributes, empty dirs)
+  - 7z format supports directory entries in FilesInfo with EmptyStream/EmptyFile markers
+- [ ] Multi-file benchmark using gen-fake-tree (after directory support lands)
+- [ ] Performance on incompressible data (113ms vs 7zz's 63ms on 1MB random)

@@ -43,11 +43,12 @@ LZMA2 compression encoder with forward optimal parser.
 Build configuration. Static lib + test step. ReleaseFast default.
 
 ## flake.nix
-Nix devShell: zig 0.15.x, 7zz (oracle), hyperfine.
+Nix devShell: zig 0.15.x, 7zz (oracle), hyperfine, luajit, jq.
 
 ## bm
-Benchmark script (Bash). Uses hyperfine to compare z7z vs 7zz reference on 3 data files.
-- Generates deterministic test data in $TMPDIR (1.16MB text, 4MB text, 1MB binary)
+Benchmark script (Bash). Uses hyperfine to compare z7z vs 7zz reference on 4 data files.
+- Generates deterministic test data in $TMPDIR via `random` (LuaJIT):
+  - 1.16MB repeating prose, 4MB prose, 1MB uniform random, 1MB gaussian (semi-compressible)
 - Runs 3-way comparison: z7z auto, 7zz single-threaded, 7zz multi-threaded
 - Shows compression ratios, validates interop, checks for debug builds
 - Logs timestamped results to `tests/benchmark/benchmark.log`
