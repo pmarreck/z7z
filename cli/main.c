@@ -54,6 +54,7 @@ static int g_no_xattr = 0;
 static int g_verbose = 0;
 static int g_no_progress = 0;
 static const char *g_password = NULL;
+static const char *g_lang = "en";  /* default language; overridden by Z7Z_LANG or --lang */
 
 /* ============================================================================
  * Progress bar
@@ -158,6 +159,7 @@ static void usage(const char *prog) {
 		"  -v, --verbose         Show individual file names during extract/create\n"
 		"  --no-progress         Suppress progress indication\n"
 		"  -p, --password <pw>   Encrypt/decrypt archive with password\n"
+		"  --lang <code>         Set language (overrides Z7Z_LANG env var)\n"
 		"\n"
 		"Create options:\n"
 		"  -L, --dereference     Follow symbolic links\n"
@@ -1327,7 +1329,7 @@ static int parse_flag(const char *arg) {
 }
 
 int main(int argc, char **argv) {
-	/* Handle --help, --about, --version anywhere in args */
+	/* Handle --help, --about, --version, --lang anywhere in args */
 	for (int i = 1; i < argc; i++) {
 		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
 			usage(argv[0]);
@@ -1337,6 +1339,9 @@ int main(int argc, char **argv) {
 			about();
 			return 0;
 		}
+		if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
+			g_lang = argv[++i];  /* consumed here; also picked up in flag loop */
+		}
 	}
 
 	if (argc < 2) {
@@ -1344,14 +1349,47 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	const char *cmd = argv[1];
+	/* Detect language from Z7Z_LANG env var (overridden by --lang) */
+	const char *env_lang = getenv("Z7Z_LANG");
+	if (env_lang && env_lang[0]) g_lang = env_lang;
 
-	/* Parse flags (skip command name at argv[1]) */
-	int arg_start = 2;
-	for (int i = 2; i < argc; i++) {
+	/* Find command and parse all flags (flags can appear before or after command).
+	 * First non-flag argument is the command name. */
+	const char *cmd = NULL;
+	int cmd_idx = 0;
+	for (int i = 1; i < argc; i++) {
 		if ((strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--password") == 0) && i + 1 < argc) {
 			g_password = argv[i + 1];
-			i++;  /* skip the value argument */
+			i++;
+		} else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
+			g_lang = argv[i + 1];
+			i++;
+		} else if (argv[i][0] == '-' && parse_flag(argv[i])) {
+			/* boolean flag consumed */
+		} else if (!cmd) {
+			cmd = argv[i];
+			cmd_idx = i;
+		} else {
+			break;  /* first non-flag after command found; stop flag parsing */
+		}
+	}
+
+	if (!cmd) {
+		usage(argv[0]);
+		return 1;
+	}
+
+	/* arg_start points to first positional arg after the command */
+	int arg_start = cmd_idx + 1;
+	/* Continue parsing flags after command too */
+	for (int i = arg_start; i < argc; i++) {
+		if ((strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--password") == 0) && i + 1 < argc) {
+			g_password = argv[i + 1];
+			i++;
+			arg_start = i + 1;
+		} else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
+			g_lang = argv[i + 1];
+			i++;
 			arg_start = i + 1;
 		} else if (argv[i][0] == '-' && parse_flag(argv[i])) {
 			arg_start = i + 1;

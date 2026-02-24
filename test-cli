@@ -1030,6 +1030,25 @@ cat "$TMPDIR/stdout.7z" | $Z7Z extract @stdin "$TMPDIR/atstdin_out" 2>/dev/null
 assert_files_equal "extract from @stdin matches" "$TMPDIR/stdio_in.txt" "$TMPDIR/atstdin_out/stdio_in.txt"
 
 # ============================================================================
+# i18n groundwork
+# ============================================================================
+echo ""
+echo "--- i18n: --lang flag accepted ---"
+# --lang en should work and not change output (English is default)
+LANG_OUT=$($Z7Z --lang en list "$TMPDIR/single.7z" 2>&1)
+assert_contains "lang en accepted" "$LANG_OUT" "Files:"
+
+echo ""
+echo "--- i18n: Z7Z_LANG env var ---"
+LANG_ENV=$(Z7Z_LANG=en $Z7Z list "$TMPDIR/single.7z" 2>&1)
+assert_contains "Z7Z_LANG env works" "$LANG_ENV" "Files:"
+
+echo ""
+echo "--- i18n: --lang overrides env ---"
+LANG_OVER=$(Z7Z_LANG=de $Z7Z --lang en list "$TMPDIR/single.7z" 2>&1)
+assert_contains "lang flag overrides env" "$LANG_OVER" "Files:"
+
+# ============================================================================
 # Progress / stats output
 # ============================================================================
 echo ""
