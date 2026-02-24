@@ -53,6 +53,7 @@ static int g_atime = 0;
 static int g_no_xattr = 0;
 static int g_verbose = 0;
 static int g_no_progress = 0;
+static const char *g_password = NULL;
 
 /* ============================================================================
  * Progress bar
@@ -152,20 +153,21 @@ static void usage(const char *prog) {
 		"  create, a     Create archive from files/directories\n"
 		"\n"
 		"General options:\n"
-		"  -h, --help        Show this help message\n"
-		"  --about           Show version, platform, and architecture\n"
-		"  -v, --verbose     Show individual file names during extract/create\n"
-		"  --no-progress     Suppress progress indication\n"
+		"  -h, --help            Show this help message\n"
+		"  --about               Show version, platform, and architecture\n"
+		"  -v, --verbose         Show individual file names during extract/create\n"
+		"  --no-progress         Suppress progress indication\n"
+		"  -p, --password <pw>   Encrypt/decrypt archive with password\n"
 		"\n"
 		"Create options:\n"
-		"  -L, --dereference Follow symbolic links\n"
-		"  --no-ctime        Don't store file creation/birth times\n"
-		"  --atime           Store file access times (off by default)\n"
-		"  --no-xattr        Don't store extended attributes\n"
+		"  -L, --dereference     Follow symbolic links\n"
+		"  --no-ctime            Don't store file creation/birth times\n"
+		"  --atime               Store file access times (off by default)\n"
+		"  --no-xattr            Don't store extended attributes\n"
 		"\n"
 		"Extract options:\n"
-		"  --no-ctime        Don't restore file creation/birth times\n"
-		"  --no-xattr        Don't restore extended attributes\n",
+		"  --no-ctime            Don't restore file creation/birth times\n"
+		"  --no-xattr            Don't restore extended attributes\n",
 		prog, prog, prog);
 }
 
@@ -872,7 +874,7 @@ static int cmd_list(const char *archive_path) {
 	if (!data) return 1;
 
 	z7z_archive *ar = NULL;
-	int rc = z7z_open(data, data_len, &ar);
+	int rc = z7z_open_ex_pw(data, data_len, g_password, NULL, NULL, &ar);
 	free(data);
 
 	if (rc != Z7Z_OK) {
@@ -922,7 +924,8 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 	progress_state_init(&ps, "Extracting");
 
 	z7z_archive *ar = NULL;
-	int rc = z7z_open_ex(data, data_len, progress_callback, &ps, &ar);
+	int rc = z7z_open_ex_pw(data, data_len, g_password,
+	                         progress_callback, &ps, &ar);
 	free(data);
 
 	if (rc != Z7Z_OK) {
@@ -1223,9 +1226,10 @@ handle_file:;
 
 	uint8_t *out_data = NULL;
 	size_t out_len = 0;
-	int rc = z7z_create_ex(list.entries, list.count,
-	                        progress_callback, &ps,
-	                        &out_data, &out_len);
+	int rc = z7z_create_ex_pw(list.entries, list.count,
+	                           g_password,
+	                           progress_callback, &ps,
+	                           &out_data, &out_len);
 	if (rc != Z7Z_OK) {
 		fprintf(stderr, "error: %s\n", z7z_error_string(rc));
 		entry_list_free(&list);
@@ -1284,7 +1288,11 @@ int main(int argc, char **argv) {
 	/* Parse flags (skip command name at argv[1]) */
 	int arg_start = 2;
 	for (int i = 2; i < argc; i++) {
-		if (argv[i][0] == '-' && parse_flag(argv[i])) {
+		if ((strcmp(argv[i], "-p") == 0 || strcmp(argv[i], "--password") == 0) && i + 1 < argc) {
+			g_password = argv[i + 1];
+			i++;  /* skip the value argument */
+			arg_start = i + 1;
+		} else if (argv[i][0] == '-' && parse_flag(argv[i])) {
 			arg_start = i + 1;
 		} else {
 			break;

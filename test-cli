@@ -944,6 +944,55 @@ else
 fi
 
 # ============================================================================
+# Password encryption
+# ============================================================================
+echo ""
+echo "--- encryption: password roundtrip ---"
+echo "secret data here" > "$TMPDIR/enc_input.txt"
+CREATE_ENC=$($Z7Z create -p testpass "$TMPDIR/enc.7z" "$TMPDIR/enc_input.txt" 2>&1)
+assert_contains "encrypted create succeeds" "$CREATE_ENC" "Created"
+
+# Extract without password should fail
+if $Z7Z extract "$TMPDIR/enc.7z" "$TMPDIR/enc_nopass" >/dev/null 2>&1; then
+	fail "extract without password should fail"
+else
+	pass "extract without password fails correctly"
+fi
+
+# Extract with correct password should succeed
+EXT_ENC=$($Z7Z extract -p testpass "$TMPDIR/enc.7z" "$TMPDIR/enc_out" 2>&1)
+assert_contains "encrypted extract succeeds" "$EXT_ENC" "Extracted"
+assert_files_equal "encrypted content matches" "$TMPDIR/enc_input.txt" "$TMPDIR/enc_out/enc_input.txt"
+
+# Wrong password should fail
+if $Z7Z extract -p wrongpass "$TMPDIR/enc.7z" "$TMPDIR/enc_wrong" >/dev/null 2>&1; then
+	fail "extract with wrong password should fail"
+else
+	pass "extract with wrong password fails correctly"
+fi
+
+echo ""
+echo "--- encryption: --password long form ---"
+ENC2=$($Z7Z create --password mypass "$TMPDIR/enc2.7z" "$TMPDIR/enc_input.txt" 2>&1)
+assert_contains "long form --password works" "$ENC2" "Created"
+EXT2=$($Z7Z extract --password mypass "$TMPDIR/enc2.7z" "$TMPDIR/enc2_out" 2>&1)
+assert_files_equal "long form decrypt matches" "$TMPDIR/enc_input.txt" "$TMPDIR/enc2_out/enc_input.txt"
+
+echo ""
+echo "--- encryption: 7zz interop ---"
+# z7z encrypted → 7zz should be able to extract
+if command -v 7zz &>/dev/null; then
+	7zz t -ptestpass "$TMPDIR/enc.7z" > /dev/null 2>&1
+	if [ $? -eq 0 ]; then
+		pass "7zz validates z7z encrypted archive"
+	else
+		fail "7zz cannot validate z7z encrypted archive"
+	fi
+else
+	echo "  SKIP: 7zz not available for interop test"
+fi
+
+# ============================================================================
 # Progress / stats output
 # ============================================================================
 echo ""

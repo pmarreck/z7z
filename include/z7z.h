@@ -131,6 +131,13 @@ int z7z_create_ex(const z7z_file_entry *files, size_t count,
                   z7z_progress_fn progress, void *user_data,
                   uint8_t **out_data, size_t *out_len);
 
+/* Create a .7z archive with optional password encryption and progress.
+ * Uses LZMA2+AES when password is non-NULL, plain LZMA2 otherwise. */
+int z7z_create_ex_pw(const z7z_file_entry *files, size_t count,
+                     const char *password,
+                     z7z_progress_fn progress, void *user_data,
+                     uint8_t **out_data, size_t *out_len);
+
 /* Free archive data returned by z7z_create / z7z_create_ex. */
 void z7z_free(uint8_t *data, size_t len);
 

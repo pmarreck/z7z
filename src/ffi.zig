@@ -435,6 +435,83 @@ export fn z7z_create_ex(
 	return Z7Z_OK;
 }
 
+/// Create a .7z archive with password encryption and progress reporting.
+/// Uses LZMA2+AES when password is non-null, plain LZMA2 otherwise.
+export fn z7z_create_ex_pw(
+	files: ?[*]const Z7zFileEntry,
+	count: usize,
+	password: ?[*:0]const u8,
+	progress_cb: ?z7z_progress_fn,
+	user_data: ?*anyopaque,
+	out_data: ?*?[*]u8,
+	out_len: ?*usize,
+) c_int {
+	const out_d = out_data orelse return Z7Z_ERR_INVALID_ARG;
+	const out_l = out_len orelse return Z7Z_ERR_INVALID_ARG;
+	const files_ptr = files orelse {
+		if (count == 0) {
+			out_d.* = null;
+			out_l.* = 0;
+			return Z7Z_OK;
+		}
+		return Z7Z_ERR_INVALID_ARG;
+	};
+
+	const allocator = ffiAllocator();
+
+	const zig_files = allocator.alloc(archive.FileEntry, count) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	defer allocator.free(zig_files);
+
+	for (0..count) |i| {
+		const cf = files_ptr[i];
+		const name_len = std.mem.len(cf.name);
+		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
+		const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
+		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
+		const mtime: ?u64 = if (cf.mtime > 0)
+			(@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
+		const ctime: ?u64 = if (cf.ctime > 0)
+			(@as(u64, @intCast(cf.ctime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
+		const atime: ?u64 = if (cf.atime > 0)
+			(@as(u64, @intCast(cf.atime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
+		const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
+		const xattr_data: ?[]const u8 = if (cf.xattrs) |xp|
+			xp[0..cf.xattrs_len]
+		else
+			null;
+		zig_files[i] = .{
+			.name = cf.name[0..name_len],
+			.data = data_slice,
+			.is_dir = is_dir,
+			.is_symlink = is_symlink,
+			.mtime = mtime,
+			.ctime = ctime,
+			.atime = atime,
+			.win_attrib = attrib,
+			.xattrs = xattr_data,
+		};
+	}
+
+	const pw: ?[]const u8 = if (password) |p| std.mem.span(p) else null;
+	const method: archive.Method = if (pw != null) .lzma2_aes else .lzma2;
+
+	const progress = archive.ProgressContext{
+		.callback = progress_cb,
+		.user_data = user_data,
+	};
+
+	const result = archive.createWithProgress(zig_files, method, pw, progress, allocator) catch |e| return mapCreateError(e);
+	out_d.* = result.ptr;
+	out_l.* = result.len;
+	return Z7Z_OK;
+}
+
 /// Free memory allocated by z7z_create.
 export fn z7z_free(data: ?[*]u8, len: usize) void {
 	const ptr = data orelse return;
@@ -782,4 +859,49 @@ test "ffi: open_ex with progress callback fires" {
 
 	// Progress should have been called for the folder decompression
 	try std.testing.expect(state.call_count > 0);
+}
+
+test "ffi: encrypted roundtrip via create_ex_pw + open_ex_pw" {
+	const password = "secret123";
+	const file_content = "encrypted data roundtrip test";
+
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "secret.txt",
+			.data = file_content,
+			.data_len = file_content.len,
+			.flags = 0,
+			.mtime = 0,
+			.win_attrib = 0,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = null,
+			.xattrs_len = 0,
+		},
+	};
+
+	// Create encrypted archive
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	const rc = z7z_create_ex_pw(&entries, 1, password, null, null, &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	// Opening without password should fail
+	var handle_bad: ?*ArchiveHandle = null;
+	const rc_bad = z7z_open(out_data.?, out_len, &handle_bad);
+	try std.testing.expect(rc_bad != Z7Z_OK);
+
+	// Opening with correct password should succeed
+	var handle: ?*ArchiveHandle = null;
+	const rc2 = z7z_open_ex_pw(out_data.?, out_len, password, null, null, &handle);
+	try std.testing.expectEqual(Z7Z_OK, rc2);
+	defer z7z_close(handle);
+
+	// Verify content
+	try std.testing.expectEqual(@as(usize, 1), z7z_file_count(handle));
+	try std.testing.expectEqualStrings("secret.txt", std.mem.span(z7z_file_name(handle, 0).?));
+	try std.testing.expectEqual(file_content.len, z7z_file_size(handle, 0));
+	const data = z7z_file_data(handle, 0).?;
+	try std.testing.expectEqualStrings(file_content, data[0..file_content.len]);
 }
