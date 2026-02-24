@@ -29,11 +29,28 @@ LZMA2 compression encoder with forward optimal parser.
   - Pre-computes price tables (length, distance, pos_slot, align) before DP loop
   - Evaluates literals, short reps, rep matches (4 distances × all lengths), new matches
   - Uses pre-computed position-dependent price invariants per position
-- `MatchFinder` — BT4 binary tree match finder (BT_DEPTH=64, common-prefix optimization)
+- `MatchFinder` — BT4 binary tree match finder (BT_DEPTH=32, NICE_LEN=128)
+  - `extendMatch()` — u64 XOR + @ctz word-at-a-time string comparison
+  - `findMatches()` — binary tree search with nice-length early exit
+  - `skip()` — lightweight hash-only position update (no tree maintenance)
 - `priceLenVal`, `probPrice0/1`, `priceBitTreeVal`, `priceRevBitTree` — price estimation primitives
+- `prob_prices` — comptime-const probability price lookup table (thread-safe)
+- `compressBlock()` — self-contained single-block LZMA2 compression (own MatchFinder + LzmaEncoder)
+- `compressParallel()` — parallel block compression via std.Thread.Pool (splits data, concatenates results)
 
 ## build.zig
 Build configuration. Static lib + test step. ReleaseFast default.
 
 ## flake.nix
 Nix devShell: zig 0.15.x, 7zz (oracle), hyperfine.
+
+## bm
+Benchmark script (Bash). Uses hyperfine to compare z7z vs 7zz reference on 3 data files.
+- Generates deterministic test data in $TMPDIR (1.16MB text, 4MB text, 1MB binary)
+- Runs 3-way comparison: z7z auto, 7zz single-threaded, 7zz multi-threaded
+- Shows compression ratios, validates interop, checks for debug builds
+- Logs timestamped results to `tests/benchmark/benchmark.log`
+- Compares against previous run: warns if >10% slower, notices if >10% faster
+
+## tests/benchmark/benchmark.log
+Timestamped benchmark results. Format: `timestamp | label | file | mean | stddev | size | ratio`

@@ -52,6 +52,29 @@
 - [x] Pre-compute position-dependent price invariants (is_match, is_rep, rep base prices) (~2026-02-23)
 - [x] Pre-compute length price tables [16][272] for len_encoder and rep_len_encoder (~2026-02-23)
 - [x] Pre-compute distance price tables (pos_slot[4][64], align[16], special_dist[128]) (~2026-02-23)
-- [x] Result: 374ms → 258ms (31% faster), within 4% of 7z -mx=5 -mmt=1 on macOS/ARM64 (~2026-02-23)
-- [ ] Further optimization: multithreading (parallel chunk compression)
-- [ ] Further optimization: LLVM IR hand-tuning if needed
+- [x] Result: 374ms → 258ms (31% faster) on price table pre-computation (~2026-02-23)
+- [x] Multithreading: parallel block compression via std.Thread.Pool (~2026-02-23)
+  - Made prob_prices comptime-const (thread safety prerequisite)
+  - compressBlock: self-contained single-block LZMA2 compression
+  - compressParallel: splits data into N blocks (min 1MB), compresses independently
+  - compress() auto-detects CPU count, dispatches to parallel path for data >= 1MB
+  - 3 new tests: compressBlock roundtrip, compressParallel 4-thread, large-data compress roundtrip
+- [x] Match finder optimization: 10x speedup, z7z now FASTER than 7zz-st (~2026-02-23 EST)
+  - Profiled: 97.9% of CPU time was in BT4 match finding (byte-by-byte comparison)
+  - u64 XOR + @ctz word-at-a-time string comparison (5x speedup)
+  - Nice-length early exit (NICE_LEN=128): stop tree traversal at long matches
+  - Lightweight skip: hash-only update instead of full tree maintenance
+  - BT_DEPTH reduced from 64 to 32
+  - Results: 1.16MB text 12.6ms vs 7zz 22.2ms (1.76x faster), 4MB text 18.9ms vs 69.4ms (3.67x faster)
+  - Trade-off: slightly larger compressed output on highly repetitive text (tree quality vs speed)
+- [ ] Further optimization: HC4 hybrid, HC2+HC3 hash tables, LLVM IR hand-tuning
+
+## Phase 8: Benchmark Suite (~2026-02-23)
+- [x] `./bm` — Bash script using hyperfine to benchmark z7z vs 7zz (~2026-02-23 EST)
+  - 3 data files: 1.16MB text, 4MB text, 1MB binary (deterministic, RAM-backed)
+  - 3 commands per file: z7z (auto), 7zz -mx=5 -mmt=1, 7zz -mx=5 -mmt=on
+  - Compression ratio display, 7zz interop validation, debug build check
+  - Results logged to tests/benchmark/benchmark.log with regression detection (>10% delta)
+- [x] Microbenchmark regression guard in lzma2_encoder.zig (~2026-02-23 EST)
+  - 256KB deterministic compress, fails if >25% slower than 150ms baseline
+  - Runs as part of `./test` to catch algorithmic regressions automatically

@@ -157,7 +157,7 @@ const MatchFinder = struct {
     data: []const u8,
     dict_size: u32,
 
-    const BT_DEPTH: u32 = 64;
+    const BT_DEPTH: u32 = 32;
 
     fn init(data: []const u8, dict_size: u32, allocator: std.mem.Allocator) !MatchFinder {
         const hash = try allocator.alloc(u32, HASH_SIZE);
@@ -179,6 +179,28 @@ const MatchFinder = struct {
         allocator.free(self.hash);
         allocator.free(self.bt_left);
         allocator.free(self.bt_right);
+    }
+
+    // Word-at-a-time string comparison: extends `common` to the first
+    // differing byte between data[a+common..] and data[b+common..],
+    // up to max_len. Uses u64 XOR + @ctz to process 8 bytes per iteration.
+    fn extendMatch(data: []const u8, a: usize, b: usize, start: u32, max_len: u32) u32 {
+        var common = start;
+        // u64 fast path: compare 8 bytes at a time
+        while (common + 8 <= max_len) {
+            const va = std.mem.readInt(u64, @as(*const [8]u8, @ptrCast(data.ptr + a + common)), .little);
+            const vb = std.mem.readInt(u64, @as(*const [8]u8, @ptrCast(data.ptr + b + common)), .little);
+            const diff = va ^ vb;
+            if (diff != 0) {
+                return common + @as(u32, @intCast(@ctz(diff) >> 3));
+            }
+            common += 8;
+        }
+        // Byte-by-byte tail
+        while (common < max_len and data[a + common] == data[b + common]) {
+            common += 1;
+        }
+        return common;
     }
 
     fn hash4(data: []const u8, pos: usize) u32 {
@@ -203,6 +225,8 @@ const MatchFinder = struct {
     /// Returns matches sorted by increasing length; each entry has the
     /// closest distance for that length level. The binary tree walk
     /// avoids re-comparing known-matching prefix bytes.
+    const NICE_LEN: u32 = 128;
+
     fn findMatches(self: *MatchFinder, pos: usize) MatchCandidates {
         var candidates = MatchCandidates{};
         if (pos + 3 >= self.data.len) return candidates;
@@ -225,15 +249,13 @@ const MatchFinder = struct {
             if (dist > self.dict_size) break;
 
             const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
-            var common = @min(best_left_len, best_right_len);
-            while (common < max_len and self.data[pos + common] == self.data[match_pos + common]) {
-                common += 1;
-            }
+            const common = extendMatch(self.data, pos, match_pos, @min(best_left_len, best_right_len), max_len);
 
             if (common > best_len) {
                 candidates.add(.{ .distance = dist - 1, .length = common });
                 best_len = common;
-                if (common == max_len) {
+                // Early exit: max_len reached OR match is "nice enough"
+                if (common >= max_len or common >= NICE_LEN) {
                     left_ptr.* = self.bt_left[match_pos];
                     right_ptr.* = self.bt_right[match_pos];
                     return candidates;
@@ -258,54 +280,15 @@ const MatchFinder = struct {
         return candidates;
     }
 
-    /// Insert position into the binary tree without recording matches.
-    /// Used for positions inside committed matches (hash chain maintenance).
+    /// Lightweight skip: update hash table only, no tree maintenance.
+    /// Trades future match quality for speed at positions inside committed
+    /// matches where we won't search for matches anyway.
     fn skip(self: *MatchFinder, pos: usize) void {
         if (pos + 3 >= self.data.len) return;
-
         const h = hash4(self.data, pos);
-        var cur = self.hash[h];
         self.hash[h] = @intCast(pos + 1);
-
-        var left_ptr = &self.bt_left[pos];
-        var right_ptr = &self.bt_right[pos];
-        var best_left_len: u32 = 0;
-        var best_right_len: u32 = 0;
-        var depth: u32 = 0;
-
-        while (cur > 0 and depth < BT_DEPTH) : (depth += 1) {
-            const match_pos = cur - 1;
-            if (pos <= match_pos) break;
-            const dist = @as(u32, @intCast(pos - match_pos));
-            if (dist > self.dict_size) break;
-
-            const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
-            var common = @min(best_left_len, best_right_len);
-            while (common < max_len and self.data[pos + common] == self.data[match_pos + common]) {
-                common += 1;
-            }
-
-            if (common == max_len) {
-                left_ptr.* = self.bt_left[match_pos];
-                right_ptr.* = self.bt_right[match_pos];
-                return;
-            }
-
-            if (common < max_len and self.data[pos + common] < self.data[match_pos + common]) {
-                right_ptr.* = cur;
-                right_ptr = &self.bt_left[match_pos];
-                cur = self.bt_left[match_pos];
-                best_right_len = common;
-            } else {
-                left_ptr.* = cur;
-                left_ptr = &self.bt_right[match_pos];
-                cur = self.bt_right[match_pos];
-                best_left_len = common;
-            }
-        }
-
-        left_ptr.* = 0;
-        right_ptr.* = 0;
+        // Leave bt_left/bt_right at 0 (default) — this position
+        // becomes a leaf if later referenced by the tree.
     }
 };
 
@@ -739,11 +722,13 @@ fn getPosSlot(dist: u32) u32 {
 const PRICE_SHIFT: u32 = 4;
 const INFINITY_PRICE: u32 = 0x0FFFFFFF;
 
-var prob_prices: [128]u32 = [_]u32{0} ** 128;
-var prob_prices_inited: bool = false;
+/// Pre-computed probability → bit-price lookup table.
+/// Comptime-const for thread safety — no runtime init needed.
+const prob_prices: [128]u32 = computeProbPrices();
 
-fn initProbPrices() void {
-    if (prob_prices_inited) return;
+fn computeProbPrices() [128]u32 {
+    @setEvalBranchQuota(10_000);
+    var prices: [128]u32 = [_]u32{0} ** 128;
     for (0..128) |i| {
         var w: u32 = @as(u32, @intCast(i)) * 16 + 8;
         var bit_count: u32 = 0;
@@ -755,9 +740,9 @@ fn initProbPrices() void {
                 bit_count += 1;
             }
         }
-        prob_prices[i] = (11 << PRICE_SHIFT) - 15 - bit_count;
+        prices[i] = (11 << PRICE_SHIFT) - 15 - bit_count;
     }
-    prob_prices_inited = true;
+    return prices;
 }
 
 fn probPrice0(prob: u16) u32 {
@@ -859,6 +844,18 @@ pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
     const lp: u2 = 0;
     const pb: u2 = 2;
     const dict_size: u32 = @min(@as(u32, @intCast(@min(data.len, 0xFFFFFFFF))), 1 << 24); // up to 16MB
+
+    // Parallel compression for large inputs on multi-core machines
+    const MIN_PARALLEL_SIZE = 1 << 20; // 1MB
+    if (data.len >= MIN_PARALLEL_SIZE) {
+        const cpu_count = std.Thread.getCpuCount() catch 1;
+        if (cpu_count > 1) {
+            const num_blocks = @min(cpu_count, data.len / MIN_PARALLEL_SIZE);
+            if (num_blocks > 1) {
+                return compressParallel(data, lc, lp, pb, dict_size, num_blocks, allocator);
+            }
+        }
+    }
 
     // For data that might produce LZMA1 output > 65536 bytes (the LZMA2
     // packed size limit), use chunked compression with adaptive chunk sizing.
@@ -1000,6 +997,164 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
     return try allocator.dupe(u8, output.items);
 }
 
+/// Compress a single independent block of data into LZMA2 format.
+/// Self-contained: creates its own MatchFinder and LzmaEncoder with full reset.
+/// Returns owned LZMA2 byte stream including end marker.
+fn compressBlock(block_data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, allocator: std.mem.Allocator) ![]u8 {
+    if (block_data.len == 0) {
+        const result = try allocator.alloc(u8, 1);
+        result[0] = 0x00;
+        return result;
+    }
+
+    // Small block: compress as single LZMA2 chunk (same path as compress())
+    if (block_data.len <= 0x10000) {
+        const lzma_data = try compressLzma1(block_data, lc, lp, pb, dict_size, allocator);
+        defer allocator.free(lzma_data);
+
+        var output = std.ArrayListUnmanaged(u8){};
+        defer output.deinit(allocator);
+
+        if (lzma_data.len >= block_data.len) {
+            const control: u8 = 0x01;
+            try output.append(allocator, control);
+            const size_m1: u16 = @intCast(block_data.len - 1);
+            try output.append(allocator, @intCast(size_m1 >> 8));
+            try output.append(allocator, @intCast(size_m1 & 0xFF));
+            try output.appendSlice(allocator, block_data);
+        } else {
+            const unpack_size_m1: u32 = @intCast(block_data.len - 1);
+            const control: u8 = 0x80 | (3 << 5) | @as(u8, @intCast((unpack_size_m1 >> 16) & 0x1F));
+            try output.append(allocator, control);
+            try output.append(allocator, @intCast((unpack_size_m1 >> 8) & 0xFF));
+            try output.append(allocator, @intCast(unpack_size_m1 & 0xFF));
+            const pack_size_m1: u16 = @intCast(lzma_data.len - 1);
+            try output.append(allocator, @intCast(pack_size_m1 >> 8));
+            try output.append(allocator, @intCast(pack_size_m1 & 0xFF));
+            try output.append(allocator, @as(u8, lc) + 9 * (@as(u8, lp) + 5 * @as(u8, pb)));
+            try output.appendSlice(allocator, lzma_data);
+        }
+        try output.append(allocator, 0x00);
+        return try allocator.dupe(u8, output.items);
+    }
+
+    // Large block: use compressChunked with full reset at start
+    // compressChunked already handles chunking internally with dict/state carry
+    return compressChunked(block_data, lc, lp, pb, dict_size, allocator);
+}
+
+/// Compress data in parallel by splitting into independent blocks.
+/// Each block is compressed with full state reset (reset_mode=3) using its own
+/// MatchFinder and LzmaEncoder. Blocks are concatenated in order.
+fn compressParallel(
+    data: []const u8,
+    lc: u3,
+    lp: u2,
+    pb: u2,
+    dict_size: u32,
+    num_threads: usize,
+    allocator: std.mem.Allocator,
+) ![]u8 {
+    const actual_threads = @min(num_threads, data.len / (1 << 20)); // min 1MB per block
+    if (actual_threads <= 1) {
+        return compressChunked(data, lc, lp, pb, dict_size, allocator);
+    }
+
+    const block_size = data.len / actual_threads;
+    const num_blocks = actual_threads;
+
+    // Allocate result and error slots — one per block, disjoint access (no mutex needed)
+    const results = try allocator.alloc(?[]u8, num_blocks);
+    defer allocator.free(results);
+    @memset(results, null);
+
+    const errors = try allocator.alloc(?anyerror, num_blocks);
+    defer allocator.free(errors);
+    @memset(errors, null);
+
+    // Thread pool + WaitGroup for coordinated completion
+    var pool: std.Thread.Pool = undefined;
+    try pool.init(.{
+        .allocator = allocator,
+        .n_jobs = actual_threads,
+    });
+    defer pool.deinit();
+
+    var wg: std.Thread.WaitGroup = .{};
+
+    // Spawn block compression tasks
+    for (0..num_blocks) |block_idx| {
+        const start = block_idx * block_size;
+        const end = if (block_idx == num_blocks - 1) data.len else start + block_size;
+        const block_data = data[start..end];
+
+        pool.spawnWg(&wg, struct {
+            fn run(
+                b_data: []const u8,
+                b_lc: u3,
+                b_lp: u2,
+                b_pb: u2,
+                b_dict_size: u32,
+                b_results: []?[]u8,
+                b_errors: []?anyerror,
+                b_idx: usize,
+                b_allocator: std.mem.Allocator,
+            ) void {
+                const block_result = compressBlock(b_data, b_lc, b_lp, b_pb, b_dict_size, b_allocator) catch |err| {
+                    b_errors[b_idx] = err;
+                    return;
+                };
+                b_results[b_idx] = block_result;
+            }
+        }.run, .{ block_data, lc, lp, pb, dict_size, results, errors, block_idx, allocator });
+    }
+
+    // Wait for all blocks to complete
+    wg.wait();
+
+    // Check for errors — if any block failed, free all successful results and return the error
+    var first_error: ?anyerror = null;
+    for (errors) |maybe_err| {
+        if (maybe_err) |err| {
+            first_error = err;
+            break;
+        }
+    }
+
+    if (first_error) |err| {
+        for (results) |maybe_result| {
+            if (maybe_result) |result| {
+                allocator.free(result);
+            }
+        }
+        return err;
+    }
+
+    // Concatenate block results in order, replacing per-block end markers
+    // with a single final end marker
+    var total_len: usize = 0;
+    for (results) |maybe_result| {
+        const result = maybe_result.?;
+        // Each block ends with 0x00 (end marker); we strip it except for the last
+        total_len += result.len - 1; // strip end marker
+    }
+    total_len += 1; // single final end marker
+
+    const output = try allocator.alloc(u8, total_len);
+    errdefer allocator.free(output);
+    var write_pos: usize = 0;
+    for (results) |maybe_result| {
+        const result = maybe_result.?;
+        const payload = result[0 .. result.len - 1]; // strip end marker
+        @memcpy(output[write_pos .. write_pos + payload.len], payload);
+        write_pos += payload.len;
+        allocator.free(result);
+    }
+    output[write_pos] = 0x00; // final end marker
+
+    return output;
+}
+
 // ============================================================================
 // Optimal Parser
 // ============================================================================
@@ -1025,8 +1180,6 @@ fn encodeLzma1ChunkOptimal(
     encode_end: usize,
     allocator: std.mem.Allocator,
 ) !void {
-    initProbPrices();
-
     const chunk_len = encode_end - encode_start;
     if (chunk_len == 0) return;
 
@@ -1605,6 +1758,96 @@ test "lzma2 encoder: cross-chunk dictionary carry" {
     try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
 }
 
+test "compressBlock: standalone block roundtrip" {
+    const allocator = std.testing.allocator;
+    // 128KB of repetitive data — compressible as a standalone block
+    const block_size = 128 * 1024;
+    const input = try allocator.alloc(u8, block_size);
+    defer allocator.free(input);
+    for (input, 0..) |*b, i| {
+        b.* = @intCast(i % 251); // prime-cycle pattern
+    }
+
+    const lc: u3 = 3;
+    const lp: u2 = 0;
+    const pb: u2 = 2;
+    const dict_size: u32 = 1 << 20;
+
+    const block_lzma2 = try compressBlock(input, lc, lp, pb, dict_size, allocator);
+    defer allocator.free(block_lzma2);
+
+    // Must end with 0x00 (LZMA2 end marker)
+    try std.testing.expectEqual(@as(u8, 0x00), block_lzma2[block_lzma2.len - 1]);
+
+    // Roundtrip via stdlib decoder
+    var in_stream = std.io.fixedBufferStream(block_lzma2);
+    const decompressed = try allocator.alloc(u8, block_size);
+    defer allocator.free(decompressed);
+    var out_stream = std.io.fixedBufferStream(decompressed);
+    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
+    try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+}
+
+test "compressParallel: 4MB roundtrip with explicit thread count" {
+    const allocator = std.testing.allocator;
+    const data_size = 4 * 1024 * 1024; // 4MB
+    const input = try allocator.alloc(u8, data_size);
+    defer allocator.free(input);
+
+    // Semi-compressible data: repeating pattern with variation
+    var seed: u32 = 12345;
+    for (input, 0..) |*b, i| {
+        seed = seed *% 1103515245 +% 12345;
+        b.* = @intCast((@as(usize, (seed >> 16) & 0xFF) + i / 1024) % 256);
+    }
+
+    const lc: u3 = 3;
+    const lp: u2 = 0;
+    const pb: u2 = 2;
+    const dict_size: u32 = 1 << 20;
+
+    const compressed = try compressParallel(input, lc, lp, pb, dict_size, 4, allocator);
+    defer allocator.free(compressed);
+
+    // Must end with 0x00
+    try std.testing.expectEqual(@as(u8, 0x00), compressed[compressed.len - 1]);
+
+    // Roundtrip
+    var in_stream = std.io.fixedBufferStream(compressed);
+    const decompressed = try allocator.alloc(u8, data_size);
+    defer allocator.free(decompressed);
+    var out_stream = std.io.fixedBufferStream(decompressed);
+    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
+    try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+}
+
+test "compress: large data uses parallel path and roundtrips" {
+    const allocator = std.testing.allocator;
+    // 2MB of compressible text-like data
+    const data_size = 2 * 1024 * 1024;
+    const input = try allocator.alloc(u8, data_size);
+    defer allocator.free(input);
+
+    const phrase = "The quick brown fox jumps over the lazy dog. ";
+    for (input, 0..) |*b, i| {
+        b.* = phrase[i % phrase.len];
+    }
+
+    const compressed = try compress(input, allocator);
+    defer allocator.free(compressed);
+
+    // Should actually compress well
+    try std.testing.expect(compressed.len < input.len / 2);
+
+    // Roundtrip
+    var in_stream = std.io.fixedBufferStream(compressed);
+    const decompressed = try allocator.alloc(u8, data_size);
+    defer allocator.free(decompressed);
+    var out_stream = std.io.fixedBufferStream(decompressed);
+    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
+    try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+}
+
 test "pos_slot calculation" {
     // slot 0-3 map directly to dist 0-3
     try std.testing.expectEqual(@as(u32, 0), getPosSlot(0));
@@ -1626,4 +1869,126 @@ test "pos_slot calculation" {
     // slot 8: base=16, 3 direct bits, range 16-23
     try std.testing.expectEqual(@as(u32, 8), getPosSlot(16));
     try std.testing.expectEqual(@as(u32, 8), getPosSlot(23));
+}
+
+// Phase-level profiler: measures match finding, DP, and encoding separately.
+// Run with: zig build test 2>&1 | grep '\[profile\]'
+test "lzma2 encoder: phase profiling" {
+    const allocator = std.testing.allocator;
+
+    // Use 1.16MB of prose-like data — same as ./bm text_1m benchmark
+    const data_size = 1187840;
+    const input = try allocator.alloc(u8, data_size);
+    defer allocator.free(input);
+    const phrase = "Call me Ishmael. Some years ago, never mind how long precisely, having little or no money in my purse, and nothing particular to interest me on shore, I thought I would sail about a little and see the watery part of the world. ";
+    for (input, 0..) |*b, i| {
+        b.* = phrase[i % phrase.len];
+    }
+
+    const dict_size: u32 = @min(@as(u32, @intCast(data_size)), 1 << 24);
+
+    // ---------------------------------------------------------------
+    // Measurement A: Match finding only (no DP, no encoding)
+    // Just walk every position through findMatches/skip
+    // ---------------------------------------------------------------
+    {
+        var mf_a = try MatchFinder.init(input, dict_size, allocator);
+        defer mf_a.deinit(allocator);
+
+        var t_mf = try std.time.Timer.start();
+        var pos: usize = 0;
+        var total_matches: usize = 0;
+        while (pos < input.len) {
+            const candidates = mf_a.findMatches(pos);
+            total_matches += candidates.count;
+            pos += 1;
+        }
+        const mf_ns = t_mf.read();
+        const mf_ms = @as(f64, @floatFromInt(mf_ns)) / 1_000_000.0;
+        std.debug.print("\n  [profile] A. Match finding only:     {d:7.1}ms ({d} total matches found)\n", .{ mf_ms, total_matches });
+    }
+
+    // ---------------------------------------------------------------
+    // Measurement B: Full compression (match finding + DP + encoding)
+    // ---------------------------------------------------------------
+    var t_full = try std.time.Timer.start();
+    const compressed = try compress(input, allocator);
+    const full_ns = t_full.read();
+    const full_ms = @as(f64, @floatFromInt(full_ns)) / 1_000_000.0;
+    allocator.free(compressed);
+    std.debug.print("  [profile] B. Full compression:        {d:7.1}ms\n", .{full_ms});
+
+    // ---------------------------------------------------------------
+    // Measurement C: Match finding rerun (for subtraction estimate)
+    // DP+encoding time ~= B - C
+    // ---------------------------------------------------------------
+    var mf_rerun_ns: u64 = undefined;
+    {
+        var mf_d = try MatchFinder.init(input, dict_size, allocator);
+        defer mf_d.deinit(allocator);
+        var t_d = try std.time.Timer.start();
+        var pos: usize = 0;
+        while (pos < input.len) {
+            _ = mf_d.findMatches(pos);
+            pos += 1;
+        }
+        mf_rerun_ns = t_d.read();
+    }
+    const mf_rerun_ms = @as(f64, @floatFromInt(mf_rerun_ns)) / 1_000_000.0;
+    const dp_plus_encode_ms = full_ms - mf_rerun_ms;
+
+    std.debug.print("  [profile] C. Match finding (rerun):   {d:7.1}ms\n", .{mf_rerun_ms});
+    std.debug.print("  [profile] D. DP + encoding (B - C):   {d:7.1}ms\n", .{dp_plus_encode_ms});
+    std.debug.print("  [profile]\n", .{});
+    std.debug.print("  [profile] Breakdown estimate:\n", .{});
+    std.debug.print("  [profile]   Match finding:  {d:5.1}% of total\n", .{mf_rerun_ms / full_ms * 100});
+    std.debug.print("  [profile]   DP + encoding:  {d:5.1}% of total\n", .{dp_plus_encode_ms / full_ms * 100});
+    std.debug.print("  [profile]   Throughput:     {d:.1} MB/s\n", .{@as(f64, @floatFromInt(data_size)) / 1048576.0 / (full_ms / 1000.0)});
+}
+
+// Microbenchmark regression guard: compresses a deterministic 256KB block and
+// fails if wall-clock time exceeds the baseline by more than 25%. Catches
+// accidental O(n^2) regressions in the encoder hot path.
+test "lzma2 encoder: compression speed regression guard" {
+    const allocator = std.testing.allocator;
+
+    // Generate deterministic 256KB block — repeating prime-cycle pattern
+    const block_size = 256 * 1024;
+    const input = try allocator.alloc(u8, block_size);
+    defer allocator.free(input);
+    for (input, 0..) |*b, i| {
+        b.* = @intCast(i % 251); // prime-cycle: compressible but non-trivial
+    }
+
+    // Warm up (first run may be slower due to cache effects)
+    const warmup = try compress(input, allocator);
+    allocator.free(warmup);
+
+    // Timed run
+    var timer = try std.time.Timer.start();
+    const compressed = try compress(input, allocator);
+    defer allocator.free(compressed);
+    const elapsed_ns = timer.read();
+    const elapsed_ms = @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0;
+
+    // Print timing to stderr for manual inspection during test runs
+    std.debug.print("\n  [perf] 256KB compress: {d:.1}ms (compressed to {d} bytes, {d:.1}%)\n", .{
+        elapsed_ms,
+        compressed.len,
+        @as(f64, @floatFromInt(compressed.len)) / @as(f64, @floatFromInt(block_size)) * 100.0,
+    });
+
+    // Baseline: 150ms on Apple M1 Max ReleaseFast (generous ceiling).
+    // Update this const when performance improvements land.
+    const baseline_ms: f64 = 150.0;
+    const threshold = baseline_ms * 1.25; // 25% regression tolerance
+
+    if (elapsed_ms > threshold) {
+        std.debug.print("  [perf] REGRESSION: {d:.1}ms exceeds threshold {d:.1}ms (baseline {d:.0}ms + 25%)\n", .{
+            elapsed_ms,
+            threshold,
+            baseline_ms,
+        });
+        return error.PerformanceRegression;
+    }
 }
