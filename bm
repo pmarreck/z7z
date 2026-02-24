@@ -36,7 +36,7 @@ if [ ! -f "$Z7Z" ]; then
 fi
 
 # Check prerequisites
-for cmd in hyperfine 7zz jq luajit random; do
+for cmd in hyperfine 7zz jq luajit; do
 	if ! command -v "$cmd" &>/dev/null; then
 		echo -e "${RED}ERROR: $cmd not found. Run inside nix develop.${RESET}" >&2
 		exit 1
@@ -85,10 +85,10 @@ generate_text 1187840 "$TEXT_1M"  # 1.16MB (1160KB)
 generate_text 4194304 "$TEXT_4M"  # 4MB
 
 # Deterministic pseudo-random binary (uniform distribution via `random`)
-random --seed 314159 -b -c 1048576 > "$BIN_1M"
+"$SCRIPT_DIR/tools/random" --seed 314159 -b -c 1048576 > "$BIN_1M"
 
 # Semi-compressible: gaussian byte distribution (narrow stddev = many repeated values)
-random --seed 271828 -b -c 1048576 --normalized --mean 128 --stddev 20 > "$GAUSS_1M"
+"$SCRIPT_DIR/tools/random" --seed 271828 -b -c 1048576 --normalized --mean 128 --stddev 20 > "$GAUSS_1M"
 
 # TODO: Add gen-fake-tree multi-file benchmark once z7z supports directory input
 

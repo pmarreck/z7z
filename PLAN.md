@@ -73,16 +73,24 @@
   - text_1m: 1861→1045 bytes (44% smaller), text_4m: 6575→3686 bytes (44% smaller)
   - Speed maintained: 2.0x faster than 7zz-st on text, 3.84x on 4MB parallel
 - [ ] Further optimization: HC4 hybrid, LLVM IR hand-tuning
+- [x] Incompressible data performance: 113ms → 7.7ms (8.4x faster than 7zz) (~2026-02-24 EST)
+  - HC miss early-out: skip BT4 tree walk when neither HC2 nor HC3 finds a match
+  - Adaptive BT4 depth: depth=2 when only HC2 matched (no HC3 hit)
+  - Entropy-based chunk probe: count unique bytes in first 2KB; ≥250 → skip LZMA encoder
+  - Dictionary match check: probe HC3 for cross-chunk matches before skipping
+  - Result: random 1MB 7.7ms vs 7zz 65ms; compressible text unchanged (12.6ms, 1.5x faster)
 
 ## Phase 8: Benchmark Suite (~2026-02-23)
 - [x] `./bm` — Bash script using hyperfine to benchmark z7z vs 7zz (~2026-02-23 EST)
-  - 3 data files: 1.16MB text, 4MB text, 1MB binary (deterministic, RAM-backed)
+  - 4 data files: 1.16MB text, 4MB text, 1MB binary, 1MB gaussian (deterministic, RAM-backed)
   - 3 commands per file: z7z (auto), 7zz -mx=5 -mmt=1, 7zz -mx=5 -mmt=on
   - Compression ratio display, 7zz interop validation, debug build check
   - Results logged to tests/benchmark/benchmark.log with regression detection (>10% delta)
 - [x] Microbenchmark regression guard in lzma2_encoder.zig (~2026-02-23 EST)
   - 256KB deterministic compress, fails if >25% slower than 150ms baseline
   - Runs as part of `./test` to catch algorithmic regressions automatically
+- [x] Vendored LuaJIT tools: random, gen-fake-tree, dictionary.txt in tools/ (~2026-02-24 EST)
+  - bm script updated to use vendored tools/random instead of PATH dependency
 
 ## Phase 9: Feature Completion
 - [ ] Directory input support for `create` command (recursive file collection)
@@ -92,4 +100,3 @@
   - Must store both file AND directory metadata (timestamps, attributes, empty dirs)
   - 7z format supports directory entries in FilesInfo with EmptyStream/EmptyFile markers
 - [ ] Multi-file benchmark using gen-fake-tree (after directory support lands)
-- [ ] Performance on incompressible data (113ms vs 7zz's 63ms on 1MB random)

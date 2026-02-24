@@ -296,7 +296,24 @@ const MatchFinder = struct {
             }
         }
 
+        // Early-out for incompressible data: if neither HC2 nor HC3 found
+        // any match, skip the expensive BT4 tree walk. Still insert into
+        // hash4 and initialize tree nodes so future lookups work.
+        if (best_len < MIN_MATCH) {
+            const h = hash4(self.data, pos);
+            const cur = self.hash[h];
+            self.hash[h] = @intCast(pos + 1);
+            // Graft the existing chain onto this node (minimal tree maintenance)
+            self.bt_left[pos] = cur;
+            self.bt_right[pos] = 0;
+            return candidates;
+        }
+
         // --- BT4: binary tree match finding ---
+        // Adaptive depth: if HC3 missed (only HC2 found a 2-byte match),
+        // use a shallow tree walk. On incompressible data, 3-byte hash
+        // misses are frequent and deep BT4 walks find nothing useful.
+        const effective_depth: u32 = if (best_len <= 2) 2 else BT_DEPTH;
         const h = hash4(self.data, pos);
         var cur = self.hash[h];
         self.hash[h] = @intCast(pos + 1);
@@ -307,7 +324,7 @@ const MatchFinder = struct {
         var best_right_len: u32 = 0;
         var depth: u32 = 0;
 
-        while (cur > 0 and depth < BT_DEPTH) : (depth += 1) {
+        while (cur > 0 and depth < effective_depth) : (depth += 1) {
             const match_pos = cur - 1;
             if (pos <= match_pos) break;
             const dist = @as(u32, @intCast(pos - match_pos));
@@ -998,6 +1015,71 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
     while (offset < data.len) {
         const this_chunk = @min(chunk_size, data.len - offset);
         const chunk_end = offset + this_chunk;
+
+        // Quick incompressibility probe: count unique byte values in first 2KB.
+        // If nearly all 256 possible values appear, data is high-entropy
+        // (random/encrypted) and LZMA encoding will only waste CPU time.
+        // This avoids running the expensive DP optimal parser on chunks that
+        // will inevitably fall back to uncompressed output anyway.
+        const probe_len = @min(@as(usize, 2048), this_chunk);
+        if (probe_len >= 512) {
+            var byte_seen = [_]bool{false} ** 256;
+            var unique: u32 = 0;
+            for (0..probe_len) |pi| {
+                const b = data[offset + pi];
+                if (!byte_seen[b]) {
+                    byte_seen[b] = true;
+                    unique += 1;
+                }
+            }
+            if (unique >= 250) {
+                // High entropy — but check if dictionary has cross-chunk matches.
+                // Repeated blocks of random data ARE compressible via dictionary carry.
+                // Probe a few positions: if HC3 finds verified 3-byte matches from
+                // previous chunks, the data may compress despite high local entropy.
+                var dict_hits: u32 = 0;
+                const dict_probe = @min(@as(usize, 64), probe_len);
+                for (0..dict_probe) |dpi| {
+                    const p = offset + dpi;
+                    if (p + 2 >= data.len) break;
+                    const h3 = MatchFinder.hash3val(data, p);
+                    const h3_prev = mf.hash3[h3];
+                    if (h3_prev > 0) {
+                        const mp3 = h3_prev - 1;
+                        if (p > mp3 and p - mp3 <= mf.dict_size and
+                            data[mp3] == data[p] and data[mp3 + 1] == data[p + 1] and data[mp3 + 2] == data[p + 2])
+                        {
+                            dict_hits += 1;
+                        }
+                    }
+                }
+                // If > 25% of probed positions have dictionary matches, don't skip
+                if (dict_hits <= dict_probe / 4) {
+                    // High entropy, no dictionary matches: skip LZMA encoding entirely.
+                    // Update match finder hash tables for dictionary continuity.
+                    for (offset..chunk_end) |p| {
+                        mf.skip(p);
+                    }
+                    // Emit as uncompressed sub-chunks (LZMA2 size field is 16-bit)
+                    var unc_off: usize = 0;
+                    while (unc_off < this_chunk) {
+                        const unc_len = @min(@as(usize, 0x10000), this_chunk - unc_off);
+                        const unc_control: u8 = if (!dict_reset_done) 0x01 else 0x02;
+                        try output.append(allocator, unc_control);
+                        const size_m1: u16 = @intCast(unc_len - 1);
+                        try output.append(allocator, @intCast(size_m1 >> 8));
+                        try output.append(allocator, @intCast(size_m1 & 0xFF));
+                        try output.appendSlice(allocator, data[offset + unc_off .. offset + unc_off + unc_len]);
+                        dict_reset_done = true;
+                        unc_off += unc_len;
+                    }
+                    state_valid = false;
+                    enc.resetState();
+                    offset = chunk_end;
+                    continue;
+                }
+            }
+        }
 
         // Determine reset mode BEFORE encoding so we can sync encoder/decoder state:
         // - First ever: reset_mode=3 (dict + state + props)

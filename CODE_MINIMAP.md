@@ -33,7 +33,13 @@ LZMA2 compression encoder with forward optimal parser.
   - HC2 (2-byte perfect hash, 64K entries) + HC3 (3-byte hash, 256K entries) for short matches
   - `extendMatch()` — u64 XOR + @ctz word-at-a-time string comparison
   - `findMatches()` — HC2/HC3 lookup + BT4 binary tree search (BT_DEPTH=32, NICE_LEN=128)
+    - HC miss early-out: if neither HC2 nor HC3 finds a match, skips BT4 tree walk entirely
+    - Adaptive depth: if only HC2 matched (no HC3), BT4 depth reduced from 32 to 2
   - `skip()` — HC2/HC3-only update, preserves BT4 tree structure
+- `compressChunked()` — continuous-state LZMA2 encoding over 64KB chunks
+  - Entropy-based incompressibility probe: counts unique bytes in first 2KB of each chunk
+  - Dictionary match check: probes HC3 to avoid skipping chunks with cross-chunk matches
+  - Skip path: emit uncompressed + lightweight hash update via skip()
 - `priceLenVal`, `probPrice0/1`, `priceBitTreeVal`, `priceRevBitTree` — price estimation primitives
 - `prob_prices` — comptime-const probability price lookup table (thread-safe)
 - `compressBlock()` — self-contained single-block LZMA2 compression (own MatchFinder + LzmaEncoder)
@@ -45,9 +51,15 @@ Build configuration. Static lib + test step. ReleaseFast default.
 ## flake.nix
 Nix devShell: zig 0.15.x, 7zz (oracle), hyperfine, luajit, jq.
 
+## tools/
+Vendored LuaJIT tools for self-contained benchmarking (no external PATH dependencies).
+- `tools/random` — deterministic pseudo-random number generator (PCG32, multiple distributions)
+- `tools/gen-fake-tree` — deterministic fake directory hierarchy generator (for multi-file benchmarks)
+- `tools/data/dictionary.txt` — 89K-word dictionary used by gen-fake-tree
+
 ## bm
 Benchmark script (Bash). Uses hyperfine to compare z7z vs 7zz reference on 4 data files.
-- Generates deterministic test data in $TMPDIR via `random` (LuaJIT):
+- Generates deterministic test data in $TMPDIR via vendored `tools/random` (LuaJIT):
   - 1.16MB repeating prose, 4MB prose, 1MB uniform random, 1MB gaussian (semi-compressible)
 - Runs 3-way comparison: z7z auto, 7zz single-threaded, 7zz multi-threaded
 - Shows compression ratios, validates interop, checks for debug builds
