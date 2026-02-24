@@ -989,7 +989,7 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
     var enc = try LzmaEncoder.init(lc, lp, pb, allocator);
     defer enc.deinit(allocator);
 
-    const chunk_size: usize = 0x10000; // 64KB chunks
+    const chunk_size: usize = 0x10000; // 64KB — constrained by LZMA2 packed size limit (16-bit)
     var offset: usize = 0;
     var dict_reset_done = false;
     var props_sent = false;
@@ -1042,17 +1042,21 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
             dict_reset_done = true;
             state_valid = true; // Decoder now has valid LZMA state from this chunk
         } else {
-            // Uncompressed fallback — decoder gets raw data in its dictionary
-            // but has no LZMA state context from this chunk
-            const control: u8 = if (!dict_reset_done) 0x01 else 0x02;
-            try output.append(allocator, control);
-            const size_m1: u16 = @intCast(this_chunk - 1);
-            try output.append(allocator, @intCast(size_m1 >> 8));
-            try output.append(allocator, @intCast(size_m1 & 0xFF));
-            try output.appendSlice(allocator, data[offset..chunk_end]);
-            dict_reset_done = true;
-            state_valid = false; // Encoder processed this but decoder didn't
-            enc.resetState(); // Undo encoder's state changes from the failed attempt
+            // Uncompressed fallback — emit as 64KB sub-chunks (LZMA2 size field is 16-bit)
+            var unc_off: usize = 0;
+            while (unc_off < this_chunk) {
+                const unc_len = @min(@as(usize, 0x10000), this_chunk - unc_off);
+                const unc_control: u8 = if (!dict_reset_done) 0x01 else 0x02;
+                try output.append(allocator, unc_control);
+                const size_m1: u16 = @intCast(unc_len - 1);
+                try output.append(allocator, @intCast(size_m1 >> 8));
+                try output.append(allocator, @intCast(size_m1 & 0xFF));
+                try output.appendSlice(allocator, data[offset + unc_off .. offset + unc_off + unc_len]);
+                dict_reset_done = true;
+                unc_off += unc_len;
+            }
+            state_valid = false;
+            enc.resetState();
         }
 
         offset = chunk_end;
