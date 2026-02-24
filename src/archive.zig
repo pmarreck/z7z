@@ -244,7 +244,10 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
         @memset(encrypted[compressed.len..], 0);
     }
 
-    aes_crypt.encryptCbc(encrypted, key, iv) catch return error.OutOfMemory;
+    aes_crypt.encryptCbc(encrypted, key, iv) catch |e| return switch (e) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => error.StructuralError,
+    };
 
     // Step 4: Build metadata with 2-coder folder (LZMA2 + 7zAES)
     // Coder 0: LZMA2
