@@ -90,12 +90,19 @@ generate_text 4194304 "$TEXT_4M"  # 4MB
 # Semi-compressible: gaussian byte distribution (narrow stddev = many repeated values)
 "$SCRIPT_DIR/tools/random" --seed 271828 -b -c 1048576 --normalized --mean 128 --stddev 20 > "$GAUSS_1M"
 
-# TODO: Add gen-fake-tree multi-file benchmark once z7z supports directory input
+# Multi-file directory tree (deterministic, ~1MB total)
+TREE_DIR="$BM_TMPDIR/fake_tree"
+luajit "$SCRIPT_DIR/tools/gen-fake-tree" --seed 42 --path "$TREE_DIR" --max-files 50 --max-size 1M --max-depth 3 > /dev/null
+
+TREE_SIZE=$(find "$TREE_DIR" -type f -exec wc -c {} + | tail -1 | awk '{print $1}')
+TREE_FILES=$(find "$TREE_DIR" -type f | wc -l | tr -d ' ')
+TREE_DIRS=$(find "$TREE_DIR" -type d | wc -l | tr -d ' ')
 
 echo -e "  ${CYAN}text_1m.txt${RESET}  $(wc -c < "$TEXT_1M" | tr -d ' ') bytes (1.16MB repeating prose)"
 echo -e "  ${CYAN}text_4m.txt${RESET}  $(wc -c < "$TEXT_4M" | tr -d ' ') bytes (4MB repeating prose)"
 echo -e "  ${CYAN}binary_1m.bin${RESET} $(wc -c < "$BIN_1M" | tr -d ' ') bytes (1MB uniform random)"
 echo -e "  ${CYAN}gauss_1m.bin${RESET}  $(wc -c < "$GAUSS_1M" | tr -d ' ') bytes (1MB gaussian, semi-compressible)"
+echo -e "  ${CYAN}fake_tree/${RESET}    $TREE_SIZE bytes ($TREE_FILES files, $TREE_DIRS dirs, ~1MB directory tree)"
 echo ""
 
 # ============================================================================
@@ -244,6 +251,64 @@ run_benchmark_group() {
 	log_results "$file_label" "$result_json" "$z7z_out" "$ref_st_out" "$ref_mt_out" "$original_size"
 }
 
+run_dir_benchmark_group() {
+	local data_dir="$1" file_label="$2"
+	local original_size
+	original_size=$(find "$data_dir" -type f -exec wc -c {} + | tail -1 | awk '{print $1}')
+	local file_count
+	file_count=$(find "$data_dir" -type f | wc -l | tr -d ' ')
+	local size_mb
+	size_mb=$(awk "BEGIN { printf \"%.2f\", $original_size / 1048576 }")
+
+	echo -e "${BOLD}=== $file_label (${size_mb}MB, $file_count files) ===${RESET}"
+	echo ""
+
+	local z7z_out="$BM_TMPDIR/z7z_${file_label}.7z"
+	local ref_st_out="$BM_TMPDIR/7zz_st_${file_label}.7z"
+	local ref_mt_out="$BM_TMPDIR/7zz_mt_${file_label}.7z"
+	local result_json="$BM_TMPDIR/${file_label}.json"
+
+	hyperfine \
+		--warmup 2 \
+		--min-runs 5 \
+		--prepare "rm -f '$z7z_out' '$ref_st_out' '$ref_mt_out'" \
+		--export-json "$result_json" \
+		-n "z7z (auto)" "'$Z7Z' create '$z7z_out' '$data_dir' 2>/dev/null" \
+		-n "7zz -mx=5 -mmt=1" "7zz a -mx=5 -mmt=1 '$ref_st_out' '$data_dir' > /dev/null" \
+		-n "7zz -mx=5 -mmt=on" "7zz a -mx=5 -mmt=on '$ref_mt_out' '$data_dir' > /dev/null"
+
+	echo ""
+
+	rm -f "$z7z_out" "$ref_st_out" "$ref_mt_out"
+	"$Z7Z" create "$z7z_out" "$data_dir" 2>/dev/null
+	7zz a -mx=5 -mmt=1 "$ref_st_out" "$data_dir" > /dev/null 2>&1
+	7zz a -mx=5 -mmt=on "$ref_mt_out" "$data_dir" > /dev/null 2>&1
+
+	echo -e "  ${BOLD}Compression ratios:${RESET}"
+	for pair in "z7z (auto):$z7z_out" "7zz -mx=5 -mmt=1:$ref_st_out" "7zz -mx=5 -mmt=on:$ref_mt_out"; do
+		local alabel="${pair%%:*}"
+		local afile="${pair#*:}"
+		if [ -f "$afile" ]; then
+			local asize
+			asize=$(wc -c < "$afile" | tr -d ' ')
+			local aratio
+			aratio=$(awk "BEGIN { printf \"%.1f\", ($asize / $original_size) * 100 }")
+			echo -e "    ${CYAN}$alabel${RESET}: $asize bytes (${aratio}%)"
+		fi
+	done
+	echo ""
+
+	echo -n "  Interop (7zz validates z7z archive): "
+	if 7zz t "$z7z_out" > /dev/null 2>&1; then
+		echo -e "${GREEN}OK${RESET}"
+	else
+		echo -e "${RED}FAILED${RESET}"
+	fi
+	echo ""
+
+	log_results "$file_label" "$result_json" "$z7z_out" "$ref_st_out" "$ref_mt_out" "$original_size"
+}
+
 # ============================================================================
 # Run Benchmarks
 # ============================================================================
@@ -252,6 +317,7 @@ run_benchmark_group "$TEXT_1M" "text_1m"
 run_benchmark_group "$TEXT_4M" "text_4m"
 run_benchmark_group "$BIN_1M" "binary_1m"
 run_benchmark_group "$GAUSS_1M" "gauss_1m"
+run_dir_benchmark_group "$TREE_DIR" "fake_tree"
 
 # ============================================================================
 # Summary

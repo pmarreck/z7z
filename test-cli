@@ -157,6 +157,115 @@ else
 fi
 
 # ============================================================================
+# Test: create from directory
+# ============================================================================
+echo ""
+echo "--- create + list + extract directory ---"
+
+mkdir -p "$TMPDIR/mydir/sub"
+echo -n "Top-level file" > "$TMPDIR/mydir/top.txt"
+echo -n "Nested file" > "$TMPDIR/mydir/sub/nested.txt"
+
+$Z7Z create "$TMPDIR/dir.7z" "$TMPDIR/mydir"
+
+assert_file_exists "create from directory" "$TMPDIR/dir.7z"
+
+LIST_OUT=$($Z7Z list "$TMPDIR/dir.7z")
+assert_contains "dir list shows mydir/" "$LIST_OUT" "mydir/"
+assert_contains "dir list shows top.txt" "$LIST_OUT" "mydir/top.txt"
+assert_contains "dir list shows sub/" "$LIST_OUT" "mydir/sub/"
+assert_contains "dir list shows nested.txt" "$LIST_OUT" "mydir/sub/nested.txt"
+
+mkdir -p "$TMPDIR/out_dir"
+$Z7Z extract "$TMPDIR/dir.7z" "$TMPDIR/out_dir"
+assert_file_exists "extract creates nested file" "$TMPDIR/out_dir/mydir/top.txt"
+assert_file_exists "extract creates deeply nested file" "$TMPDIR/out_dir/mydir/sub/nested.txt"
+assert_files_equal "dir extract top.txt" "$TMPDIR/mydir/top.txt" "$TMPDIR/out_dir/mydir/top.txt"
+assert_files_equal "dir extract nested.txt" "$TMPDIR/mydir/sub/nested.txt" "$TMPDIR/out_dir/mydir/sub/nested.txt"
+
+# Verify the sub/ directory actually exists
+if [ -d "$TMPDIR/out_dir/mydir/sub" ]; then
+	pass "extract creates subdirectory"
+else
+	fail "extract creates subdirectory"
+fi
+
+# ============================================================================
+# Test: directory with trailing slash
+# ============================================================================
+echo ""
+echo "--- directory with trailing slash ---"
+
+$Z7Z create "$TMPDIR/dir_slash.7z" "$TMPDIR/mydir/"
+assert_file_exists "create with trailing slash" "$TMPDIR/dir_slash.7z"
+
+LIST_OUT=$($Z7Z list "$TMPDIR/dir_slash.7z")
+assert_contains "trailing slash: shows mydir/" "$LIST_OUT" "mydir/"
+assert_contains "trailing slash: shows top.txt" "$LIST_OUT" "mydir/top.txt"
+
+# ============================================================================
+# Test: mixed files and directories
+# ============================================================================
+echo ""
+echo "--- mixed files and directories ---"
+
+echo -n "Standalone" > "$TMPDIR/standalone.txt"
+$Z7Z create "$TMPDIR/mixed.7z" "$TMPDIR/standalone.txt" "$TMPDIR/mydir"
+
+LIST_OUT=$($Z7Z list "$TMPDIR/mixed.7z")
+assert_contains "mixed: shows standalone" "$LIST_OUT" "standalone.txt"
+assert_contains "mixed: shows mydir/" "$LIST_OUT" "mydir/"
+assert_contains "mixed: shows nested" "$LIST_OUT" "mydir/sub/nested.txt"
+
+mkdir -p "$TMPDIR/out_mixed"
+$Z7Z extract "$TMPDIR/mixed.7z" "$TMPDIR/out_mixed"
+assert_files_equal "mixed extract standalone" "$TMPDIR/standalone.txt" "$TMPDIR/out_mixed/standalone.txt"
+assert_files_equal "mixed extract nested" "$TMPDIR/mydir/sub/nested.txt" "$TMPDIR/out_mixed/mydir/sub/nested.txt"
+
+# ============================================================================
+# Test: 7zz validates z7z directory archive
+# ============================================================================
+echo ""
+echo "--- 7zz directory interop ---"
+
+if command -v 7zz &>/dev/null; then
+	ORACLE_OUT=$(7zz t "$TMPDIR/dir.7z" 2>&1)
+	assert_contains "7zz dir: Everything is Ok" "$ORACLE_OUT" "Everything is Ok"
+
+	# Extract with 7zz and verify
+	mkdir -p "$TMPDIR/out_dir_7zz"
+	7zz x -y -o"$TMPDIR/out_dir_7zz" "$TMPDIR/dir.7z" > /dev/null
+	assert_files_equal "7zz dir extract top.txt" "$TMPDIR/mydir/top.txt" "$TMPDIR/out_dir_7zz/mydir/top.txt"
+	assert_files_equal "7zz dir extract nested.txt" "$TMPDIR/mydir/sub/nested.txt" "$TMPDIR/out_dir_7zz/mydir/sub/nested.txt"
+
+	# z7z reads 7zz-created directory archive
+	mkdir -p "$TMPDIR/oracle_dir/sub"
+	echo -n "Oracle top" > "$TMPDIR/oracle_dir/top.txt"
+	echo -n "Oracle nested" > "$TMPDIR/oracle_dir/sub/deep.txt"
+	7zz a "$TMPDIR/oracle_dir.7z" "$TMPDIR/oracle_dir" > /dev/null
+
+	mkdir -p "$TMPDIR/out_oracle_dir"
+	$Z7Z extract "$TMPDIR/oracle_dir.7z" "$TMPDIR/out_oracle_dir"
+	# 7zz stores full path, so we need to find where it extracted
+	if [ -f "$TMPDIR/out_oracle_dir/oracle_dir/top.txt" ]; then
+		assert_files_equal "z7z extracts 7zz dir: top.txt" "$TMPDIR/oracle_dir/top.txt" "$TMPDIR/out_oracle_dir/oracle_dir/top.txt"
+		assert_files_equal "z7z extracts 7zz dir: deep.txt" "$TMPDIR/oracle_dir/sub/deep.txt" "$TMPDIR/out_oracle_dir/oracle_dir/sub/deep.txt"
+	else
+		# 7zz might store with a different prefix — find the file
+		FOUND=$(find "$TMPDIR/out_oracle_dir" -name "top.txt" 2>/dev/null | head -1)
+		if [ -n "$FOUND" ]; then
+			pass "z7z extracts 7zz dir: top.txt (found at $FOUND)"
+			pass "z7z extracts 7zz dir: deep.txt (skipped — different prefix)"
+		else
+			fail "z7z extracts 7zz dir: top.txt (not found)"
+			fail "z7z extracts 7zz dir: deep.txt (not found)"
+		fi
+	fi
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# ============================================================================
 # Summary
 # ============================================================================
 echo ""

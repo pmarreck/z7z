@@ -45,6 +45,30 @@ LZMA2 compression encoder with forward optimal parser.
 - `compressBlock()` — self-contained single-block LZMA2 compression (own MatchFinder + LzmaEncoder)
 - `compressParallel()` — parallel block compression via std.Thread.Pool (splits data, concatenates results)
 
+## src/ffi.zig
+C FFI boundary for z7z. All functions use C calling convention.
+- `z7z_open` — open archive from memory buffer, returns opaque handle
+- `z7z_file_count`, `z7z_file_name`, `z7z_file_data`, `z7z_file_size` — query file entries
+- `z7z_file_is_dir` — check if entry is a directory (EmptyStream && !EmptyFile)
+- `z7z_create` — create archive from file entries (supports Z7Z_FLAG_DIRECTORY)
+- `z7z_close`, `z7z_free` — memory management
+- `z7z_error_string` — human-readable error messages
+- `Z7zFileEntry` — extern struct with name, data, data_len, flags
+
+## include/z7z.h
+C header for the FFI. Matches ffi.zig exports.
+- `z7z_file_entry` — struct with name, data, data_len, flags (Z7Z_FLAG_DIRECTORY = 0x01)
+
+## cli/main.c
+C CLI that dogfoods the FFI (list, extract, create commands).
+- `cmd_create` — accepts files and directories; uses `walk_directory()` for recursive collection
+- `cmd_extract` — directory-aware: creates directories via `ensure_dir_recursive()`, ensures parent dirs
+- `cmd_list` — shows `<dir>` for directory entries
+- `entry_list` — dynamic array for collecting file entries during directory walking
+- `walk_directory()` — recursive POSIX directory traversal (opendir/readdir)
+- `ensure_dir_recursive()` — mkdir -p equivalent
+- `ensure_parent_dir()` — creates parent directories for a file path
+
 ## build.zig
 Build configuration. Static lib + test step. ReleaseFast default.
 

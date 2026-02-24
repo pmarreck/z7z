@@ -48,14 +48,21 @@ const uint8_t *z7z_file_data(const z7z_archive *archive, size_t index);
 /* File's uncompressed size. Returns 0 on error. */
 size_t z7z_file_size(const z7z_archive *archive, size_t index);
 
+/* Returns 1 if the entry at index is a directory, 0 otherwise. */
+int z7z_file_is_dir(const z7z_archive *archive, size_t index);
+
 /* Close an archive and free all memory. Safe to call with NULL. */
 void z7z_close(z7z_archive *archive);
+
+/* File entry flags */
+#define Z7Z_FLAG_DIRECTORY  0x01   /* entry is a directory (no data) */
 
 /* File entry for creating archives. */
 typedef struct {
 	const char *name;          /* null-terminated UTF-8 filename */
-	const uint8_t *data;       /* file content */
-	size_t data_len;           /* length of data */
+	const uint8_t *data;       /* file content (NULL for directories) */
+	size_t data_len;           /* length of data (0 for directories) */
+	uint32_t flags;            /* Z7Z_FLAG_* bitmask */
 } z7z_file_entry;
 
 /* Create a .7z archive from file entries.

@@ -131,6 +131,15 @@ export fn z7z_file_size(handle: ?*const ArchiveHandle, index: usize) usize {
 	return h.contents.file_data[index].len;
 }
 
+/// Check if a file entry is a directory.
+/// Returns 1 if directory, 0 otherwise (including invalid handle/index).
+export fn z7z_file_is_dir(handle: ?*const ArchiveHandle, index: usize) c_int {
+	const h = handle orelse return 0;
+	if (index >= h.contents.metadata.files.len) return 0;
+	const fi = h.contents.metadata.files[index];
+	return if (fi.is_empty_stream and !fi.is_empty_file) 1 else 0;
+}
+
 /// Close an archive and free all associated memory.
 export fn z7z_close(handle: ?*ArchiveHandle) void {
 	const h = handle orelse return;
@@ -140,9 +149,12 @@ export fn z7z_close(handle: ?*ArchiveHandle) void {
 /// File entry for archive creation (C-compatible).
 pub const Z7zFileEntry = extern struct {
 	name: [*:0]const u8,
-	data: [*]const u8,
+	data: ?[*]const u8,
 	data_len: usize,
+	flags: u32,
 };
+
+const Z7Z_FLAG_DIRECTORY: u32 = 0x01;
 
 /// Create a .7z archive from file entries.
 /// On success, writes archive bytes to `out_data`/`out_len` and returns Z7Z_OK.
@@ -172,9 +184,12 @@ export fn z7z_create(
 	for (0..count) |i| {
 		const cf = files_ptr[i];
 		const name_len = std.mem.len(cf.name);
+		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
+		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
 		zig_files[i] = .{
 			.name = cf.name[0..name_len],
-			.data = cf.data[0..cf.data_len],
+			.data = data_slice,
+			.is_dir = is_dir,
 		};
 	}
 
@@ -266,6 +281,7 @@ test "ffi: null handle safety" {
 	try std.testing.expectEqual(@as(?[*:0]const u8, null), z7z_file_name(null, 0));
 	try std.testing.expectEqual(@as(?[*]const u8, null), z7z_file_data(null, 0));
 	try std.testing.expectEqual(@as(usize, 0), z7z_file_size(null, 0));
+	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_dir(null, 0));
 	z7z_close(null); // should not crash
 }
 

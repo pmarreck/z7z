@@ -93,10 +93,12 @@
   - bm script updated to use vendored tools/random instead of PATH dependency
 
 ## Phase 9: Feature Completion
-- [ ] Directory input support for `create` command (recursive file collection)
-  - Currently only accepts individual files; needed for gen-fake-tree benchmarks
-  - 7zz supports: `7zz a archive.7z directory/`
-  - z7z should match: `z7z create archive.7z directory/`
-  - Must store both file AND directory metadata (timestamps, attributes, empty dirs)
-  - 7z format supports directory entries in FilesInfo with EmptyStream/EmptyFile markers
-- [ ] Multi-file benchmark using gen-fake-tree (after directory support lands)
+- [x] Directory input support for `create` command (recursive file collection) (~2026-02-24 EST)
+  - FileEntry.is_dir field, directory metadata (EmptyStream, FILE_ATTRIBUTE_DIRECTORY)
+  - Correct substream index mapping in read() (directories skip substream entries)
+  - C FFI: z7z_file_is_dir(), Z7Z_FLAG_DIRECTORY flag, z7z_file_entry.flags
+  - CLI: recursive walk_directory(), ensure_dir_recursive(), directory-aware extract
+  - 44 CLI tests (23 new): directory roundtrip, trailing slash, mixed files+dirs, 7zz interop
+- [x] Multi-file benchmark using gen-fake-tree (~2026-02-24 EST)
+  - `run_dir_benchmark_group()` in bm script: generates deterministic 50-file tree via gen-fake-tree
+  - Benchmarks z7z vs 7zz on directory archive creation, validates interop

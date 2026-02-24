@@ -31,7 +31,8 @@ pub const Method = enum {
 /// A file entry for creating an archive.
 pub const FileEntry = struct {
     name: []const u8, // UTF-8 filename
-    data: []const u8, // file content
+    data: []const u8, // file content (empty for directories)
+    is_dir: bool = false, // true for directory entries
     mtime: ?u64 = null, // optional NTFS FILETIME
     win_attrib: ?u32 = null, // optional Windows attributes
 };
@@ -72,10 +73,10 @@ pub fn createWithMethodAndPassword(files: []const FileEntry, method: Method, pas
 
 /// Create a .7z archive in memory using LZMA2 compression.
 fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
-    // Concatenate all file data
+    // Concatenate all non-directory file data
     var total_unpack_size: u64 = 0;
     for (files) |f| {
-        total_unpack_size += f.data.len;
+        if (!f.is_dir) total_unpack_size += f.data.len;
     }
 
     var raw_data = try allocator.alloc(u8, @intCast(total_unpack_size));
@@ -83,8 +84,10 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     {
         var offset: usize = 0;
         for (files) |f| {
-            @memcpy(raw_data[offset .. offset + f.data.len], f.data);
-            offset += f.data.len;
+            if (!f.is_dir) {
+                @memcpy(raw_data[offset .. offset + f.data.len], f.data);
+                offset += f.data.len;
+            }
         }
     }
 
@@ -130,27 +133,38 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     var pack_sizes = try allocator.alloc(u64, 1);
     pack_sizes[0] = compressed.len;
 
-    // Build substream info
-    var sub_sizes = try allocator.alloc(u64, files.len);
-    var sub_digests = try allocator.alloc(?u32, files.len);
-    for (files, 0..) |f, i| {
-        sub_sizes[i] = f.data.len;
-        sub_digests[i] = crc32.hash(f.data);
+    // Build substream info (only for non-directory files with data)
+    var data_file_count: usize = 0;
+    for (files) |f| {
+        if (!f.is_dir) data_file_count += 1;
+    }
+    var sub_sizes = try allocator.alloc(u64, data_file_count);
+    var sub_digests = try allocator.alloc(?u32, data_file_count);
+    {
+        var si: usize = 0;
+        for (files) |f| {
+            if (!f.is_dir) {
+                sub_sizes[si] = f.data.len;
+                sub_digests[si] = crc32.hash(f.data);
+                si += 1;
+            }
+        }
     }
 
-    // Build file info
+    // Build file info (all entries: files AND directories)
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
     var file_infos = try allocator.alloc(meta.FileInfo, files.len);
     for (files, 0..) |f, i| {
         const name_copy = try allocator.dupe(u8, f.name);
         file_infos[i] = .{
             .name = name_copy,
-            .is_empty_stream = false,
+            .is_empty_stream = f.is_dir,
             .is_empty_file = false,
             .is_anti = false,
             .ctime = null,
             .atime = null,
             .mtime = f.mtime,
-            .win_attrib = f.win_attrib,
+            .win_attrib = if (f.is_dir) (f.win_attrib orelse 0) | FILE_ATTRIBUTE_DIRECTORY else f.win_attrib,
             .start_pos = null,
         };
     }
@@ -198,10 +212,10 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
 
 /// Create a .7z archive with LZMA2 compression + AES-256-CBC encryption.
 fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std.mem.Allocator) ![]u8 {
-    // Step 1: Concatenate all file data
+    // Step 1: Concatenate all non-directory file data
     var total_unpack_size: u64 = 0;
     for (files) |f| {
-        total_unpack_size += f.data.len;
+        if (!f.is_dir) total_unpack_size += f.data.len;
     }
 
     var raw_data = try allocator.alloc(u8, @intCast(total_unpack_size));
@@ -209,6 +223,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
     {
         var offset: usize = 0;
         for (files) |f| {
+            if (f.is_dir) continue;
             @memcpy(raw_data[offset .. offset + f.data.len], f.data);
             offset += f.data.len;
         }
@@ -298,27 +313,38 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
     var pack_sizes = try allocator.alloc(u64, 1);
     pack_sizes[0] = encrypted.len;
 
-    // Build substream info
-    var sub_sizes = try allocator.alloc(u64, files.len);
-    var sub_digests = try allocator.alloc(?u32, files.len);
-    for (files, 0..) |f, i| {
-        sub_sizes[i] = f.data.len;
-        sub_digests[i] = crc32.hash(f.data);
+    // Build substream info (only for non-directory files with data)
+    var data_file_count2: usize = 0;
+    for (files) |f| {
+        if (!f.is_dir) data_file_count2 += 1;
+    }
+    var sub_sizes = try allocator.alloc(u64, data_file_count2);
+    var sub_digests = try allocator.alloc(?u32, data_file_count2);
+    {
+        var si: usize = 0;
+        for (files) |f| {
+            if (!f.is_dir) {
+                sub_sizes[si] = f.data.len;
+                sub_digests[si] = crc32.hash(f.data);
+                si += 1;
+            }
+        }
     }
 
-    // Build file info
+    // Build file info (all entries: files AND directories)
+    const FILE_ATTRIBUTE_DIRECTORY2: u32 = 0x10;
     var file_infos = try allocator.alloc(meta.FileInfo, files.len);
     for (files, 0..) |f, i| {
         const name_copy = try allocator.dupe(u8, f.name);
         file_infos[i] = .{
             .name = name_copy,
-            .is_empty_stream = false,
+            .is_empty_stream = f.is_dir,
             .is_empty_file = false,
             .is_anti = false,
             .ctime = null,
             .atime = null,
             .mtime = f.mtime,
-            .win_attrib = f.win_attrib,
+            .win_attrib = if (f.is_dir) (f.win_attrib orelse 0) | FILE_ATTRIBUTE_DIRECTORY2 else f.win_attrib,
             .start_pos = null,
         };
     }
@@ -381,10 +407,10 @@ fn calcLzma2DictProp(data_len: u32) u8 {
 
 /// Create a .7z archive in memory using Copy method (no compression).
 fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
-    // Build packed data (concatenated file contents for Copy method)
+    // Build packed data (concatenated non-directory file contents for Copy method)
     var total_pack_size: u64 = 0;
     for (files) |f| {
-        total_pack_size += f.data.len;
+        if (!f.is_dir) total_pack_size += f.data.len;
     }
 
     // Build metadata
@@ -410,8 +436,10 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     {
         var offset: usize = 0;
         for (files) |f| {
-            @memcpy(pack_data[offset .. offset + f.data.len], f.data);
-            offset += f.data.len;
+            if (!f.is_dir) {
+                @memcpy(pack_data[offset .. offset + f.data.len], f.data);
+                offset += f.data.len;
+            }
         }
     }
     const data_crc = crc32.hash(pack_data);
@@ -428,36 +456,50 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     var pack_sizes = try allocator.alloc(u64, 1);
     pack_sizes[0] = total_pack_size;
 
-    // Build substream info
+    // Build substream info (only for non-directory files with data)
+    var copy_data_count: usize = 0;
+    for (files) |f| {
+        if (!f.is_dir) copy_data_count += 1;
+    }
     var sub_sizes: []u64 = undefined;
     var sub_digests: []?u32 = undefined;
-    if (files.len == 1) {
+    if (copy_data_count == 1) {
         sub_sizes = try allocator.alloc(u64, 1);
-        sub_sizes[0] = files[0].data.len;
         sub_digests = try allocator.alloc(?u32, 1);
-        sub_digests[0] = data_crc;
+        for (files) |f| {
+            if (!f.is_dir) {
+                sub_sizes[0] = f.data.len;
+                sub_digests[0] = data_crc;
+                break;
+            }
+        }
     } else {
-        sub_sizes = try allocator.alloc(u64, files.len);
-        sub_digests = try allocator.alloc(?u32, files.len);
-        for (files, 0..) |f, i| {
-            sub_sizes[i] = f.data.len;
-            sub_digests[i] = crc32.hash(f.data);
+        sub_sizes = try allocator.alloc(u64, copy_data_count);
+        sub_digests = try allocator.alloc(?u32, copy_data_count);
+        var si: usize = 0;
+        for (files) |f| {
+            if (!f.is_dir) {
+                sub_sizes[si] = f.data.len;
+                sub_digests[si] = crc32.hash(f.data);
+                si += 1;
+            }
         }
     }
 
-    // Build file info
+    // Build file info (all entries: files AND directories)
+    const COPY_DIR_ATTRIB: u32 = 0x10;
     var file_infos = try allocator.alloc(meta.FileInfo, files.len);
     for (files, 0..) |f, i| {
         const name_copy = try allocator.dupe(u8, f.name);
         file_infos[i] = .{
             .name = name_copy,
-            .is_empty_stream = false,
+            .is_empty_stream = f.is_dir,
             .is_empty_file = false,
             .is_anti = false,
             .ctime = null,
             .atime = null,
             .mtime = f.mtime,
-            .win_attrib = f.win_attrib,
+            .win_attrib = if (f.is_dir) (f.win_attrib orelse 0) | COPY_DIR_ATTRIB else f.win_attrib,
             .start_pos = null,
         };
     }
@@ -563,18 +605,27 @@ pub fn readWithPassword(archive_data: []const u8, password: ?[]const u8, allocat
             };
             defer allocator.free(unpacked);
 
-            // Split decompressed data into per-file slices
+            // Split decompressed data into per-file slices.
+            // Empty stream entries (directories) have no substream data —
+            // the substream sizes array only covers data-bearing files.
             var offset: usize = 0;
+            var sub_idx: usize = 0;
             for (0..metadata.files.len) |fi| {
-                const file_size = if (metadata.sub_streams) |ss|
-                    (if (fi < ss.unpack_sizes.len) @as(usize, @intCast(ss.unpack_sizes[fi])) else 0)
-                else if (fi == 0)
-                    @as(usize, @intCast(unpack_size))
-                else
-                    0;
+                if (metadata.files[fi].is_empty_stream) {
+                    // Directory or empty stream: no data
+                    file_data[fi] = try allocator.dupe(u8, &.{});
+                } else {
+                    const file_size = if (metadata.sub_streams) |ss|
+                        (if (sub_idx < ss.unpack_sizes.len) @as(usize, @intCast(ss.unpack_sizes[sub_idx])) else 0)
+                    else if (sub_idx == 0)
+                        @as(usize, @intCast(unpack_size))
+                    else
+                        0;
 
-                file_data[fi] = try allocator.dupe(u8, unpacked[offset .. offset + file_size]);
-                offset += file_size;
+                    file_data[fi] = try allocator.dupe(u8, unpacked[offset .. offset + file_size]);
+                    offset += file_size;
+                    sub_idx += 1;
+                }
             }
         }
     } else {
@@ -809,6 +860,39 @@ test "archive: default create compresses data" {
     defer contents.deinit();
     try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
     try std.testing.expectEqualStrings(repeated, contents.file_data[0]);
+}
+
+test "archive: directory entries roundtrip" {
+    const allocator = std.testing.allocator;
+
+    // Create archive with files AND directory entries
+    const files = [_]FileEntry{
+        .{ .name = "subdir", .data = "", .is_dir = true },
+        .{ .name = "subdir/hello.txt", .data = "Hello from subdir\n" },
+        .{ .name = "root.txt", .data = "Root file\n" },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    // Should have 3 entries (1 dir + 2 files)
+    try std.testing.expectEqual(@as(usize, 3), contents.metadata.files.len);
+
+    // Directory entry: empty stream, not empty file, has directory attribute
+    const dir_info = contents.metadata.files[0];
+    try std.testing.expectEqualStrings("subdir", dir_info.name.?);
+    try std.testing.expect(dir_info.is_empty_stream);
+    try std.testing.expect(!dir_info.is_empty_file); // dirs are empty_stream but NOT empty_file
+    if (dir_info.win_attrib) |attr| {
+        try std.testing.expect(attr & 0x10 != 0); // FILE_ATTRIBUTE_DIRECTORY
+    }
+
+    // File entries: should have their data intact
+    try std.testing.expectEqualStrings("Hello from subdir\n", contents.file_data[1]);
+    try std.testing.expectEqualStrings("Root file\n", contents.file_data[2]);
 }
 
 test "archive: reject bad signature" {

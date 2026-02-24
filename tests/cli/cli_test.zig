@@ -308,3 +308,103 @@ test "cli: command aliases (l, x, a)" {
     defer extract_result.deinit(allocator);
     try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
 }
+
+test "cli: create + list + extract directory" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    // Create a directory structure
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try dir.makePath("mydir/sub");
+    {
+        const f = try dir.createFile("mydir/top.txt", .{});
+        defer f.close();
+        try f.writeAll("Top-level file");
+    }
+    {
+        const f = try dir.createFile("mydir/sub/nested.txt", .{});
+        defer f.close();
+        try f.writeAll("Nested file");
+    }
+
+    var dir_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    var out_buf: [256]u8 = undefined;
+    const dir_path = tmpPath(&dir_buf, "mydir");
+    const archive_path = tmpPath(&arc_buf, "dir_test.7z");
+    const out_dir = tmpPath(&out_buf, "out_dir_test");
+
+    // Create archive from directory
+    const create_result = try runCli(allocator, &.{ "create", archive_path, dir_path });
+    defer create_result.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), create_result.exit_code);
+
+    // List should show directory entries and files
+    const list_result = try runCli(allocator, &.{ "list", archive_path });
+    defer list_result.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), list_result.exit_code);
+    try testing.expect(std.mem.indexOf(u8, list_result.stdout, "mydir/") != null);
+    try testing.expect(std.mem.indexOf(u8, list_result.stdout, "mydir/top.txt") != null);
+    try testing.expect(std.mem.indexOf(u8, list_result.stdout, "mydir/sub/nested.txt") != null);
+
+    // Extract and verify
+    const extract_result = try runCli(allocator, &.{ "extract", archive_path, out_dir });
+    defer extract_result.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
+
+    var out_d = try std.fs.cwd().openDir(out_dir, .{});
+    defer out_d.close();
+
+    const got_top = try readTestFile(allocator, out_d, "mydir/top.txt");
+    defer allocator.free(got_top);
+    try testing.expectEqualStrings("Top-level file", got_top);
+
+    const got_nested = try readTestFile(allocator, out_d, "mydir/sub/nested.txt");
+    defer allocator.free(got_nested);
+    try testing.expectEqualStrings("Nested file", got_nested);
+}
+
+test "cli: mixed files and directory" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+
+    try writeTestFile(dir, "standalone.txt", "Standalone content");
+    try dir.makePath("testdir");
+    {
+        const f = try dir.createFile("testdir/inner.txt", .{});
+        defer f.close();
+        try f.writeAll("Inner content");
+    }
+
+    var s_buf: [256]u8 = undefined;
+    var d_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    var out_buf: [256]u8 = undefined;
+    const standalone_path = tmpPath(&s_buf, "standalone.txt");
+    const dir_path = tmpPath(&d_buf, "testdir");
+    const archive_path = tmpPath(&arc_buf, "mixed.7z");
+    const out_dir = tmpPath(&out_buf, "out_mixed");
+
+    const create_result = try runCli(allocator, &.{ "create", archive_path, standalone_path, dir_path });
+    defer create_result.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), create_result.exit_code);
+
+    const extract_result = try runCli(allocator, &.{ "extract", archive_path, out_dir });
+    defer extract_result.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
+
+    var out_d = try std.fs.cwd().openDir(out_dir, .{});
+    defer out_d.close();
+
+    const got_s = try readTestFile(allocator, out_d, "standalone.txt");
+    defer allocator.free(got_s);
+    try testing.expectEqualStrings("Standalone content", got_s);
+
+    const got_i = try readTestFile(allocator, out_d, "testdir/inner.txt");
+    defer allocator.free(got_i);
+    try testing.expectEqualStrings("Inner content", got_i);
+}
