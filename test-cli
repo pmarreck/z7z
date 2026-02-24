@@ -993,6 +993,43 @@ else
 fi
 
 # ============================================================================
+# stdin/stdout support
+# ============================================================================
+echo ""
+echo "--- stdio: create to stdout ---"
+echo "stdout test data" > "$TMPDIR/stdio_in.txt"
+$Z7Z create - "$TMPDIR/stdio_in.txt" > "$TMPDIR/stdout.7z" 2>/dev/null
+# Verify the output is a valid archive
+LIST_STDOUT=$($Z7Z list "$TMPDIR/stdout.7z" 2>&1)
+assert_contains "stdout archive is valid" "$LIST_STDOUT" "stdio_in.txt"
+
+echo ""
+echo "--- stdio: create to @stdout ---"
+$Z7Z create @stdout "$TMPDIR/stdio_in.txt" > "$TMPDIR/atstdout.7z" 2>/dev/null
+LIST_AT=$($Z7Z list "$TMPDIR/atstdout.7z" 2>&1)
+assert_contains "@stdout archive is valid" "$LIST_AT" "stdio_in.txt"
+
+echo ""
+echo "--- stdio: list from stdin ---"
+LIST_STDIN=$(cat "$TMPDIR/stdout.7z" | $Z7Z list - 2>&1)
+assert_contains "list from stdin works" "$LIST_STDIN" "stdio_in.txt"
+
+echo ""
+echo "--- stdio: list from @stdin ---"
+LIST_ATSTDIN=$(cat "$TMPDIR/stdout.7z" | $Z7Z list @stdin 2>&1)
+assert_contains "list from @stdin works" "$LIST_ATSTDIN" "stdio_in.txt"
+
+echo ""
+echo "--- stdio: extract from stdin ---"
+cat "$TMPDIR/stdout.7z" | $Z7Z extract - "$TMPDIR/stdin_out" 2>/dev/null
+assert_files_equal "extract from stdin matches" "$TMPDIR/stdio_in.txt" "$TMPDIR/stdin_out/stdio_in.txt"
+
+echo ""
+echo "--- stdio: extract from @stdin ---"
+cat "$TMPDIR/stdout.7z" | $Z7Z extract @stdin "$TMPDIR/atstdin_out" 2>/dev/null
+assert_files_equal "extract from @stdin matches" "$TMPDIR/stdio_in.txt" "$TMPDIR/atstdin_out/stdio_in.txt"
+
+# ============================================================================
 # Progress / stats output
 # ============================================================================
 echo ""

@@ -198,8 +198,54 @@ static void about(void) {
 		Z7Z_VERSION, os, arch);
 }
 
+/* Check if a path refers to stdin. */
+static int is_stdin_path(const char *path) {
+	return strcmp(path, "-") == 0 || strcmp(path, "@stdin") == 0;
+}
+
+/* Check if a path refers to stdout. */
+static int is_stdout_path(const char *path) {
+	return strcmp(path, "-") == 0 || strcmp(path, "@stdout") == 0;
+}
+
+/* Read all of stdin into malloc'd buffer. Caller frees. */
+static uint8_t *read_stdin(size_t *out_len) {
+	size_t cap = 64 * 1024;
+	size_t len = 0;
+	uint8_t *buf = malloc(cap);
+	if (!buf) {
+		fprintf(stderr, "error: out of memory reading stdin\n");
+		return NULL;
+	}
+
+#ifdef _WIN32
+	_setmode(_fileno(stdin), _O_BINARY);
+#endif
+
+	while (1) {
+		if (len >= cap) {
+			cap *= 2;
+			uint8_t *nb = realloc(buf, cap);
+			if (!nb) {
+				fprintf(stderr, "error: out of memory reading stdin\n");
+				free(buf);
+				return NULL;
+			}
+			buf = nb;
+		}
+		size_t n = fread(buf + len, 1, cap - len, stdin);
+		if (n == 0) break;
+		len += n;
+	}
+
+	*out_len = len;
+	return buf;
+}
+
 /* Read entire file into malloc'd buffer. Caller frees. */
 static uint8_t *read_file(const char *path, size_t *out_len) {
+	if (is_stdin_path(path)) return read_stdin(out_len);
+
 	FILE *f = fopen(path, "rb");
 	if (!f) {
 		fprintf(stderr, "error: cannot open '%s': %s\n", path, strerror(errno));
@@ -237,6 +283,21 @@ static uint8_t *read_file(const char *path, size_t *out_len) {
 
 /* Write buffer to file. Returns 0 on success. */
 static int write_file(const char *path, const uint8_t *data, size_t len) {
+	if (is_stdout_path(path)) {
+#ifdef _WIN32
+		_setmode(_fileno(stdout), _O_BINARY);
+#endif
+		if (len > 0) {
+			size_t nwritten = fwrite(data, 1, len, stdout);
+			if (nwritten != len) {
+				fprintf(stderr, "error: short write to stdout\n");
+				return 1;
+			}
+		}
+		fflush(stdout);
+		return 0;
+	}
+
 	FILE *f = fopen(path, "wb");
 	if (!f) {
 		fprintf(stderr, "error: cannot create '%s': %s\n", path, strerror(errno));
