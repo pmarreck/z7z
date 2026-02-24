@@ -137,6 +137,9 @@ const RangeEncoder = struct {
 
 const HASH_BITS = 20;
 const HASH_SIZE = 1 << HASH_BITS;
+const HASH2_SIZE = 1 << 16; // 65536 — perfect hash for 2-byte keys
+const HASH3_BITS = 18;
+const HASH3_SIZE = 1 << HASH3_BITS; // 262144
 const MIN_MATCH = 2;
 const MAX_MATCH = 273;
 
@@ -152,6 +155,8 @@ const Match = struct {
 /// comparison starting from a known common prefix.
 const MatchFinder = struct {
     hash: []u32, // 4-byte hash table -> most recent pos+1 (0 = empty)
+    hash2: []u32, // 2-byte hash table (perfect hash, 65536 entries)
+    hash3: []u32, // 3-byte hash table (262144 entries)
     bt_left: []u32, // left child array (pos -> pos+1 of left child)
     bt_right: []u32, // right child array
     data: []const u8,
@@ -162,12 +167,18 @@ const MatchFinder = struct {
     fn init(data: []const u8, dict_size: u32, allocator: std.mem.Allocator) !MatchFinder {
         const hash = try allocator.alloc(u32, HASH_SIZE);
         @memset(hash, 0);
+        const hash2 = try allocator.alloc(u32, HASH2_SIZE);
+        @memset(hash2, 0);
+        const hash3 = try allocator.alloc(u32, HASH3_SIZE);
+        @memset(hash3, 0);
         const bt_left = try allocator.alloc(u32, data.len);
         @memset(bt_left, 0);
         const bt_right = try allocator.alloc(u32, data.len);
         @memset(bt_right, 0);
         return .{
             .hash = hash,
+            .hash2 = hash2,
+            .hash3 = hash3,
             .bt_left = bt_left,
             .bt_right = bt_right,
             .data = data,
@@ -177,6 +188,8 @@ const MatchFinder = struct {
 
     fn deinit(self: *MatchFinder, allocator: std.mem.Allocator) void {
         allocator.free(self.hash);
+        allocator.free(self.hash2);
+        allocator.free(self.hash3);
         allocator.free(self.bt_left);
         allocator.free(self.bt_right);
     }
@@ -201,6 +214,17 @@ const MatchFinder = struct {
             common += 1;
         }
         return common;
+    }
+
+    fn hash2val(data: []const u8, pos: usize) u32 {
+        return @as(u32, data[pos]) | (@as(u32, data[pos + 1]) << 8);
+    }
+
+    fn hash3val(data: []const u8, pos: usize) u32 {
+        const v = @as(u32, data[pos]) |
+            (@as(u32, data[pos + 1]) << 8) |
+            (@as(u32, data[pos + 2]) << 16);
+        return (v *% 0x56A3B17D) >> (32 - HASH3_BITS);
     }
 
     fn hash4(data: []const u8, pos: usize) u32 {
@@ -231,6 +255,48 @@ const MatchFinder = struct {
         var candidates = MatchCandidates{};
         if (pos + 3 >= self.data.len) return candidates;
 
+        // --- HC2: 2-byte hash lookup ---
+        const h2 = hash2val(self.data, pos);
+        const h2_prev = self.hash2[h2];
+        self.hash2[h2] = @intCast(pos + 1);
+
+        // --- HC3: 3-byte hash lookup ---
+        const h3 = hash3val(self.data, pos);
+        const h3_prev = self.hash3[h3];
+        self.hash3[h3] = @intCast(pos + 1);
+
+        var best_len: u32 = MIN_MATCH - 1;
+
+        // Check 2-byte match
+        if (h2_prev > 0) {
+            const mp2 = h2_prev - 1;
+            if (pos > mp2) {
+                const d2 = @as(u32, @intCast(pos - mp2));
+                if (d2 <= self.dict_size and self.data[mp2] == self.data[pos] and self.data[mp2 + 1] == self.data[pos + 1]) {
+                    candidates.add(.{ .distance = d2 - 1, .length = 2 });
+                    best_len = 2;
+                }
+            }
+        }
+
+        // Check 3-byte match
+        if (h3_prev > 0) {
+            const mp3 = h3_prev - 1;
+            if (pos > mp3) {
+                const d3 = @as(u32, @intCast(pos - mp3));
+                if (d3 <= self.dict_size and self.data[mp3] == self.data[pos] and self.data[mp3 + 1] == self.data[pos + 1] and self.data[mp3 + 2] == self.data[pos + 2]) {
+                    // Extend to find actual match length
+                    const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
+                    const actual_len = extendMatch(self.data, pos, mp3, 3, max_len);
+                    if (actual_len > best_len) {
+                        candidates.add(.{ .distance = d3 - 1, .length = actual_len });
+                        best_len = actual_len;
+                    }
+                }
+            }
+        }
+
+        // --- BT4: binary tree match finding ---
         const h = hash4(self.data, pos);
         var cur = self.hash[h];
         self.hash[h] = @intCast(pos + 1);
@@ -239,7 +305,6 @@ const MatchFinder = struct {
         var right_ptr = &self.bt_right[pos];
         var best_left_len: u32 = 0;
         var best_right_len: u32 = 0;
-        var best_len: u32 = MIN_MATCH - 1;
         var depth: u32 = 0;
 
         while (cur > 0 and depth < BT_DEPTH) : (depth += 1) {
@@ -280,15 +345,15 @@ const MatchFinder = struct {
         return candidates;
     }
 
-    /// Lightweight skip: update hash table only, no tree maintenance.
-    /// Trades future match quality for speed at positions inside committed
-    /// matches where we won't search for matches anyway.
+    /// Lightweight skip: update only HC2+HC3 hash tables, leave BT4 tree
+    /// completely untouched. Skipped positions are findable via short-match
+    /// hashes but don't disrupt the binary tree structure at all.
     fn skip(self: *MatchFinder, pos: usize) void {
-        if (pos + 3 >= self.data.len) return;
-        const h = hash4(self.data, pos);
-        self.hash[h] = @intCast(pos + 1);
-        // Leave bt_left/bt_right at 0 (default) — this position
-        // becomes a leaf if later referenced by the tree.
+        if (pos + 1 >= self.data.len) return;
+        self.hash2[hash2val(self.data, pos)] = @intCast(pos + 1);
+        if (pos + 2 < self.data.len) {
+            self.hash3[hash3val(self.data, pos)] = @intCast(pos + 1);
+        }
     }
 };
 
@@ -1869,6 +1934,50 @@ test "pos_slot calculation" {
     // slot 8: base=16, 3 direct bits, range 16-23
     try std.testing.expectEqual(@as(u32, 8), getPosSlot(16));
     try std.testing.expectEqual(@as(u32, 8), getPosSlot(23));
+}
+
+// Verify HC2+HC3 finds short matches that pure BT4 would miss.
+// Data pattern: 2-3 byte sequences repeat at distance > 4 but with different
+// 4th bytes, so the 4-byte hash sends them to different buckets.
+test "match finder: short matches via HC2+HC3" {
+    const allocator = std.testing.allocator;
+
+    // Build data where 3-byte patterns repeat with different 4th bytes:
+    // "ABCX....ABCY" — the 3-byte prefix "ABC" repeats at distance 8 but
+    // "ABCX" != "ABCY" so hash4 sends them to different buckets.
+    var data: [64]u8 = undefined;
+    @memset(&data, 0x20); // fill with spaces
+    // Place "ABC" at position 4 and position 20 (distance 16)
+    data[4] = 'A';
+    data[5] = 'B';
+    data[6] = 'C';
+    data[7] = 'X'; // different 4th byte
+    data[20] = 'A';
+    data[21] = 'B';
+    data[22] = 'C';
+    data[23] = 'Y'; // different 4th byte — hash4 differs
+
+    var mf = try MatchFinder.init(&data, 64, allocator);
+    defer mf.deinit(allocator);
+
+    // Walk through positions 0..19 to populate hash tables
+    for (0..20) |p| {
+        _ = mf.findMatches(p);
+    }
+
+    // At position 20, the 3-byte hash should find the match at position 4
+    const candidates = mf.findMatches(20);
+    const matches = candidates.slice();
+
+    // We should find at least a 3-byte match (distance 15 = 20-4-1)
+    var found_short = false;
+    for (matches) |m| {
+        if (m.length >= 3 and m.distance == 15) {
+            found_short = true;
+            break;
+        }
+    }
+    try std.testing.expect(found_short);
 }
 
 // Phase-level profiler: measures match finding, DP, and encoding separately.

@@ -29,10 +29,11 @@ LZMA2 compression encoder with forward optimal parser.
   - Pre-computes price tables (length, distance, pos_slot, align) before DP loop
   - Evaluates literals, short reps, rep matches (4 distances × all lengths), new matches
   - Uses pre-computed position-dependent price invariants per position
-- `MatchFinder` — BT4 binary tree match finder (BT_DEPTH=32, NICE_LEN=128)
+- `MatchFinder` — BT4 binary tree match finder with HC2+HC3 short-match hashes
+  - HC2 (2-byte perfect hash, 64K entries) + HC3 (3-byte hash, 256K entries) for short matches
   - `extendMatch()` — u64 XOR + @ctz word-at-a-time string comparison
-  - `findMatches()` — binary tree search with nice-length early exit
-  - `skip()` — lightweight hash-only position update (no tree maintenance)
+  - `findMatches()` — HC2/HC3 lookup + BT4 binary tree search (BT_DEPTH=32, NICE_LEN=128)
+  - `skip()` — HC2/HC3-only update, preserves BT4 tree structure
 - `priceLenVal`, `probPrice0/1`, `priceBitTreeVal`, `priceRevBitTree` — price estimation primitives
 - `prob_prices` — comptime-const probability price lookup table (thread-safe)
 - `compressBlock()` — self-contained single-block LZMA2 compression (own MatchFinder + LzmaEncoder)

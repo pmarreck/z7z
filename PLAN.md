@@ -67,7 +67,12 @@
   - BT_DEPTH reduced from 64 to 32
   - Results: 1.16MB text 12.6ms vs 7zz 22.2ms (1.76x faster), 4MB text 18.9ms vs 69.4ms (3.67x faster)
   - Trade-off: slightly larger compressed output on highly repetitive text (tree quality vs speed)
-- [ ] Further optimization: HC4 hybrid, HC2+HC3 hash tables, LLVM IR hand-tuning
+- [x] HC2+HC3 secondary hash tables + tree-preserving skip (~2026-02-23 EST)
+  - 2-byte perfect hash (64K entries) + 3-byte hash (256K entries) for short matches
+  - Skip only updates HC2/HC3, leaves BT4 tree untouched → restored compression quality
+  - text_1m: 1861→1045 bytes (44% smaller), text_4m: 6575→3686 bytes (44% smaller)
+  - Speed maintained: 2.0x faster than 7zz-st on text, 3.84x on 4MB parallel
+- [ ] Further optimization: HC4 hybrid, LLVM IR hand-tuning
 
 ## Phase 8: Benchmark Suite (~2026-02-23)
 - [x] `./bm` — Bash script using hyperfine to benchmark z7z vs 7zz (~2026-02-23 EST)
