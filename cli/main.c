@@ -1,10 +1,5 @@
 /* z7z CLI — dogfoods the C FFI.
- *
- * Usage:
- *   z7z list   <archive.7z>
- *   z7z extract [--no-ctime] [--no-xattr] <archive.7z> [output-dir]
- *   z7z create  [--dereference|-L] [--no-ctime] [--atime] [--no-xattr]
- *               <archive.7z> <file1|dir1> [file2|dir2 ...]
+ * See usage() or run z7z --help for command syntax.
  */
 
 #include <errno.h>
@@ -49,20 +44,71 @@
 
 #include "z7z.h"
 
+#define Z7Z_VERSION "0.1.0"
+
 /* Global flags */
 static int g_dereference = 0;
 static int g_no_ctime = 0;
 static int g_atime = 0;
 static int g_no_xattr = 0;
+static int g_verbose = 0;
+static int g_no_progress = 0;
 
 static void usage(const char *prog) {
 	fprintf(stderr,
 		"Usage:\n"
 		"  %s list    <archive.7z>\n"
-		"  %s extract [--no-ctime] [--no-xattr] <archive.7z> [output-dir]\n"
-		"  %s create  [--dereference|-L] [--no-ctime] [--atime] [--no-xattr]\n"
-		"             <archive.7z> <file1|dir1> [file2|dir2 ...]\n",
+		"  %s extract [options] <archive.7z> [output-dir]\n"
+		"  %s create  [options] <archive.7z> <file1|dir1> [file2|dir2 ...]\n"
+		"\n"
+		"Commands:\n"
+		"  list, l       List archive contents\n"
+		"  extract, x    Extract archive to directory\n"
+		"  create, a     Create archive from files/directories\n"
+		"\n"
+		"General options:\n"
+		"  -h, --help        Show this help message\n"
+		"  --about           Show version, platform, and architecture\n"
+		"  -v, --verbose     Show individual file names during extract/create\n"
+		"  --no-progress     Suppress progress indication\n"
+		"\n"
+		"Create options:\n"
+		"  -L, --dereference Follow symbolic links\n"
+		"  --no-ctime        Don't store file creation/birth times\n"
+		"  --atime           Store file access times (off by default)\n"
+		"  --no-xattr        Don't store extended attributes\n"
+		"\n"
+		"Extract options:\n"
+		"  --no-ctime        Don't restore file creation/birth times\n"
+		"  --no-xattr        Don't restore extended attributes\n",
 		prog, prog, prog);
+}
+
+static void about(void) {
+	const char *os =
+#if defined(__APPLE__)
+		"macOS";
+#elif defined(__linux__)
+		"Linux";
+#elif defined(_WIN32)
+		"Windows";
+#else
+		"Unknown";
+#endif
+	const char *arch =
+#if defined(__aarch64__) || defined(_M_ARM64)
+		"aarch64";
+#elif defined(__x86_64__) || defined(_M_X64)
+		"x86_64";
+#elif defined(__arm__) || defined(_M_ARM)
+		"arm";
+#elif defined(__i386__) || defined(_M_IX86)
+		"x86";
+#else
+		"unknown";
+#endif
+	printf("z7z %s — cleanroom 7-Zip implementation (%s/%s)\n",
+		Z7Z_VERSION, os, arch);
 }
 
 /* Read entire file into malloc'd buffer. Caller frees. */
@@ -832,7 +878,7 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 			if (ensure_dir_recursive(out_path) != 0) {
 				errors++;
 			} else {
-				printf("  %s (directory)\n", name);
+				if (g_verbose) printf("  %s (directory)\n", name);
 				/* Defer directory mtime restoration */
 				int64_t mt = z7z_file_mtime(ar, i);
 				if (mt > 0) {
@@ -889,7 +935,7 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 						out_path, target, strerror(errno));
 					errors++;
 				} else {
-					printf("  %s -> %s (symlink)\n", name, target);
+					if (g_verbose) printf("  %s -> %s (symlink)\n", name, target);
 				}
 			}
 		} else {
@@ -902,7 +948,7 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 				if (write_file(out_path, file_data, file_size) != 0) {
 					errors++;
 				} else {
-					printf("  %s (%zu bytes)\n", name, file_size);
+					if (g_verbose) printf("  %s (%zu bytes)\n", name, file_size);
 					/* Restore permissions */
 					uint32_t attrib = z7z_file_attrib(ar, i);
 					set_permissions(out_path, attrib);
@@ -1084,60 +1130,63 @@ handle_file:;
 	return ret;
 }
 
+/* Parse a flag argument. Returns 1 if recognized, 0 otherwise. */
+static int parse_flag(const char *arg) {
+	if (strcmp(arg, "--no-ctime") == 0) { g_no_ctime = 1; return 1; }
+	if (strcmp(arg, "--atime") == 0) { g_atime = 1; return 1; }
+	if (strcmp(arg, "--no-xattr") == 0) { g_no_xattr = 1; return 1; }
+	if (strcmp(arg, "--dereference") == 0 || strcmp(arg, "-L") == 0) { g_dereference = 1; return 1; }
+	if (strcmp(arg, "-v") == 0 || strcmp(arg, "--verbose") == 0) { g_verbose = 1; return 1; }
+	if (strcmp(arg, "--no-progress") == 0) { g_no_progress = 1; return 1; }
+	return 0;
+}
+
 int main(int argc, char **argv) {
-	if (argc < 3) {
+	/* Handle --help, --about, --version anywhere in args */
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+			usage(argv[0]);
+			return 0;
+		}
+		if (strcmp(argv[i], "--about") == 0 || strcmp(argv[i], "--version") == 0) {
+			about();
+			return 0;
+		}
+	}
+
+	if (argc < 2) {
 		usage(argv[0]);
 		return 1;
 	}
 
 	const char *cmd = argv[1];
 
-	if (strcmp(cmd, "list") == 0 || strcmp(cmd, "l") == 0) {
-		return cmd_list(argv[2]);
-	} else if (strcmp(cmd, "extract") == 0 || strcmp(cmd, "x") == 0) {
-		/* Parse optional flags before archive path */
-		int arg_start = 2;
-		for (int i = 2; i < argc; i++) {
-			if (strcmp(argv[i], "--no-ctime") == 0) {
-				g_no_ctime = 1;
-				arg_start = i + 1;
-			} else if (strcmp(argv[i], "--no-xattr") == 0) {
-				g_no_xattr = 1;
-				arg_start = i + 1;
-			} else {
-				break;
-			}
+	/* Parse flags (skip command name at argv[1]) */
+	int arg_start = 2;
+	for (int i = 2; i < argc; i++) {
+		if (argv[i][0] == '-' && parse_flag(argv[i])) {
+			arg_start = i + 1;
+		} else {
+			break;
 		}
+	}
+
+	if (strcmp(cmd, "list") == 0 || strcmp(cmd, "l") == 0) {
+		if (arg_start >= argc) {
+			fprintf(stderr, "error: list requires archive path\n");
+			return 1;
+		}
+		return cmd_list(argv[arg_start]);
+	} else if (strcmp(cmd, "extract") == 0 || strcmp(cmd, "x") == 0) {
 		if (arg_start >= argc) {
 			fprintf(stderr, "error: extract requires archive path\n");
-			usage(argv[0]);
 			return 1;
 		}
 		const char *out_dir = (arg_start + 1 < argc) ? argv[arg_start + 1] : NULL;
 		return cmd_extract(argv[arg_start], out_dir);
 	} else if (strcmp(cmd, "create") == 0 || strcmp(cmd, "a") == 0) {
-		/* Parse optional flags before archive path */
-		int arg_start = 2;
-		for (int i = 2; i < argc; i++) {
-			if (strcmp(argv[i], "--dereference") == 0 || strcmp(argv[i], "-L") == 0) {
-				g_dereference = 1;
-				arg_start = i + 1;
-			} else if (strcmp(argv[i], "--no-ctime") == 0) {
-				g_no_ctime = 1;
-				arg_start = i + 1;
-			} else if (strcmp(argv[i], "--atime") == 0) {
-				g_atime = 1;
-				arg_start = i + 1;
-			} else if (strcmp(argv[i], "--no-xattr") == 0) {
-				g_no_xattr = 1;
-				arg_start = i + 1;
-			} else {
-				break;
-			}
-		}
 		if (arg_start >= argc || arg_start + 1 >= argc) {
 			fprintf(stderr, "error: create requires archive path and at least one input file or directory\n");
-			usage(argv[0]);
 			return 1;
 		}
 		return cmd_create(argv[arg_start], argc - arg_start - 1, argv + arg_start + 1);

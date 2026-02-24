@@ -181,6 +181,55 @@ else
 fi
 
 # ============================================================================
+# Test: --help, --about, --verbose flags
+# ============================================================================
+echo ""
+echo "--- CLI flags: help, about, verbose ---"
+
+HELP_OUT=$($Z7Z --help 2>&1)
+assert_contains "help: shows usage" "$HELP_OUT" "Usage:"
+assert_contains "help: shows commands" "$HELP_OUT" "Commands:"
+assert_contains "help: shows options" "$HELP_OUT" "verbose"
+
+# --help should exit 0
+if $Z7Z --help > /dev/null 2>&1; then
+	pass "help: exits 0"
+else
+	fail "help: exits 0"
+fi
+
+# -h should also work
+if $Z7Z -h > /dev/null 2>&1; then
+	pass "help: -h shorthand works"
+else
+	fail "help: -h shorthand works"
+fi
+
+ABOUT_OUT=$($Z7Z --about 2>&1)
+assert_contains "about: shows version" "$ABOUT_OUT" "z7z"
+assert_contains "about: shows platform" "$ABOUT_OUT" "cleanroom"
+
+# --version should also work
+VERSION_OUT=$($Z7Z --version 2>&1)
+assert_contains "version: shows version" "$VERSION_OUT" "z7z"
+
+# --verbose: extract should show file names
+echo -n "Verbose test" > "$TMPDIR/verb.txt"
+$Z7Z create "$TMPDIR/verb.7z" "$TMPDIR/verb.txt" > /dev/null
+mkdir -p "$TMPDIR/out_verb"
+VERB_OUT=$($Z7Z extract -v "$TMPDIR/verb.7z" "$TMPDIR/out_verb" 2>&1)
+assert_contains "verbose: extract shows filenames" "$VERB_OUT" "verb.txt"
+
+# Without --verbose: extract should NOT show filenames
+mkdir -p "$TMPDIR/out_quiet"
+QUIET_OUT=$($Z7Z extract "$TMPDIR/verb.7z" "$TMPDIR/out_quiet" 2>&1)
+if echo "$QUIET_OUT" | grep -q "verb.txt"; then
+	fail "quiet: extract hides filenames"
+else
+	pass "quiet: extract hides filenames"
+fi
+
+# ============================================================================
 # Test: create from directory
 # ============================================================================
 echo ""
