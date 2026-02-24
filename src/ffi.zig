@@ -166,12 +166,44 @@ export fn z7z_file_mtime(handle: ?*const ArchiveHandle, index: usize) i64 {
 	return @intCast((ft / ticks_per_sec) - FILETIME_EPOCH_OFFSET);
 }
 
+/// Get file's creation/birth time as Unix timestamp (seconds since epoch).
+/// Returns 0 if ctime not stored or on error.
+export fn z7z_file_ctime(handle: ?*const ArchiveHandle, index: usize) i64 {
+	const h = handle orelse return 0;
+	if (index >= h.contents.metadata.files.len) return 0;
+	const ft = h.contents.metadata.files[index].ctime orelse return 0;
+	const ticks_per_sec: u64 = 10_000_000;
+	if (ft < FILETIME_EPOCH_OFFSET * ticks_per_sec) return 0;
+	return @intCast((ft / ticks_per_sec) - FILETIME_EPOCH_OFFSET);
+}
+
+/// Get file's access time as Unix timestamp (seconds since epoch).
+/// Returns 0 if atime not stored or on error.
+export fn z7z_file_atime(handle: ?*const ArchiveHandle, index: usize) i64 {
+	const h = handle orelse return 0;
+	if (index >= h.contents.metadata.files.len) return 0;
+	const ft = h.contents.metadata.files[index].atime orelse return 0;
+	const ticks_per_sec: u64 = 10_000_000;
+	if (ft < FILETIME_EPOCH_OFFSET * ticks_per_sec) return 0;
+	return @intCast((ft / ticks_per_sec) - FILETIME_EPOCH_OFFSET);
+}
+
 /// Get file's win_attrib (POSIX mode in upper 16, Windows attrs in lower 16).
 /// Returns 0 if not stored or on error.
 export fn z7z_file_attrib(handle: ?*const ArchiveHandle, index: usize) u32 {
 	const h = handle orelse return 0;
 	if (index >= h.contents.metadata.files.len) return 0;
 	return h.contents.metadata.files[index].win_attrib orelse 0;
+}
+
+/// Get file's xattr blob pointer and length.
+/// Returns null if no xattrs stored. Sets *out_len to blob length.
+export fn z7z_file_xattrs(handle: ?*const ArchiveHandle, index: usize, out_len: ?*usize) ?[*]const u8 {
+	const h = handle orelse return null;
+	if (index >= h.contents.metadata.files.len) return null;
+	const xattrs = h.contents.metadata.files[index].xattrs orelse return null;
+	if (out_len) |ol| ol.* = xattrs.len;
+	return xattrs.ptr;
 }
 
 /// Close an archive and free all associated memory.
@@ -188,6 +220,10 @@ pub const Z7zFileEntry = extern struct {
 	flags: u32,
 	mtime: i64, // Unix timestamp (0 = not set)
 	win_attrib: u32, // POSIX mode<<16 | win_flags (0 = not set)
+	ctime: i64, // Unix timestamp for creation/birth time (0 = not set)
+	atime: i64, // Unix timestamp for access time (0 = not set)
+	xattrs: ?[*]const u8, // serialized xattr blob (NULL if none)
+	xattrs_len: usize, // length of xattr blob
 };
 
 const Z7Z_FLAG_DIRECTORY: u32 = 0x01;
@@ -224,20 +260,36 @@ export fn z7z_create(
 		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
 		const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
 		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
-		// Convert Unix timestamp to NTFS FILETIME (or null if 0)
+		// Convert Unix timestamps to NTFS FILETIME (or null if 0)
 		const mtime: ?u64 = if (cf.mtime > 0)
 			(@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
 		else
 			null;
+		const ctime: ?u64 = if (cf.ctime > 0)
+			(@as(u64, @intCast(cf.ctime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
+		const atime: ?u64 = if (cf.atime > 0)
+			(@as(u64, @intCast(cf.atime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
 		// Map win_attrib (0 = not set)
 		const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
+		// Map xattrs (null pointer = not set)
+		const xattr_data: ?[]const u8 = if (cf.xattrs) |xp|
+			xp[0..cf.xattrs_len]
+		else
+			null;
 		zig_files[i] = .{
 			.name = cf.name[0..name_len],
 			.data = data_slice,
 			.is_dir = is_dir,
 			.is_symlink = is_symlink,
 			.mtime = mtime,
+			.ctime = ctime,
+			.atime = atime,
 			.win_attrib = attrib,
+			.xattrs = xattr_data,
 		};
 	}
 
@@ -332,7 +384,10 @@ test "ffi: null handle safety" {
 	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_dir(null, 0));
 	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_symlink(null, 0));
 	try std.testing.expectEqual(@as(i64, 0), z7z_file_mtime(null, 0));
+	try std.testing.expectEqual(@as(i64, 0), z7z_file_ctime(null, 0));
+	try std.testing.expectEqual(@as(i64, 0), z7z_file_atime(null, 0));
 	try std.testing.expectEqual(@as(u32, 0), z7z_file_attrib(null, 0));
+	try std.testing.expectEqual(@as(?[*]const u8, null), z7z_file_xattrs(null, 0, null));
 	z7z_close(null); // should not crash
 }
 
@@ -347,6 +402,10 @@ test "ffi: symlink create and query via FFI" {
 			.flags = Z7Z_FLAG_SYMLINK,
 			.mtime = 0,
 			.win_attrib = 0,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = null,
+			.xattrs_len = 0,
 		},
 		.{
 			.name = "real.txt",
@@ -355,6 +414,10 @@ test "ffi: symlink create and query via FFI" {
 			.flags = 0,
 			.mtime = 0,
 			.win_attrib = 0,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = null,
+			.xattrs_len = 0,
 		},
 	};
 
@@ -395,6 +458,10 @@ test "ffi: metadata roundtrip via FFI" {
 			.flags = 0,
 			.mtime = test_mtime,
 			.win_attrib = test_attrib,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = null,
+			.xattrs_len = 0,
 		},
 	};
 
@@ -413,6 +480,75 @@ test "ffi: metadata roundtrip via FFI" {
 	try std.testing.expectEqual(test_mtime, z7z_file_mtime(handle, 0));
 	// win_attrib should roundtrip exactly
 	try std.testing.expectEqual(test_attrib, z7z_file_attrib(handle, 0));
+}
+
+test "ffi: ctime and atime roundtrip via FFI" {
+	const test_ctime: i64 = 1705320000; // 2024-01-15 12:00:00 UTC
+	const test_atime: i64 = 1717200000; // 2024-06-01 00:00:00 UTC
+
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "times.txt",
+			.data = "data",
+			.data_len = 4,
+			.flags = 0,
+			.mtime = 0,
+			.win_attrib = 0,
+			.ctime = test_ctime,
+			.atime = test_atime,
+			.xattrs = null,
+			.xattrs_len = 0,
+		},
+	};
+
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	const rc = z7z_create(&entries, 1, &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	var handle: ?*ArchiveHandle = null;
+	const rc2 = z7z_open(out_data.?, out_len, &handle);
+	try std.testing.expectEqual(Z7Z_OK, rc2);
+	defer z7z_close(handle);
+
+	try std.testing.expectEqual(test_ctime, z7z_file_ctime(handle, 0));
+	try std.testing.expectEqual(test_atime, z7z_file_atime(handle, 0));
+}
+
+test "ffi: xattr roundtrip via FFI" {
+	const xattr_blob = "test_xattr_data_blob";
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "xattr.txt",
+			.data = "data",
+			.data_len = 4,
+			.flags = 0,
+			.mtime = 0,
+			.win_attrib = 0,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = xattr_blob,
+			.xattrs_len = xattr_blob.len,
+		},
+	};
+
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	const rc = z7z_create(&entries, 1, &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	var handle: ?*ArchiveHandle = null;
+	const rc2 = z7z_open(out_data.?, out_len, &handle);
+	try std.testing.expectEqual(Z7Z_OK, rc2);
+	defer z7z_close(handle);
+
+	var xlen: usize = 0;
+	const xptr = z7z_file_xattrs(handle, 0, &xlen);
+	try std.testing.expect(xptr != null);
+	try std.testing.expectEqual(xattr_blob.len, xlen);
+	try std.testing.expectEqualSlices(u8, xattr_blob, xptr.?[0..xlen]);
 }
 
 test "ffi: open with invalid data returns error" {

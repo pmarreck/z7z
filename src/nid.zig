@@ -27,6 +27,7 @@ pub const Nid = enum(u8) {
     encoded_header = 0x17,
     start_pos = 0x18,
     dummy = 0x19,
+    xattr = 0x7A, // z7z custom: per-file xattr blobs
     _,
 
     pub fn fromByte(b: u8) Nid {
@@ -41,6 +42,10 @@ test "nid: known values" {
     try std.testing.expectEqual(@as(u8, 0x01), @intFromEnum(Nid.header));
     try std.testing.expectEqual(@as(u8, 0x17), @intFromEnum(Nid.encoded_header));
     try std.testing.expectEqual(@as(u8, 0x19), @intFromEnum(Nid.dummy));
+}
+
+test "nid: xattr property ID is 0x7A" {
+    try std.testing.expectEqual(@as(u8, 0x7A), @intFromEnum(Nid.xattr));
 }
 
 test "nid: unknown value preserved" {

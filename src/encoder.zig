@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const nid = @import("nid.zig");
+const varint = @import("varint.zig");
 const Writer = @import("writer.zig").Writer;
 const meta = @import("metadata.zig");
 
@@ -254,6 +255,9 @@ fn encodeFilesInfo(w: *Writer, m: meta.ArchiveMetadata) !void {
     // kWinAttrib
     try encodeWinAttrib(w, m.files);
 
+    // kXattr (custom 0x7A)
+    try encodeXattrProperty(w, m.files);
+
     try w.writeNid(.end); // end FilesInfo
 }
 
@@ -416,6 +420,58 @@ fn encodeWinAttrib(w: *Writer, files: []const meta.FileInfo) !void {
     for (files) |f| {
         if (f.win_attrib) |attr| {
             try w.writeU32Le(attr);
+        }
+    }
+}
+
+/// Encode per-file xattr blobs (custom property 0x7A).
+/// Format: NID | PropertySize | BOOL_VECTOR2 | External(0) | for each defined: varint blob_len + blob_bytes
+fn encodeXattrProperty(w: *Writer, files: []const meta.FileInfo) !void {
+    var has_any = false;
+    for (files) |f| {
+        if (f.xattrs != null) {
+            has_any = true;
+            break;
+        }
+    }
+    if (!has_any) return;
+
+    try w.writeNid(.xattr);
+
+    // Build defined flags and count
+    var defined_count: usize = 0;
+    const flags = try w.allocator.alloc(bool, files.len);
+    defer w.allocator.free(flags);
+    for (flags, 0..) |*fl, i| {
+        fl.* = files[i].xattrs != null;
+        if (fl.*) defined_count += 1;
+    }
+
+    // Compute property size: BOOL_VECTOR2 + External(1) + sum(varint_len + blob_len)
+    var all_defined = true;
+    for (flags) |f| {
+        if (!f) {
+            all_defined = false;
+            break;
+        }
+    }
+    const bv2_size: usize = if (all_defined) 1 else 1 + (files.len + 7) / 8;
+    var blob_total: usize = 0;
+    for (files) |f| {
+        if (f.xattrs) |x| {
+            blob_total += varint.encodedSize(@intCast(x.len)) + x.len;
+        }
+    }
+    const prop_size = bv2_size + 1 + blob_total;
+    try w.writeUint64(@intCast(prop_size));
+
+    try w.writeBoolVector2(flags);
+    try w.writeByte(0); // External = 0
+
+    for (files) |f| {
+        if (f.xattrs) |x| {
+            try w.writeUint64(@intCast(x.len));
+            try w.writeBytes(x);
         }
     }
 }

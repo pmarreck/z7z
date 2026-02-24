@@ -54,7 +54,10 @@ pub const FileEntry = struct {
     is_dir: bool = false, // true for directory entries
     is_symlink: bool = false, // true for symbolic link entries
     mtime: ?u64 = null, // optional NTFS FILETIME
+    ctime: ?u64 = null, // optional NTFS FILETIME for creation/birth time
+    atime: ?u64 = null, // optional NTFS FILETIME for access time
     win_attrib: ?u32 = null, // optional Windows attributes
+    xattrs: ?[]const u8 = null, // optional serialized xattr blob
 };
 
 /// Result of reading an archive: metadata + extracted file data.
@@ -180,11 +183,12 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
             .is_empty_stream = f.is_dir, // only dirs are empty streams; symlinks carry data
             .is_empty_file = false,
             .is_anti = false,
-            .ctime = null,
-            .atime = null,
+            .ctime = f.ctime,
+            .atime = f.atime,
             .mtime = f.mtime,
             .win_attrib = computeWinAttrib(f),
             .start_pos = null,
+            .xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null,
         };
     }
 
@@ -363,11 +367,12 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
             .is_empty_stream = f.is_dir,
             .is_empty_file = false,
             .is_anti = false,
-            .ctime = null,
-            .atime = null,
+            .ctime = f.ctime,
+            .atime = f.atime,
             .mtime = f.mtime,
             .win_attrib = computeWinAttrib(f),
             .start_pos = null,
+            .xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null,
         };
     }
 
@@ -521,11 +526,12 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
             .is_empty_stream = f.is_dir,
             .is_empty_file = false,
             .is_anti = false,
-            .ctime = null,
-            .atime = null,
+            .ctime = f.ctime,
+            .atime = f.atime,
             .mtime = f.mtime,
             .win_attrib = computeWinAttrib(f),
             .start_pos = null,
+            .xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null,
         };
     }
 
@@ -1104,6 +1110,44 @@ test "archive: metadata roundtrip — win_attrib preserved for regular files" {
     } else {
         return error.TestUnexpectedResult; // win_attrib must round-trip
     }
+}
+
+test "archive: metadata roundtrip — ctime and atime preserved" {
+    const allocator = std.testing.allocator;
+
+    // 2024-01-15 12:00:00 UTC as NTFS FILETIME
+    const test_ctime: u64 = (1705320000 + 11644473600) * 10_000_000;
+    // 2024-06-01 00:00:00 UTC as NTFS FILETIME
+    const test_atime: u64 = (1717200000 + 11644473600) * 10_000_000;
+
+    const files = [_]FileEntry{
+        .{ .name = "both_times.txt", .data = "hello", .ctime = test_ctime, .atime = test_atime },
+        .{ .name = "ctime_only.txt", .data = "world", .ctime = test_ctime },
+        .{ .name = "no_times.txt", .data = "bare" },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 3), contents.metadata.files.len);
+
+    // File with both ctime and atime
+    const f0 = contents.metadata.files[0];
+    try std.testing.expectEqual(test_ctime, f0.ctime.?);
+    try std.testing.expectEqual(test_atime, f0.atime.?);
+
+    // File with ctime only
+    const f1 = contents.metadata.files[1];
+    try std.testing.expectEqual(test_ctime, f1.ctime.?);
+    try std.testing.expectEqual(@as(?u64, null), f1.atime);
+
+    // File with neither
+    const f2 = contents.metadata.files[2];
+    try std.testing.expectEqual(@as(?u64, null), f2.ctime);
+    try std.testing.expectEqual(@as(?u64, null), f2.atime);
 }
 
 test "archive: reject bad signature" {

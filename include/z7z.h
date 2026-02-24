@@ -59,9 +59,22 @@ int z7z_file_is_symlink(const z7z_archive *archive, size_t index);
  * Returns 0 if mtime not stored or on error. */
 int64_t z7z_file_mtime(const z7z_archive *archive, size_t index);
 
+/* Get file's creation/birth time as Unix timestamp (seconds since epoch).
+ * Returns 0 if ctime not stored or on error. */
+int64_t z7z_file_ctime(const z7z_archive *archive, size_t index);
+
+/* Get file's access time as Unix timestamp (seconds since epoch).
+ * Returns 0 if atime not stored or on error. */
+int64_t z7z_file_atime(const z7z_archive *archive, size_t index);
+
 /* Get file's win_attrib (POSIX mode in upper 16 bits, Windows attrs in lower).
  * Returns 0 if not stored or on error. */
 uint32_t z7z_file_attrib(const z7z_archive *archive, size_t index);
+
+/* Get file's xattr blob pointer. Sets *out_len to blob length.
+ * Returns NULL if no xattrs stored or on error. */
+const uint8_t *z7z_file_xattrs(const z7z_archive *archive, size_t index,
+                                size_t *out_len);
 
 /* Close an archive and free all memory. Safe to call with NULL. */
 void z7z_close(z7z_archive *archive);
@@ -70,8 +83,10 @@ void z7z_close(z7z_archive *archive);
 #define Z7Z_FLAG_DIRECTORY  0x01   /* entry is a directory (no data) */
 #define Z7Z_FLAG_SYMLINK    0x02   /* entry is a symbolic link (data = target path) */
 
-/* Special value: mtime not set (pass to z7z_file_entry.mtime) */
+/* Special values: timestamp not set (pass to z7z_file_entry fields) */
 #define Z7Z_NO_MTIME  0
+#define Z7Z_NO_CTIME  0
+#define Z7Z_NO_ATIME  0
 
 /* File entry for creating archives. */
 typedef struct {
@@ -81,6 +96,10 @@ typedef struct {
 	uint32_t flags;            /* Z7Z_FLAG_* bitmask */
 	int64_t mtime;             /* Unix timestamp (0 = not set) */
 	uint32_t win_attrib;       /* POSIX mode<<16 | win_flags (0 = not set) */
+	int64_t ctime;             /* creation/birth time Unix timestamp (0 = not set) */
+	int64_t atime;             /* access time Unix timestamp (0 = not set) */
+	const uint8_t *xattrs;     /* serialized xattr blob (NULL if none) */
+	size_t xattrs_len;         /* length of xattr blob */
 } z7z_file_entry;
 
 /* Create a .7z archive from file entries.

@@ -91,6 +91,7 @@ pub const FileInfo = struct {
     mtime: ?u64,
     win_attrib: ?u32,
     start_pos: ?u64,
+    xattrs: ?[]const u8 = null, // serialized xattr blob (owned)
 };
 
 pub const ArchiveMetadata = struct {
@@ -123,6 +124,7 @@ pub const ArchiveMetadata = struct {
         }
         for (self.files) |file| {
             if (file.name) |n| self.allocator.free(n);
+            if (file.xattrs) |x| self.allocator.free(x);
         }
         self.allocator.free(self.files);
     }
@@ -610,6 +612,9 @@ fn parseFilesInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.Alloc
             .win_attrib => {
                 try parseWinAttrib(r, result.files, allocator);
             },
+            .xattr => {
+                try parseXattrProperty(r, result.files, allocator);
+            },
             .dummy => {
                 // Skip dummy padding
                 r.skip(@intCast(prop_size)) catch return ParseError.EndOfStream;
@@ -692,6 +697,28 @@ fn parseWinAttrib(r: *Reader, files: []FileInfo, allocator: std.mem.Allocator) P
     for (files, 0..) |*file, i| {
         if (defined[i]) {
             file.win_attrib = r.readU32Le() catch return ParseError.EndOfStream;
+        }
+    }
+}
+
+/// Parse per-file xattr blobs (custom property 0x7A).
+/// Format: BOOL_VECTOR2 | External(0) | for each defined: varint blob_len + blob_bytes
+fn parseXattrProperty(r: *Reader, files: []FileInfo, allocator: std.mem.Allocator) ParseError!void {
+    const defined = r.readBoolVector2(files.len, allocator) catch return ParseError.EndOfStream;
+    defer allocator.free(defined);
+
+    const external = r.readByte() catch return ParseError.EndOfStream;
+    if (external != 0) return ParseError.UnsupportedFeature;
+
+    for (files, 0..) |*file, i| {
+        if (defined[i]) {
+            const blob_len = r.readUint64() catch return ParseError.EndOfStream;
+            if (blob_len > 0) {
+                const blob = r.readBytes(@intCast(blob_len)) catch return ParseError.EndOfStream;
+                file.xattrs = try allocator.dupe(u8, blob);
+            } else {
+                file.xattrs = null;
+            }
         }
     }
 }
