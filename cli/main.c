@@ -2,8 +2,9 @@
  *
  * Usage:
  *   z7z list   <archive.7z>
- *   z7z extract <archive.7z> [output-dir]
- *   z7z create  [--dereference|-L] <archive.7z> <file1|dir1> [file2|dir2 ...]
+ *   z7z extract [--no-ctime] [--no-xattr] <archive.7z> [output-dir]
+ *   z7z create  [--dereference|-L] [--no-ctime] [--atime] [--no-xattr]
+ *               <archive.7z> <file1|dir1> [file2|dir2 ...]
  */
 
 #include <errno.h>
@@ -14,6 +15,16 @@
 #include <sys/time.h>
 #include <dirent.h>
 #include <unistd.h>
+
+#ifdef __APPLE__
+#include <sys/attr.h>
+#include <sys/xattr.h>
+#elif defined(__linux__)
+#include <sys/xattr.h>
+#include <sys/sysmacros.h>
+#include <linux/stat.h>   /* statx */
+#include <fcntl.h>        /* AT_FDCWD, AT_SYMLINK_NOFOLLOW */
+#endif
 
 #ifdef _WIN32
 #include <direct.h>
@@ -38,15 +49,19 @@
 
 #include "z7z.h"
 
-/* Global flag: --dereference / -L */
+/* Global flags */
 static int g_dereference = 0;
+static int g_no_ctime = 0;
+static int g_atime = 0;
+static int g_no_xattr = 0;
 
 static void usage(const char *prog) {
 	fprintf(stderr,
 		"Usage:\n"
-		"  %s list   <archive.7z>\n"
-		"  %s extract <archive.7z> [output-dir]\n"
-		"  %s create  [--dereference|-L] <archive.7z> <file1|dir1> [file2|dir2 ...]\n",
+		"  %s list    <archive.7z>\n"
+		"  %s extract [--no-ctime] [--no-xattr] <archive.7z> [output-dir]\n"
+		"  %s create  [--dereference|-L] [--no-ctime] [--atime] [--no-xattr]\n"
+		"             <archive.7z> <file1|dir1> [file2|dir2 ...]\n",
 		prog, prog, prog);
 }
 
@@ -202,8 +217,9 @@ static int symlink_target_is_safe(const char *target) {
 
 typedef struct {
 	z7z_file_entry *entries;
-	uint8_t **bufs;   /* file data buffers (NULL for directories) */
-	char **names;      /* allocated name strings */
+	uint8_t **bufs;       /* file data buffers (NULL for directories) */
+	char **names;          /* allocated name strings */
+	uint8_t **xattr_bufs; /* xattr blob buffers (NULL if none) */
 	size_t count;
 	size_t capacity;
 } entry_list;
@@ -214,7 +230,8 @@ static int entry_list_init(entry_list *list, size_t initial_cap) {
 	list->entries = calloc(initial_cap, sizeof(z7z_file_entry));
 	list->bufs = calloc(initial_cap, sizeof(uint8_t *));
 	list->names = calloc(initial_cap, sizeof(char *));
-	return (list->entries && list->bufs && list->names) ? 0 : 1;
+	list->xattr_bufs = calloc(initial_cap, sizeof(uint8_t *));
+	return (list->entries && list->bufs && list->names && list->xattr_bufs) ? 0 : 1;
 }
 
 static int entry_list_grow(entry_list *list) {
@@ -222,13 +239,16 @@ static int entry_list_grow(entry_list *list) {
 	z7z_file_entry *ne = realloc(list->entries, new_cap * sizeof(z7z_file_entry));
 	uint8_t **nb = realloc(list->bufs, new_cap * sizeof(uint8_t *));
 	char **nn = realloc(list->names, new_cap * sizeof(char *));
-	if (!ne || !nb || !nn) return 1;
+	uint8_t **nx = realloc(list->xattr_bufs, new_cap * sizeof(uint8_t *));
+	if (!ne || !nb || !nn || !nx) return 1;
 	memset(ne + list->capacity, 0, (new_cap - list->capacity) * sizeof(z7z_file_entry));
 	memset(nb + list->capacity, 0, (new_cap - list->capacity) * sizeof(uint8_t *));
 	memset(nn + list->capacity, 0, (new_cap - list->capacity) * sizeof(char *));
+	memset(nx + list->capacity, 0, (new_cap - list->capacity) * sizeof(uint8_t *));
 	list->entries = ne;
 	list->bufs = nb;
 	list->names = nn;
+	list->xattr_bufs = nx;
 	list->capacity = new_cap;
 	return 0;
 }
@@ -237,50 +257,67 @@ static void entry_list_free(entry_list *list) {
 	for (size_t i = 0; i < list->count; i++) {
 		free(list->bufs[i]);
 		free(list->names[i]);
+		free(list->xattr_bufs[i]);
 	}
 	free(list->entries);
 	free(list->bufs);
 	free(list->names);
+	free(list->xattr_bufs);
 }
 
 static int entry_list_add_dir(entry_list *list, const char *name,
-                              int64_t mtime, uint32_t win_attrib) {
+                              int64_t mtime, int64_t ctime, int64_t atime,
+                              uint32_t win_attrib) {
 	if (list->count >= list->capacity && entry_list_grow(list) != 0) return 1;
 	size_t idx = list->count;
 	list->names[idx] = strdup(name);
 	if (!list->names[idx]) return 1;
 	list->bufs[idx] = NULL;
+	list->xattr_bufs[idx] = NULL;
 	list->entries[idx].name = list->names[idx];
 	list->entries[idx].data = NULL;
 	list->entries[idx].data_len = 0;
 	list->entries[idx].flags = Z7Z_FLAG_DIRECTORY;
 	list->entries[idx].mtime = mtime;
+	list->entries[idx].ctime = ctime;
+	list->entries[idx].atime = atime;
 	list->entries[idx].win_attrib = win_attrib;
+	list->entries[idx].xattrs = NULL;
+	list->entries[idx].xattrs_len = 0;
 	list->count++;
 	return 0;
 }
 
 static int entry_list_add_file(entry_list *list, const char *name,
                                uint8_t *data, size_t data_len,
-                               int64_t mtime, uint32_t win_attrib) {
+                               int64_t mtime, int64_t ctime, int64_t atime,
+                               uint32_t win_attrib,
+                               uint8_t *xattr_blob, size_t xattr_len) {
 	if (list->count >= list->capacity && entry_list_grow(list) != 0) return 1;
 	size_t idx = list->count;
 	list->names[idx] = strdup(name);
 	if (!list->names[idx]) return 1;
 	list->bufs[idx] = data;  /* takes ownership */
+	list->xattr_bufs[idx] = xattr_blob; /* takes ownership (may be NULL) */
 	list->entries[idx].name = list->names[idx];
 	list->entries[idx].data = data;
 	list->entries[idx].data_len = data_len;
 	list->entries[idx].flags = 0;
 	list->entries[idx].mtime = mtime;
+	list->entries[idx].ctime = ctime;
+	list->entries[idx].atime = atime;
 	list->entries[idx].win_attrib = win_attrib;
+	list->entries[idx].xattrs = xattr_blob;
+	list->entries[idx].xattrs_len = xattr_len;
 	list->count++;
 	return 0;
 }
 
 static int entry_list_add_symlink(entry_list *list, const char *name,
                                   const char *target,
-                                  int64_t mtime, uint32_t win_attrib) {
+                                  int64_t mtime, int64_t ctime, int64_t atime,
+                                  uint32_t win_attrib,
+                                  uint8_t *xattr_blob, size_t xattr_len) {
 	if (list->count >= list->capacity && entry_list_grow(list) != 0) return 1;
 	size_t idx = list->count;
 	list->names[idx] = strdup(name);
@@ -288,12 +325,17 @@ static int entry_list_add_symlink(entry_list *list, const char *name,
 	size_t tlen = strlen(target);
 	list->bufs[idx] = (uint8_t *)strdup(target);
 	if (!list->bufs[idx]) return 1;
+	list->xattr_bufs[idx] = xattr_blob; /* takes ownership (may be NULL) */
 	list->entries[idx].name = list->names[idx];
 	list->entries[idx].data = list->bufs[idx];
 	list->entries[idx].data_len = tlen;
 	list->entries[idx].flags = Z7Z_FLAG_SYMLINK;
 	list->entries[idx].mtime = mtime;
+	list->entries[idx].ctime = ctime;
+	list->entries[idx].atime = atime;
 	list->entries[idx].win_attrib = win_attrib;
+	list->entries[idx].xattrs = xattr_blob;
+	list->entries[idx].xattrs_len = xattr_len;
 	list->count++;
 	return 0;
 }
@@ -312,13 +354,14 @@ static uint32_t win_attrib_from_mode(mode_t mode) {
 	return attrib;
 }
 
-/* Set file mtime using utimes(). Returns 0 on success. */
-static int set_mtime(const char *path, int64_t unix_ts) {
-	if (unix_ts <= 0) return 0;
+/* Set file mtime (and optionally atime) using utimes(). Returns 0 on success.
+ * If atime_ts > 0, use it for atime; otherwise mirror mtime. */
+static int set_times(const char *path, int64_t mtime_ts, int64_t atime_ts) {
+	if (mtime_ts <= 0 && atime_ts <= 0) return 0;
 	struct timeval tv[2];
-	tv[0].tv_sec = (time_t)unix_ts;  /* atime */
+	tv[0].tv_sec = (time_t)(atime_ts > 0 ? atime_ts : mtime_ts);  /* atime */
 	tv[0].tv_usec = 0;
-	tv[1].tv_sec = (time_t)unix_ts;  /* mtime */
+	tv[1].tv_sec = (time_t)(mtime_ts > 0 ? mtime_ts : atime_ts);  /* mtime */
 	tv[1].tv_usec = 0;
 	return utimes(path, tv);
 }
@@ -335,6 +378,216 @@ static int set_permissions(const char *path, uint32_t attrib) {
 }
 
 /* ========================================================================== */
+/* Birthtime (creation time) helpers                                          */
+/* ========================================================================== */
+
+/* Capture birthtime as Unix timestamp. Returns 0 if unavailable. */
+static int64_t capture_birthtime(const char *path, const struct stat *st) {
+	if (g_no_ctime) return 0;
+	(void)path; /* used on Linux path */
+#ifdef __APPLE__
+	return (int64_t)st->st_birthtimespec.tv_sec;
+#elif defined(__linux__)
+	(void)st;
+	struct statx sx;
+	if (statx(AT_FDCWD, path, AT_SYMLINK_NOFOLLOW, STATX_BTIME, &sx) == 0
+	    && (sx.stx_mask & STATX_BTIME))
+		return (int64_t)sx.stx_btime.tv_sec;
+	return 0;
+#else
+	(void)st;
+	return 0;
+#endif
+}
+
+/* Capture atime as Unix timestamp. Returns 0 if --atime not set. */
+static int64_t capture_atime(const struct stat *st) {
+	if (!g_atime) return 0;
+#ifdef __APPLE__
+	return (int64_t)st->st_atimespec.tv_sec;
+#else
+	return (int64_t)st->st_atime;
+#endif
+}
+
+#ifdef __APPLE__
+/* Restore birthtime on macOS using setattrlist. Returns 0 on success. */
+static int set_birthtime(const char *path, int64_t unix_ts) {
+	if (unix_ts <= 0) return 0;
+	struct attrlist al;
+	memset(&al, 0, sizeof(al));
+	al.bitmapcount = ATTR_BIT_MAP_COUNT;
+	al.commonattr = ATTR_CMN_CRTIME;
+	struct timespec ts;
+	ts.tv_sec = (time_t)unix_ts;
+	ts.tv_nsec = 0;
+	return setattrlist(path, &al, &ts, sizeof(ts), 0);
+}
+#endif
+
+/* ========================================================================== */
+/* Extended attribute helpers                                                 */
+/* ========================================================================== */
+
+#if defined(__APPLE__) || defined(__linux__)
+
+/* Blocklist: xattrs that should NOT be preserved. */
+static int xattr_is_blocked(const char *name) {
+	return strcmp(name, "com.apple.quarantine") == 0
+		|| strcmp(name, "com.apple.genstore") == 0
+		|| strncmp(name, "com.apple.diskimages.", 21) == 0;
+}
+
+/* Serialize xattrs from a file into a blob.
+ * Format: varint:count, then for each: varint:name_len, name, varint:val_len, val
+ * Returns malloc'd blob (caller frees) or NULL if none/error. Sets *out_len. */
+static uint8_t *capture_xattrs(const char *path, size_t *out_len) {
+	*out_len = 0;
+	if (g_no_xattr) return NULL;
+
+#ifdef __APPLE__
+	ssize_t list_size = listxattr(path, NULL, 0, XATTR_NOFOLLOW);
+#else
+	ssize_t list_size = llistxattr(path, NULL, 0);
+#endif
+	if (list_size <= 0) return NULL;
+
+	char *name_buf = malloc((size_t)list_size);
+	if (!name_buf) return NULL;
+
+#ifdef __APPLE__
+	ssize_t got = listxattr(path, name_buf, (size_t)list_size, XATTR_NOFOLLOW);
+#else
+	ssize_t got = llistxattr(path, name_buf, (size_t)list_size);
+#endif
+	if (got <= 0) { free(name_buf); return NULL; }
+
+	/* Count non-blocked xattrs and compute total size */
+	size_t count = 0;
+	size_t total_data = 0;
+	for (char *p = name_buf; p < name_buf + got; ) {
+		size_t nlen = strlen(p);
+		if (!xattr_is_blocked(p)) {
+#ifdef __APPLE__
+			ssize_t vlen = getxattr(path, p, NULL, 0, 0, XATTR_NOFOLLOW);
+#else
+			ssize_t vlen = lgetxattr(path, p, NULL, 0);
+#endif
+			if (vlen < 0) vlen = 0;
+			count++;
+			total_data += nlen + (size_t)vlen;
+		}
+		p += nlen + 1;
+	}
+	if (count == 0) { free(name_buf); return NULL; }
+
+	/* Allocate generous buffer: count_varint + per-xattr (2 varints + name + value)
+	 * Each varint is at most 9 bytes. */
+	size_t buf_size = 9 + count * 18 + total_data;
+	uint8_t *blob = malloc(buf_size);
+	if (!blob) { free(name_buf); return NULL; }
+	size_t pos = 0;
+
+	/* Write count as varint (7z-style: values < 128 are 1 byte) */
+	blob[pos++] = (uint8_t)count; /* count will be < 128 in practice */
+
+	for (char *p = name_buf; p < name_buf + got; ) {
+		size_t nlen = strlen(p);
+		if (!xattr_is_blocked(p)) {
+			/* name_len varint */
+			blob[pos++] = (uint8_t)nlen; /* names < 128 bytes */
+			memcpy(blob + pos, p, nlen);
+			pos += nlen;
+
+			/* Get value */
+#ifdef __APPLE__
+			ssize_t vlen = getxattr(path, p, NULL, 0, 0, XATTR_NOFOLLOW);
+#else
+			ssize_t vlen = lgetxattr(path, p, NULL, 0);
+#endif
+			if (vlen < 0) vlen = 0;
+
+			/* value_len varint */
+			if ((size_t)vlen < 128) {
+				blob[pos++] = (uint8_t)vlen;
+			} else {
+				/* 2-byte varint for values 128-16383 */
+				blob[pos++] = (uint8_t)(0x80 | ((uint8_t)vlen & 0x3F));
+				blob[pos++] = (uint8_t)(vlen >> 6);
+			}
+
+			if (vlen > 0) {
+#ifdef __APPLE__
+				getxattr(path, p, blob + pos, (size_t)vlen, 0, XATTR_NOFOLLOW);
+#else
+				lgetxattr(path, p, blob + pos, (size_t)vlen);
+#endif
+				pos += (size_t)vlen;
+			}
+		}
+		p += nlen + 1;
+	}
+
+	free(name_buf);
+	*out_len = pos;
+	return blob;
+}
+
+/* Read a simple varint from blob. Returns value and advances *pos. */
+static size_t read_xattr_varint(const uint8_t *blob, size_t blob_len, size_t *pos) {
+	if (*pos >= blob_len) return 0;
+	uint8_t b = blob[(*pos)++];
+	if (b < 0x80) return b;
+	if (*pos >= blob_len) return 0;
+	uint8_t b2 = blob[(*pos)++];
+	return (size_t)(b & 0x3F) | ((size_t)b2 << 6);
+}
+
+/* Restore xattrs from a serialized blob onto a file path. */
+static void restore_xattrs(const char *path, const uint8_t *blob, size_t blob_len) {
+	if (!blob || blob_len == 0 || g_no_xattr) return;
+
+	size_t pos = 0;
+	size_t count = read_xattr_varint(blob, blob_len, &pos);
+
+	for (size_t i = 0; i < count && pos < blob_len; i++) {
+		size_t nlen = read_xattr_varint(blob, blob_len, &pos);
+		if (pos + nlen > blob_len) break;
+		char name[256];
+		if (nlen >= sizeof(name)) { pos += nlen; continue; } /* skip oversized names */
+		memcpy(name, blob + pos, nlen);
+		name[nlen] = '\0';
+		pos += nlen;
+
+		size_t vlen = read_xattr_varint(blob, blob_len, &pos);
+		if (pos + vlen > blob_len) break;
+		const void *val = blob + pos;
+		pos += vlen;
+
+		/* Apply the xattr */
+#ifdef __APPLE__
+		setxattr(path, name, val, vlen, 0, XATTR_NOFOLLOW);
+#else
+		lsetxattr(path, name, val, vlen, 0);
+#endif
+	}
+}
+
+#else /* !(APPLE || linux) */
+
+static uint8_t *capture_xattrs(const char *path, size_t *out_len) {
+	(void)path;
+	*out_len = 0;
+	return NULL;
+}
+
+static void restore_xattrs(const char *path, const uint8_t *blob, size_t blob_len) {
+	(void)path; (void)blob; (void)blob_len;
+}
+
+#endif /* __APPLE__ || __linux__ */
+
+/* ========================================================================== */
 /* Recursive directory walking                                                */
 /* ========================================================================== */
 
@@ -349,8 +602,14 @@ static int add_symlink_entry(entry_list *list, const char *fs_path,
 		return 1;
 	}
 	target[tlen] = '\0';
+	size_t xlen = 0;
+	uint8_t *xblob = capture_xattrs(fs_path, &xlen);
 	return entry_list_add_symlink(list, archive_name, target,
-	                              (int64_t)st->st_mtime, win_attrib_from_mode(st->st_mode));
+	                              (int64_t)st->st_mtime,
+	                              capture_birthtime(fs_path, st),
+	                              capture_atime(st),
+	                              win_attrib_from_mode(st->st_mode),
+	                              xblob, xlen);
 }
 
 static int walk_directory(entry_list *list, const char *fs_path,
@@ -398,6 +657,8 @@ static int walk_directory(entry_list *list, const char *fs_path,
 				snprintf(dir_name, sizeof(dir_name), "%s/", rel_path);
 				if (entry_list_add_dir(list, dir_name,
 				                       (int64_t)target_st.st_mtime,
+				                       capture_birthtime(full_path, &target_st),
+				                       capture_atime(&target_st),
 				                       win_attrib_from_mode(target_st.st_mode)) != 0) {
 					closedir(d);
 					return 1;
@@ -413,10 +674,16 @@ static int walk_directory(entry_list *list, const char *fs_path,
 					closedir(d);
 					return 1;
 				}
+				size_t xlen = 0;
+				uint8_t *xblob = capture_xattrs(full_path, &xlen);
 				if (entry_list_add_file(list, rel_path, data, flen,
 				                        (int64_t)target_st.st_mtime,
-				                        win_attrib_from_mode(target_st.st_mode)) != 0) {
+				                        capture_birthtime(full_path, &target_st),
+				                        capture_atime(&target_st),
+				                        win_attrib_from_mode(target_st.st_mode),
+				                        xblob, xlen) != 0) {
 					free(data);
+					free(xblob);
 					closedir(d);
 					return 1;
 				}
@@ -426,6 +693,8 @@ static int walk_directory(entry_list *list, const char *fs_path,
 			snprintf(dir_name, sizeof(dir_name), "%s/", rel_path);
 			if (entry_list_add_dir(list, dir_name,
 			                       (int64_t)st.st_mtime,
+			                       capture_birthtime(full_path, &st),
+			                       capture_atime(&st),
 			                       win_attrib_from_mode(st.st_mode)) != 0) {
 				closedir(d);
 				return 1;
@@ -441,10 +710,16 @@ static int walk_directory(entry_list *list, const char *fs_path,
 				closedir(d);
 				return 1;
 			}
+			size_t xlen = 0;
+			uint8_t *xblob = capture_xattrs(full_path, &xlen);
 			if (entry_list_add_file(list, rel_path, data, flen,
 			                        (int64_t)st.st_mtime,
-			                        win_attrib_from_mode(st.st_mode)) != 0) {
+			                        capture_birthtime(full_path, &st),
+			                        capture_atime(&st),
+			                        win_attrib_from_mode(st.st_mode),
+			                        xblob, xlen) != 0) {
 				free(data);
+				free(xblob);
 				closedir(d);
 				return 1;
 			}
@@ -482,8 +757,10 @@ static int cmd_list(const char *archive_path) {
 	for (size_t i = 0; i < count; i++) {
 		const char *name = z7z_file_name(ar, i);
 		size_t size = z7z_file_size(ar, i);
+		size_t xlen = 0;
+		const char *xattr_marker = z7z_file_xattrs(ar, i, &xlen) ? " [+xattr]" : "";
 		if (z7z_file_is_dir(ar, i)) {
-			printf("%-12s  %s\n", "<dir>", name ? name : "(unnamed)");
+			printf("%-12s  %s%s\n", "<dir>", name ? name : "(unnamed)", xattr_marker);
 		} else if (z7z_file_is_symlink(ar, i)) {
 			/* Show symlink with target path */
 			const uint8_t *tdata = z7z_file_data(ar, i);
@@ -492,12 +769,12 @@ static int cmd_list(const char *archive_path) {
 				size_t tlen = size < sizeof(target) - 1 ? size : sizeof(target) - 1;
 				memcpy(target, tdata, tlen);
 				target[tlen] = '\0';
-				printf("<symlink>     %s -> %s\n", name ? name : "(unnamed)", target);
+				printf("<symlink>     %s -> %s%s\n", name ? name : "(unnamed)", target, xattr_marker);
 			} else {
-				printf("<symlink>     %s\n", name ? name : "(unnamed)");
+				printf("<symlink>     %s%s\n", name ? name : "(unnamed)", xattr_marker);
 			}
 		} else {
-			printf("%-12zu  %s\n", size, name ? name : "(unnamed)");
+			printf("%-12zu  %s%s\n", size, name ? name : "(unnamed)", xattr_marker);
 		}
 	}
 
@@ -626,11 +903,26 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 					errors++;
 				} else {
 					printf("  %s (%zu bytes)\n", name, file_size);
-					/* Restore mtime and permissions */
-					int64_t mt = z7z_file_mtime(ar, i);
-					set_mtime(out_path, mt);
+					/* Restore permissions */
 					uint32_t attrib = z7z_file_attrib(ar, i);
 					set_permissions(out_path, attrib);
+					/* Restore mtime + atime */
+					int64_t mt = z7z_file_mtime(ar, i);
+					int64_t at = z7z_file_atime(ar, i);
+					set_times(out_path, mt, at);
+					/* Restore birthtime */
+					if (!g_no_ctime) {
+						int64_t ct = z7z_file_ctime(ar, i);
+#ifdef __APPLE__
+						set_birthtime(out_path, ct);
+#else
+						(void)ct;
+#endif
+					}
+					/* Restore xattrs */
+					size_t xlen = 0;
+					const uint8_t *xblob = z7z_file_xattrs(ar, i, &xlen);
+					restore_xattrs(out_path, xblob, xlen);
 				}
 			}
 		}
@@ -639,11 +931,32 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 	/* Restore directory mtimes in reverse order (deepest first),
 	 * so parent dirs don't get their mtime clobbered by child restoration. */
 	for (size_t i = dir_count; i > 0; i--) {
-		set_mtime(dir_paths[i - 1], dir_mtimes[i - 1]);
+		set_times(dir_paths[i - 1], dir_mtimes[i - 1], 0);
 		free(dir_paths[i - 1]);
 	}
 	free(dir_paths);
 	free(dir_mtimes);
+
+	/* Warnings */
+	if (g_no_ctime) {
+		int has_ctime = 0;
+		for (size_t i = 0; i < count; i++) {
+			if (z7z_file_ctime(ar, i) > 0) { has_ctime = 1; break; }
+		}
+		if (!has_ctime) {
+			fprintf(stderr, "note: --no-ctime specified but archive contained no creation times\n");
+		}
+	}
+	if (g_no_xattr) {
+		int has_xattr = 0;
+		for (size_t i = 0; i < count; i++) {
+			size_t xlen = 0;
+			if (z7z_file_xattrs(ar, i, &xlen)) { has_xattr = 1; break; }
+		}
+		if (has_xattr) {
+			fprintf(stderr, "note: --no-xattr specified; xattr data in archive was not restored\n");
+		}
+	}
 
 	z7z_close(ar);
 	return errors > 0 ? 1 : 0;
@@ -710,6 +1023,8 @@ handle_dir:;
 			/* Add the directory entry itself */
 			if (entry_list_add_dir(&list, prefix,
 			                       (int64_t)st.st_mtime,
+			                       capture_birthtime(clean, &st),
+			                       capture_atime(&st),
 			                       win_attrib_from_mode(st.st_mode)) != 0) {
 				fprintf(stderr, "error: out of memory\n");
 				entry_list_free(&list);
@@ -730,11 +1045,17 @@ handle_file:;
 				entry_list_free(&list);
 				return 1;
 			}
+			size_t xlen = 0;
+			uint8_t *xblob = capture_xattrs(file_paths[i], &xlen);
 			if (entry_list_add_file(&list, basename_of(file_paths[i]), data, flen,
 			                        (int64_t)st.st_mtime,
-			                        win_attrib_from_mode(st.st_mode)) != 0) {
+			                        capture_birthtime(file_paths[i], &st),
+			                        capture_atime(&st),
+			                        win_attrib_from_mode(st.st_mode),
+			                        xblob, xlen) != 0) {
 				fprintf(stderr, "error: out of memory\n");
 				free(data);
+				free(xblob);
 				entry_list_free(&list);
 				return 1;
 			}
@@ -774,14 +1095,41 @@ int main(int argc, char **argv) {
 	if (strcmp(cmd, "list") == 0 || strcmp(cmd, "l") == 0) {
 		return cmd_list(argv[2]);
 	} else if (strcmp(cmd, "extract") == 0 || strcmp(cmd, "x") == 0) {
-		const char *out_dir = (argc >= 4) ? argv[3] : NULL;
-		return cmd_extract(argv[2], out_dir);
+		/* Parse optional flags before archive path */
+		int arg_start = 2;
+		for (int i = 2; i < argc; i++) {
+			if (strcmp(argv[i], "--no-ctime") == 0) {
+				g_no_ctime = 1;
+				arg_start = i + 1;
+			} else if (strcmp(argv[i], "--no-xattr") == 0) {
+				g_no_xattr = 1;
+				arg_start = i + 1;
+			} else {
+				break;
+			}
+		}
+		if (arg_start >= argc) {
+			fprintf(stderr, "error: extract requires archive path\n");
+			usage(argv[0]);
+			return 1;
+		}
+		const char *out_dir = (arg_start + 1 < argc) ? argv[arg_start + 1] : NULL;
+		return cmd_extract(argv[arg_start], out_dir);
 	} else if (strcmp(cmd, "create") == 0 || strcmp(cmd, "a") == 0) {
 		/* Parse optional flags before archive path */
 		int arg_start = 2;
 		for (int i = 2; i < argc; i++) {
 			if (strcmp(argv[i], "--dereference") == 0 || strcmp(argv[i], "-L") == 0) {
 				g_dereference = 1;
+				arg_start = i + 1;
+			} else if (strcmp(argv[i], "--no-ctime") == 0) {
+				g_no_ctime = 1;
+				arg_start = i + 1;
+			} else if (strcmp(argv[i], "--atime") == 0) {
+				g_atime = 1;
+				arg_start = i + 1;
+			} else if (strcmp(argv[i], "--no-xattr") == 0) {
+				g_no_xattr = 1;
 				arg_start = i + 1;
 			} else {
 				break;
