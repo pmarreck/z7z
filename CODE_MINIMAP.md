@@ -45,6 +45,32 @@ LZMA2 compression encoder with forward optimal parser.
 - `compressBlock()` — self-contained single-block LZMA2 compression (own MatchFinder + LzmaEncoder)
 - `compressParallel()` — parallel block compression via std.Thread.Pool (splits data, concatenates results)
 
+## src/archive.zig
+Archive-level create and read operations.
+- `FileEntry` — input struct with name, data, is_dir, mtime, win_attrib
+- `ArchiveContents` — result struct with metadata + extracted file data
+- `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
+- `read()` / `readWithPassword()` — archive extraction
+  - Multi-folder support: iterates ALL folders with correct pack offset calculation
+  - Per-folder file mapping via SubStreamInfo.num_unpack_per_folder
+  - Handles empty stream (directory) entries correctly during file→folder assignment
+
+## src/metadata.zig
+7z header metadata parser and structures.
+- `SubStreamInfo` — includes `num_unpack_per_folder` for multi-folder file assignment
+- `parseSubStreamsInfo()` — stores per-folder substream counts
+- `decodeEncodedHeader()` — decompresses LZMA/LZMA2-compressed headers
+- `getFinalUnpackSize()` — finds unbound output stream in multi-coder pipelines
+
+## src/codec.zig
+Codec dispatch: decompress packed data for a folder's coder pipeline.
+- `decompressFolder()` — handles single-coder and multi-coder pipelines
+- `decompressMultiCoderPipeline()` — BCJ+LZMA2, AES+LZMA2, AES+BCJ+LZMA2
+- `decodeLzma()` — LZMA1 decompression with Zig stdlib dictionary wrap bug workaround
+- `decodeLzma2()` — LZMA2 decompression via std.compress.lzma2
+- `bcjX86Decode()` / `bcjX86Encode()` — x86 BCJ filter (jump/call address translation)
+- `compressLzma2()` — LZMA2 compression via lzma2_encoder
+
 ## src/ffi.zig
 C FFI boundary for z7z. All functions use C calling convention.
 - `z7z_open` — open archive from memory buffer, returns opaque handle

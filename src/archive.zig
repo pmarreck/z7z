@@ -169,6 +169,9 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
         };
     }
 
+    var num_per_folder = try allocator.alloc(u64, 1);
+    num_per_folder[0] = data_file_count;
+
     var archive_meta = meta.ArchiveMetadata{
         .pack_info = .{
             .pack_pos = 0,
@@ -177,6 +180,7 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
         },
         .folders = folders,
         .sub_streams = .{
+            .num_unpack_per_folder = num_per_folder,
             .unpack_sizes = sub_sizes,
             .digests = sub_digests,
         },
@@ -349,6 +353,9 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
         };
     }
 
+    var num_per_folder2 = try allocator.alloc(u64, 1);
+    num_per_folder2[0] = data_file_count2;
+
     var archive_meta = meta.ArchiveMetadata{
         .pack_info = .{
             .pack_pos = 0,
@@ -357,6 +364,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
         },
         .folders = folders,
         .sub_streams = .{
+            .num_unpack_per_folder = num_per_folder2,
             .unpack_sizes = sub_sizes,
             .digests = sub_digests,
         },
@@ -504,6 +512,9 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
         };
     }
 
+    var copy_num_per_folder = try allocator.alloc(u64, 1);
+    copy_num_per_folder[0] = copy_data_count;
+
     var archive_meta = meta.ArchiveMetadata{
         .pack_info = .{
             .pack_pos = 0,
@@ -512,6 +523,7 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
         },
         .folders = folders,
         .sub_streams = .{
+            .num_unpack_per_folder = copy_num_per_folder,
             .unpack_sizes = sub_sizes,
             .digests = sub_digests,
         },
@@ -577,61 +589,115 @@ pub fn readWithPassword(archive_data: []const u8, password: ?[]const u8, allocat
     };
     errdefer metadata.deinit();
 
-    // Extract file data via codec dispatch
+    // Extract file data via codec dispatch — iterate ALL folders
     const file_data = try allocator.alloc([]const u8, metadata.files.len);
     errdefer allocator.free(file_data);
 
+    // Initialize all entries to empty (directories/empty streams stay empty)
+    for (file_data) |*d| {
+        d.* = try allocator.dupe(u8, &.{});
+    }
+
     if (metadata.pack_info) |pi| {
         if (metadata.folders.len > 0) {
-            const folder = metadata.folders[0];
-            const pack_start = sig_header.HEADER_SIZE + @as(usize, @intCast(pi.pack_pos));
+            // Determine per-folder substream counts
+            const num_folders = metadata.folders.len;
+            var subs_per_folder: []const u64 = undefined;
+            var subs_per_folder_alloc: ?[]u64 = null;
+            defer if (subs_per_folder_alloc) |a| allocator.free(a);
 
-            // Get total packed size for this folder
-            const pack_size: usize = if (pi.pack_sizes.len > 0)
-                @intCast(pi.pack_sizes[0])
-            else
-                0;
+            if (metadata.sub_streams) |ss| {
+                subs_per_folder = ss.num_unpack_per_folder;
+            } else {
+                // Default: 1 substream per folder
+                subs_per_folder_alloc = try allocator.alloc(u64, num_folders);
+                @memset(subs_per_folder_alloc.?, 1);
+                subs_per_folder = subs_per_folder_alloc.?;
+            }
 
-            // Get folder unpack size (unbound output stream)
-            const unpack_size: u64 = folder.getFinalUnpackSize();
+            // Track position across all folders
+            var pack_stream_idx: usize = 0; // index into pi.pack_sizes
+            var sub_idx: usize = 0; // index into sub_streams.unpack_sizes
+            var file_idx: usize = 0; // index into metadata.files (skipping empty streams)
 
-            const packed_data = archive_data[pack_start .. pack_start + pack_size];
+            // Advance file_idx past leading empty-stream entries
+            // (empty streams don't belong to any folder)
 
-            // Decompress entire folder
-            const unpacked = codec.decompressFolder(folder, packed_data, unpack_size, password, allocator) catch |e| switch (e) {
-                error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
-                error.DecompressFailed => return ArchiveError.StructuralError,
-                error.OutOfMemory => return ArchiveError.OutOfMemory,
-            };
-            defer allocator.free(unpacked);
+            for (0..num_folders) |fi| {
+                const folder = metadata.folders[fi];
 
-            // Split decompressed data into per-file slices.
-            // Empty stream entries (directories) have no substream data —
-            // the substream sizes array only covers data-bearing files.
-            var offset: usize = 0;
-            var sub_idx: usize = 0;
-            for (0..metadata.files.len) |fi| {
-                if (metadata.files[fi].is_empty_stream) {
-                    // Directory or empty stream: no data
-                    file_data[fi] = try allocator.dupe(u8, &.{});
-                } else {
-                    const file_size = if (metadata.sub_streams) |ss|
-                        (if (sub_idx < ss.unpack_sizes.len) @as(usize, @intCast(ss.unpack_sizes[sub_idx])) else 0)
-                    else if (sub_idx == 0)
-                        @as(usize, @intCast(unpack_size))
+                // Calculate number of pack streams this folder consumes
+                var total_in: u64 = 0;
+                for (folder.coders) |coder| {
+                    total_in += coder.num_in_streams;
+                }
+                const num_pack_streams: usize = @intCast(total_in - folder.bind_pairs.len);
+
+                // Calculate total packed size for this folder (sum of its pack streams)
+                var folder_pack_size: usize = 0;
+                for (0..num_pack_streams) |pi_offset| {
+                    const idx = pack_stream_idx + pi_offset;
+                    if (idx < pi.pack_sizes.len) {
+                        folder_pack_size += @intCast(pi.pack_sizes[idx]);
+                    }
+                }
+
+                // Calculate pack offset (base + sum of all previous pack sizes)
+                var pack_offset: usize = @intCast(pi.pack_pos);
+                for (0..pack_stream_idx) |prev| {
+                    if (prev < pi.pack_sizes.len) {
+                        pack_offset += @intCast(pi.pack_sizes[prev]);
+                    }
+                }
+                const pack_start = sig_header.HEADER_SIZE + pack_offset;
+
+                pack_stream_idx += num_pack_streams;
+
+                // Get folder unpack size (unbound output stream)
+                const unpack_size: u64 = folder.getFinalUnpackSize();
+
+                if (pack_start + folder_pack_size > archive_data.len) {
+                    return ArchiveError.TruncatedInput;
+                }
+                const packed_data = archive_data[pack_start .. pack_start + folder_pack_size];
+
+                // Decompress this folder
+                const unpacked = codec.decompressFolder(folder, packed_data, unpack_size, password, allocator) catch |e| switch (e) {
+                    error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
+                    error.DecompressFailed => return ArchiveError.StructuralError,
+                    error.OutOfMemory => return ArchiveError.OutOfMemory,
+                };
+                defer allocator.free(unpacked);
+
+                // Split decompressed data among this folder's substreams
+                const folder_sub_count: usize = if (fi < subs_per_folder.len) @intCast(subs_per_folder[fi]) else 1;
+                var data_offset: usize = 0;
+                var subs_assigned: usize = 0;
+
+                while (subs_assigned < folder_sub_count and file_idx < metadata.files.len) {
+                    if (metadata.files[file_idx].is_empty_stream) {
+                        // Skip empty stream entries (directories) — they don't consume substreams
+                        file_idx += 1;
+                        continue;
+                    }
+
+                    const file_size: usize = if (metadata.sub_streams) |ss|
+                        (if (sub_idx < ss.unpack_sizes.len) @intCast(ss.unpack_sizes[sub_idx]) else 0)
                     else
-                        0;
+                        @intCast(unpack_size);
 
-                    file_data[fi] = try allocator.dupe(u8, unpacked[offset .. offset + file_size]);
-                    offset += file_size;
+                    // Free the initial empty allocation and replace with actual data
+                    allocator.free(@constCast(file_data[file_idx]));
+                    if (data_offset + file_size > unpacked.len) {
+                        return ArchiveError.StructuralError;
+                    }
+                    file_data[file_idx] = try allocator.dupe(u8, unpacked[data_offset .. data_offset + file_size]);
+                    data_offset += file_size;
                     sub_idx += 1;
+                    subs_assigned += 1;
+                    file_idx += 1;
                 }
             }
-        }
-    } else {
-        // No pack info — all files are empty
-        for (file_data) |*d| {
-            d.* = &.{};
         }
     }
 

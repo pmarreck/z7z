@@ -169,6 +169,17 @@ fn decodeLzma(packed_data: []const u8, unpack_size: u64, properties: []const u8,
 
 	// Copy properties (lc/lp/pb byte + 4 bytes dict_size)
 	@memcpy(synth[0..5], properties[0..5]);
+
+	// Workaround for Zig stdlib LZMA dictionary wrap bug:
+	// std.compress.lzma fails with CorruptInput when output exceeds dict_size.
+	// Override dict_size to be at least unpack_size so the circular buffer never wraps.
+	const orig_dict_size = std.mem.readInt(u32, properties[1..5], .little);
+	const safe_dict_size: u32 = @intCast(@min(
+		@max(@as(u64, orig_dict_size), unpack_size),
+		std.math.maxInt(u32),
+	));
+	std.mem.writeInt(u32, synth[1..5], safe_dict_size, .little);
+
 	// Write unpack size as 8-byte LE
 	std.mem.writeInt(u64, synth[5..13], unpack_size, .little);
 	// Copy packed data
@@ -183,7 +194,10 @@ fn decodeLzma(packed_data: []const u8, unpack_size: u64, properties: []const u8,
 	const out_buf = allocator.alloc(u8, @intCast(unpack_size)) catch return CodecError.OutOfMemory;
 	errdefer allocator.free(out_buf);
 
-	const n = decomp.reader().readAll(out_buf) catch return CodecError.DecompressFailed;
+	const n = decomp.reader().readAll(out_buf) catch {
+		allocator.free(out_buf);
+		return CodecError.DecompressFailed;
+	};
 	if (n != @as(usize, @intCast(unpack_size))) {
 		allocator.free(out_buf);
 		return CodecError.DecompressFailed;

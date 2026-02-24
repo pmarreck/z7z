@@ -266,6 +266,42 @@ else
 fi
 
 # ============================================================================
+# Test: multi-folder (non-solid) archive extraction
+# ============================================================================
+echo ""
+echo "--- multi-folder (non-solid) archive interop ---"
+
+if command -v 7zz &>/dev/null; then
+	# Create distinct files for a non-solid archive (each file gets its own folder)
+	echo -n "Folder-one content here" > "$TMPDIR/mf_alpha.txt"
+	echo -n "Folder-two different data" > "$TMPDIR/mf_beta.txt"
+	echo -n "Third folder stuff!!!" > "$TMPDIR/mf_gamma.txt"
+
+	# -ms=off disables solid mode: each file gets its own folder/block
+	7zz a -ms=off "$TMPDIR/nonsolid.7z" "$TMPDIR/mf_alpha.txt" "$TMPDIR/mf_beta.txt" "$TMPDIR/mf_gamma.txt" > /dev/null
+
+	# z7z must extract all files from all folders
+	mkdir -p "$TMPDIR/out_nonsolid"
+	$Z7Z extract "$TMPDIR/nonsolid.7z" "$TMPDIR/out_nonsolid"
+	assert_files_equal "nonsolid: alpha.txt" "$TMPDIR/mf_alpha.txt" "$TMPDIR/out_nonsolid/mf_alpha.txt"
+	assert_files_equal "nonsolid: beta.txt" "$TMPDIR/mf_beta.txt" "$TMPDIR/out_nonsolid/mf_beta.txt"
+	assert_files_equal "nonsolid: gamma.txt" "$TMPDIR/mf_gamma.txt" "$TMPDIR/out_nonsolid/mf_gamma.txt"
+
+	# Also test: large enough data to trigger 7zz block splitting with solid mode ON
+	# (7zz default block size is ~2GB for LZMA2, so we need -ms=1k to force small blocks)
+	echo -n "Block-A data for first solid block" > "$TMPDIR/ms_a.txt"
+	echo -n "Block-B data for second solid block" > "$TMPDIR/ms_b.txt"
+	7zz a -ms=1k "$TMPDIR/multiblock.7z" "$TMPDIR/ms_a.txt" "$TMPDIR/ms_b.txt" > /dev/null
+
+	mkdir -p "$TMPDIR/out_multiblock"
+	$Z7Z extract "$TMPDIR/multiblock.7z" "$TMPDIR/out_multiblock"
+	assert_files_equal "multiblock: ms_a.txt" "$TMPDIR/ms_a.txt" "$TMPDIR/out_multiblock/ms_a.txt"
+	assert_files_equal "multiblock: ms_b.txt" "$TMPDIR/ms_b.txt" "$TMPDIR/out_multiblock/ms_b.txt"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# ============================================================================
 # Summary
 # ============================================================================
 echo ""

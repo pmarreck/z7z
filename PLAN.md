@@ -102,3 +102,11 @@
 - [x] Multi-file benchmark using gen-fake-tree (~2026-02-24 EST)
   - `run_dir_benchmark_group()` in bm script: generates deterministic 50-file tree via gen-fake-tree
   - Benchmarks z7z vs 7zz on directory archive creation, validates interop
+- [x] Multi-folder (multi-block) archive extraction (~2026-02-24 EST)
+  - readWithPassword() now iterates ALL folders with correct pack offset and per-folder file mapping
+  - Added SubStreamInfo.num_unpack_per_folder for proper file→folder assignment
+  - Workaround for Zig stdlib LZMA dictionary wrap bug (CorruptInput when output > dict_size)
+  - 5 new CLI tests: non-solid 3-file extraction, solid multi-block extraction
+  - Verified against real-world 107MB archive (16905 files, 2 folders, BCJ+LZMA2)
+- [ ] Symlink support (reading + writing symlinks as 7z stores them)
+- [ ] Shannon entropy adaptive nice_len (uncommitted — decision pending)

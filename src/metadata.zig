@@ -76,6 +76,7 @@ pub const PackInfo = struct {
 };
 
 pub const SubStreamInfo = struct {
+    num_unpack_per_folder: []u64, // how many substreams per folder (for multi-folder extraction)
     unpack_sizes: []u64,
     digests: []?u32,
 };
@@ -116,6 +117,7 @@ pub const ArchiveMetadata = struct {
         }
         self.allocator.free(self.folders);
         if (self.sub_streams) |ss| {
+            self.allocator.free(ss.num_unpack_per_folder);
             self.allocator.free(ss.unpack_sizes);
             self.allocator.free(ss.digests);
         }
@@ -524,6 +526,7 @@ fn parseSubStreamsInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.
     }
 
     result.sub_streams = .{
+        .num_unpack_per_folder = try allocator.dupe(u64, num_unpack_streams),
         .unpack_sizes = try allocator.dupe(u64, all_sizes.items),
         .digests = try allocator.dupe(?u32, all_digests.items),
     };

@@ -153,31 +153,23 @@ fn encodeFolderRecord(w: *Writer, folder: meta.Folder) !void {
     }
 }
 
-fn encodeSubStreamsInfo(w: *Writer, ss: meta.SubStreamInfo, folders: []const meta.Folder) !void {
+fn encodeSubStreamsInfo(w: *Writer, ss: meta.SubStreamInfo, _: []const meta.Folder) !void {
     try w.writeNid(.sub_streams_info);
 
-    // Determine number of substreams per folder
-    // We distribute ss.unpack_sizes across folders proportionally.
-    // For now, with 1 folder (Copy method), all substreams belong to folder 0.
-    const total_substreams = ss.unpack_sizes.len;
+    // Use the per-folder substream counts from metadata
     var all_default = true;
-    if (folders.len == 1 and total_substreams != 1) {
-        all_default = false;
-    } else if (folders.len > 1) {
-        // TODO: multi-folder substream distribution
-        all_default = total_substreams == folders.len;
+    for (ss.num_unpack_per_folder) |n| {
+        if (n != 1) {
+            all_default = false;
+            break;
+        }
     }
 
     // kNumUnpackStream — write if not all default (1 per folder)
     if (!all_default) {
         try w.writeNid(.num_unpack_stream);
-        for (0..folders.len) |fi| {
-            if (fi == 0) {
-                // All substreams in folder 0 for single-folder archives
-                try w.writeUint64(@intCast(total_substreams));
-            } else {
-                try w.writeUint64(1);
-            }
+        for (ss.num_unpack_per_folder) |n| {
+            try w.writeUint64(n);
         }
     }
 
@@ -185,11 +177,11 @@ fn encodeSubStreamsInfo(w: *Writer, ss: meta.SubStreamInfo, folders: []const met
     if (!all_default) {
         try w.writeNid(.size);
         var si: usize = 0;
-        for (0..folders.len) |fi| {
-            const n: usize = if (fi == 0) total_substreams else 1;
-            // Write first (n-1) sizes; last is inferred
-            for (0..n) |j| {
-                if (j < n - 1) {
+        for (ss.num_unpack_per_folder) |n| {
+            const count: usize = @intCast(n);
+            // Write first (count-1) sizes; last is inferred
+            for (0..count) |j| {
+                if (j < count - 1) {
                     try w.writeUint64(ss.unpack_sizes[si]);
                 }
                 si += 1;
