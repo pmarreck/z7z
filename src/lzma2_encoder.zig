@@ -5,6 +5,7 @@
 //! and by studying the Zig stdlib decoder (MIT licensed).
 
 const std = @import("std");
+const ProgressContext = @import("progress.zig").ProgressContext;
 
 // ============================================================================
 // Range Encoder
@@ -914,7 +915,8 @@ const LenEncoder = struct {
 
 /// Compress data using LZMA2 format.
 /// Returns owned slice of LZMA2-compressed bytes.
-pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
+/// Progress callback fires after each 64KB chunk (sequential) or block (parallel).
+pub fn compress(data: []const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     if (data.len == 0) {
         // Empty data: just end marker
         const result = try allocator.alloc(u8, 1);
@@ -935,7 +937,7 @@ pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
         if (cpu_count > 1) {
             const num_blocks = @min(cpu_count, data.len / MIN_PARALLEL_SIZE);
             if (num_blocks > 1) {
-                return compressParallel(data, lc, lp, pb, dict_size, num_blocks, allocator);
+                return compressParallel(data, lc, lp, pb, dict_size, num_blocks, progress, allocator);
             }
         }
     }
@@ -943,7 +945,7 @@ pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
     // For data that might produce LZMA1 output > 65536 bytes (the LZMA2
     // packed size limit), use chunked compression with adaptive chunk sizing.
     if (data.len > 0x10000) {
-        return compressChunked(data, lc, lp, pb, dict_size, allocator);
+        return compressChunked(data, lc, lp, pb, dict_size, progress, allocator);
     }
 
     // Small data: compress as single LZMA2 chunk
@@ -987,6 +989,7 @@ pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
     // End of stream marker
     try output.append(allocator, 0x00);
 
+    progress.report(data.len, data.len);
     return try allocator.dupe(u8, output.items);
 }
 
@@ -995,7 +998,7 @@ pub fn compress(data: []const u8, allocator: std.mem.Allocator) ![]u8 {
 /// - Dictionary carries across chunks (cross-chunk match references)
 /// - Probability tables carry across chunks (better adaptation)
 /// - Only the range coder resets between chunks (as LZMA2 requires)
-fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, allocator: std.mem.Allocator) ![]u8 {
+fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     var output = std.ArrayListUnmanaged(u8){};
     defer output.deinit(allocator);
 
@@ -1133,6 +1136,7 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
                     state_valid = false;
                     enc.resetState();
                     offset = chunk_end;
+                    progress.report(@intCast(offset), @intCast(data.len));
                     continue;
                 }
             }
@@ -1199,6 +1203,7 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, all
         }
 
         offset = chunk_end;
+        progress.report(@intCast(offset), @intCast(data.len));
     }
 
     try output.append(allocator, 0x00); // end of stream
@@ -1248,7 +1253,8 @@ fn compressBlock(block_data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32,
 
     // Large block: use compressChunked with full reset at start
     // compressChunked already handles chunking internally with dict/state carry
-    return compressChunked(block_data, lc, lp, pb, dict_size, allocator);
+    // No progress for individual blocks — parallel wrapper reports per-block completion
+    return compressChunked(block_data, lc, lp, pb, dict_size, .{}, allocator);
 }
 
 /// Compress data in parallel by splitting into independent blocks.
@@ -1261,11 +1267,12 @@ fn compressParallel(
     pb: u2,
     dict_size: u32,
     num_threads: usize,
+    progress: ProgressContext,
     allocator: std.mem.Allocator,
 ) ![]u8 {
     const actual_threads = @min(num_threads, data.len / (1 << 20)); // min 1MB per block
     if (actual_threads <= 1) {
-        return compressChunked(data, lc, lp, pb, dict_size, allocator);
+        return compressChunked(data, lc, lp, pb, dict_size, progress, allocator);
     }
 
     const block_size = data.len / actual_threads;
@@ -1290,6 +1297,9 @@ fn compressParallel(
 
     var wg: std.Thread.WaitGroup = .{};
 
+    // Shared atomic counter for cross-block progress reporting
+    var progress_done = std.atomic.Value(u64).init(0);
+
     // Spawn block compression tasks
     for (0..num_blocks) |block_idx| {
         const start = block_idx * block_size;
@@ -1306,6 +1316,9 @@ fn compressParallel(
                 b_results: []?[]u8,
                 b_errors: []?anyerror,
                 b_idx: usize,
+                b_progress_done: *std.atomic.Value(u64),
+                b_progress_total: u64,
+                b_progress: ProgressContext,
                 b_allocator: std.mem.Allocator,
             ) void {
                 const block_result = compressBlock(b_data, b_lc, b_lp, b_pb, b_dict_size, b_allocator) catch |err| {
@@ -1313,8 +1326,11 @@ fn compressParallel(
                     return;
                 };
                 b_results[b_idx] = block_result;
+                // Report this block's completion atomically
+                const new_done = b_progress_done.fetchAdd(b_data.len, .monotonic) + b_data.len;
+                b_progress.report(new_done, b_progress_total);
             }
-        }.run, .{ block_data, lc, lp, pb, dict_size, results, errors, block_idx, allocator });
+        }.run, .{ block_data, lc, lp, pb, dict_size, results, errors, block_idx, &progress_done, @as(u64, data.len), progress, allocator });
     }
 
     // Wait for all blocks to complete
@@ -1860,7 +1876,7 @@ test "lzma1 raw: encode single byte roundtrip" {
 
 test "lzma2 encoder: empty data" {
     const allocator = std.testing.allocator;
-    const result = try compress(&.{}, allocator);
+    const result = try compress(&.{}, .{}, allocator);
     defer allocator.free(result);
     try std.testing.expectEqual(@as(usize, 1), result.len);
     try std.testing.expectEqual(@as(u8, 0x00), result[0]); // end marker
@@ -1869,7 +1885,7 @@ test "lzma2 encoder: empty data" {
 test "lzma2 encoder: roundtrip small data" {
     const allocator = std.testing.allocator;
     const input = "hello world";
-    const compressed = try compress(input, allocator);
+    const compressed = try compress(input, .{}, allocator);
     defer allocator.free(compressed);
 
     // Decompress using stdlib decoder
@@ -1883,7 +1899,7 @@ test "lzma2 encoder: roundtrip small data" {
 test "lzma2 encoder: roundtrip repetitive data" {
     const allocator = std.testing.allocator;
     const input = "ABCDEFGHIJ" ** 50;
-    const compressed = try compress(input, allocator);
+    const compressed = try compress(input, .{}, allocator);
     defer allocator.free(compressed);
 
     // Should actually compress
@@ -1902,7 +1918,7 @@ test "lzma2 encoder: roundtrip varied text with matches" {
     // This specific input triggers match/rep-match encoding paths
     // that previously produced data 7zz couldn't decode.
     const input = "quick the jumps fox fox brown quick and quick cat lazy";
-    const compressed = try compress(input, allocator);
+    const compressed = try compress(input, .{}, allocator);
     defer allocator.free(compressed);
 
     var in_stream = std.io.fixedBufferStream(compressed);
@@ -1918,7 +1934,7 @@ test "lzma2 encoder: roundtrip binary data" {
     for (&input, 0..) |*b, i| {
         b.* = @intCast(i);
     }
-    const compressed = try compress(&input, allocator);
+    const compressed = try compress(&input, .{}, allocator);
     defer allocator.free(compressed);
 
     var in_stream = std.io.fixedBufferStream(compressed);
@@ -1950,7 +1966,7 @@ test "lzma2 encoder: cross-chunk dictionary carry" {
         @memcpy(input[i * block_size .. (i + 1) * block_size], block);
     }
 
-    const compressed = try compress(input, allocator);
+    const compressed = try compress(input, .{}, allocator);
     defer allocator.free(compressed);
 
     // Without dictionary carry: each block ~100% (random) = ~256KB total
@@ -2014,7 +2030,7 @@ test "compressParallel: 4MB roundtrip with explicit thread count" {
     const pb: u2 = 2;
     const dict_size: u32 = 1 << 20;
 
-    const compressed = try compressParallel(input, lc, lp, pb, dict_size, 4, allocator);
+    const compressed = try compressParallel(input, lc, lp, pb, dict_size, 4, .{}, allocator);
     defer allocator.free(compressed);
 
     // Must end with 0x00
@@ -2041,7 +2057,7 @@ test "compress: large data uses parallel path and roundtrips" {
         b.* = phrase[i % phrase.len];
     }
 
-    const compressed = try compress(input, allocator);
+    const compressed = try compress(input, .{}, allocator);
     defer allocator.free(compressed);
 
     // Should actually compress well
@@ -2164,7 +2180,7 @@ test "lzma2 encoder: phase profiling" {
     // Measurement B: Full compression (match finding + DP + encoding)
     // ---------------------------------------------------------------
     var t_full = try std.time.Timer.start();
-    const compressed = try compress(input, allocator);
+    const compressed = try compress(input, .{}, allocator);
     const full_ns = t_full.read();
     const full_ms = @as(f64, @floatFromInt(full_ns)) / 1_000_000.0;
     allocator.free(compressed);
@@ -2213,12 +2229,12 @@ test "lzma2 encoder: compression speed regression guard" {
     }
 
     // Warm up (first run may be slower due to cache effects)
-    const warmup = try compress(input, allocator);
+    const warmup = try compress(input, .{}, allocator);
     allocator.free(warmup);
 
     // Timed run
     var timer = try std.time.Timer.start();
-    const compressed = try compress(input, allocator);
+    const compressed = try compress(input, .{}, allocator);
     defer allocator.free(compressed);
     const elapsed_ns = timer.read();
     const elapsed_ms = @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0;

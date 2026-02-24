@@ -54,6 +54,91 @@ static int g_no_xattr = 0;
 static int g_verbose = 0;
 static int g_no_progress = 0;
 
+/* ============================================================================
+ * Progress bar
+ * ============================================================================ */
+
+#include <time.h>
+
+typedef struct {
+	struct timespec start;
+	int is_tty;
+	const char *label;  /* "Compressing" or "Extracting" */
+	int last_pct;       /* avoid redundant redraws */
+} progress_state;
+
+static void progress_state_init(progress_state *ps, const char *label) {
+	clock_gettime(CLOCK_MONOTONIC, &ps->start);
+	ps->is_tty = isatty(STDERR_FILENO);
+	ps->label = label;
+	ps->last_pct = -1;
+}
+
+static double elapsed_secs(const progress_state *ps) {
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (double)(now.tv_sec - ps->start.tv_sec) +
+	       (double)(now.tv_nsec - ps->start.tv_nsec) / 1e9;
+}
+
+static void format_size(double bytes, char *buf, size_t buf_size) {
+	if (bytes >= 1e9) snprintf(buf, buf_size, "%.1f GB", bytes / 1e9);
+	else if (bytes >= 1e6) snprintf(buf, buf_size, "%.1f MB", bytes / 1e6);
+	else if (bytes >= 1e3) snprintf(buf, buf_size, "%.1f KB", bytes / 1e3);
+	else snprintf(buf, buf_size, "%.0f B", bytes);
+}
+
+static void progress_callback(uint64_t done, uint64_t total, void *user_data) {
+	progress_state *ps = (progress_state *)user_data;
+	if (!ps->is_tty || g_no_progress || total == 0) return;
+
+	int pct = (int)((done * 100) / total);
+	if (pct == ps->last_pct && pct < 100) return; /* throttle redraws */
+	ps->last_pct = pct;
+
+	double elapsed = elapsed_secs(ps);
+	double rate = elapsed > 0.01 ? (double)done / elapsed : 0.0;
+
+	/* Build rate string */
+	char rate_str[32];
+	format_size(rate, rate_str, sizeof(rate_str));
+
+	/* ETA */
+	char eta_str[32] = "";
+	if (rate > 0 && done < total) {
+		double remaining = (double)(total - done) / rate;
+		if (remaining < 60)
+			snprintf(eta_str, sizeof(eta_str), "ETA %ds", (int)(remaining + 0.5));
+		else if (remaining < 3600)
+			snprintf(eta_str, sizeof(eta_str), "ETA %dm%02ds", (int)(remaining / 60), (int)remaining % 60);
+		else
+			snprintf(eta_str, sizeof(eta_str), "ETA %dh%02dm", (int)(remaining / 3600), ((int)remaining % 3600) / 60);
+	} else if (done >= total) {
+		snprintf(eta_str, sizeof(eta_str), "%.1fs", elapsed);
+	}
+
+	/* Progress bar: [=========>          ] 45%  12.3 MB/s  ETA 3s */
+	const int bar_width = 25;
+	int filled = (int)((long long)pct * bar_width / 100);
+	if (filled > bar_width) filled = bar_width;
+
+	char bar[64];
+	int bi = 0;
+	for (int i = 0; i < bar_width; i++) {
+		if (i < filled) bar[bi++] = '=';
+		else if (i == filled) bar[bi++] = '>';
+		else bar[bi++] = ' ';
+	}
+	bar[bi] = '\0';
+
+	fprintf(stderr, "\r\033[K%s [%s] %3d%%  %s/s  %s",
+		ps->label, bar, pct, rate_str, eta_str);
+
+	if (done >= total) {
+		fprintf(stderr, "\n");
+	}
+}
+
 static void usage(const char *prog) {
 	fprintf(stderr,
 		"Usage:\n"
@@ -833,8 +918,11 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 	uint8_t *data = read_file(archive_path, &data_len);
 	if (!data) return 1;
 
+	progress_state ps;
+	progress_state_init(&ps, "Extracting");
+
 	z7z_archive *ar = NULL;
-	int rc = z7z_open(data, data_len, &ar);
+	int rc = z7z_open_ex(data, data_len, progress_callback, &ps, &ar);
 	free(data);
 
 	if (rc != Z7Z_OK) {
@@ -1004,6 +1092,22 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 		}
 	}
 
+	/* Print extraction summary */
+	if (!errors) {
+		double elapsed = elapsed_secs(&ps);
+		size_t total_extracted = 0;
+		for (size_t i = 0; i < count; i++) {
+			total_extracted += z7z_file_size(ar, i);
+		}
+		char sz_str[32];
+		format_size((double)total_extracted, sz_str, sizeof(sz_str));
+		char ar_str[32];
+		format_size((double)data_len, ar_str, sizeof(ar_str));
+		double ratio = total_extracted > 0 ? (double)data_len / (double)total_extracted * 100.0 : 0.0;
+		fprintf(stderr, "Extracted %zu entries  %s -> %s (%.1f%%)  %.1fs\n",
+			count, ar_str, sz_str, ratio, elapsed);
+	}
+
 	z7z_close(ar);
 	return errors > 0 ? 1 : 0;
 }
@@ -1108,9 +1212,20 @@ handle_file:;
 		}
 	}
 
+	/* Compute total uncompressed size for stats */
+	size_t total_input = 0;
+	for (size_t i = 0; i < list.count; i++) {
+		total_input += list.entries[i].data_len;
+	}
+
+	progress_state ps;
+	progress_state_init(&ps, "Compressing");
+
 	uint8_t *out_data = NULL;
 	size_t out_len = 0;
-	int rc = z7z_create(list.entries, list.count, &out_data, &out_len);
+	int rc = z7z_create_ex(list.entries, list.count,
+	                        progress_callback, &ps,
+	                        &out_data, &out_len);
 	if (rc != Z7Z_OK) {
 		fprintf(stderr, "error: %s\n", z7z_error_string(rc));
 		entry_list_free(&list);
@@ -1121,8 +1236,13 @@ handle_file:;
 	if (write_file(archive_path, out_data, out_len) != 0) {
 		ret = 1;
 	} else {
-		printf("Created %s (%zu bytes, %zu entries)\n",
-			archive_path, out_len, list.count);
+		double elapsed = elapsed_secs(&ps);
+		char in_str[32], out_str[32];
+		format_size((double)total_input, in_str, sizeof(in_str));
+		format_size((double)out_len, out_str, sizeof(out_str));
+		double ratio = total_input > 0 ? (double)out_len / (double)total_input * 100.0 : 0.0;
+		fprintf(stderr, "Created %s  %s -> %s (%.1f%%)  %zu entries  %.1fs\n",
+			archive_path, in_str, out_str, ratio, list.count, elapsed);
 	}
 
 	z7z_free(out_data, out_len);

@@ -944,6 +944,35 @@ else
 fi
 
 # ============================================================================
+# Progress / stats output
+# ============================================================================
+echo ""
+echo "--- progress: create shows stats ---"
+echo "progress test data" > "$TMPDIR/prog.txt"
+CREATE_OUT=$($Z7Z create "$TMPDIR/prog.7z" "$TMPDIR/prog.txt" 2>&1)
+assert_contains "create shows 'Created'" "$CREATE_OUT" "Created"
+assert_contains "create shows entries count" "$CREATE_OUT" "entries"
+assert_contains "create shows ratio" "$CREATE_OUT" "%"
+
+echo ""
+echo "--- progress: extract shows stats ---"
+EXTRACT_OUT=$($Z7Z extract "$TMPDIR/prog.7z" "$TMPDIR/prog_out" 2>&1)
+assert_contains "extract shows 'Extracted'" "$EXTRACT_OUT" "Extracted"
+assert_contains "extract shows entries count" "$EXTRACT_OUT" "entries"
+
+echo ""
+echo "--- progress: --no-progress suppresses bar (non-tty) ---"
+# In a pipe/non-tty, progress bar is already suppressed, but --no-progress
+# should still show the summary. This mainly tests --no-progress is accepted.
+NP_OUT=$($Z7Z create --no-progress "$TMPDIR/np.7z" "$TMPDIR/prog.txt" 2>&1)
+assert_contains "no-progress flag accepted" "$NP_OUT" "Created"
+
+echo ""
+echo "--- progress: verbose shows file names ---"
+V_OUT=$($Z7Z extract -v "$TMPDIR/prog.7z" "$TMPDIR/prog_v" 2>&1)
+assert_contains "verbose shows filename" "$V_OUT" "prog.txt"
+
+# ============================================================================
 # Summary
 # ============================================================================
 echo ""

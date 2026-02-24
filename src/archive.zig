@@ -10,6 +10,7 @@ const meta = @import("metadata.zig");
 const encoder = @import("encoder.zig");
 const codec = @import("codec.zig");
 const aes_crypt = @import("aes_crypt.zig");
+pub const ProgressContext = @import("progress.zig").ProgressContext;
 
 // POSIX and Windows attribute constants for kWinAttrib encoding.
 // See SPEC_7Z_CLEANROOM.md section 2.6.
@@ -87,15 +88,20 @@ pub fn createWithMethod(files: []const FileEntry, method: Method, allocator: std
 
 /// Create a .7z archive with optional password for encryption methods.
 pub fn createWithMethodAndPassword(files: []const FileEntry, method: Method, password: ?[]const u8, allocator: std.mem.Allocator) ![]u8 {
+    return createWithProgress(files, method, password, .{}, allocator);
+}
+
+/// Create a .7z archive with progress reporting.
+pub fn createWithProgress(files: []const FileEntry, method: Method, password: ?[]const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     return switch (method) {
         .copy => createCopy(files, allocator),
-        .lzma2 => createLzma2(files, allocator),
-        .lzma2_aes => createLzma2Aes(files, password orelse return error.OutOfMemory, allocator),
+        .lzma2 => createLzma2(files, progress, allocator),
+        .lzma2_aes => createLzma2Aes(files, password orelse return error.OutOfMemory, progress, allocator),
     };
 }
 
 /// Create a .7z archive in memory using LZMA2 compression.
-fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
+fn createLzma2(files: []const FileEntry, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     // Concatenate all non-directory file data
     var total_unpack_size: u64 = 0;
     for (files) |f| {
@@ -115,7 +121,7 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     }
 
     // Compress with LZMA2
-    const compressed = try codec.compressLzma2(raw_data, allocator);
+    const compressed = try codec.compressLzma2(raw_data, progress, allocator);
     defer allocator.free(compressed);
 
     // Build metadata
@@ -238,7 +244,7 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
 }
 
 /// Create a .7z archive with LZMA2 compression + AES-256-CBC encryption.
-fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std.mem.Allocator) ![]u8 {
+fn createLzma2Aes(files: []const FileEntry, password: []const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     // Step 1: Concatenate all non-directory file data
     var total_unpack_size: u64 = 0;
     for (files) |f| {
@@ -257,7 +263,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
     }
 
     // Step 2: Compress with LZMA2
-    const compressed = try codec.compressLzma2(raw_data, allocator);
+    const compressed = try codec.compressLzma2(raw_data, progress, allocator);
     defer allocator.free(compressed);
 
     // Step 3: Encrypt with AES-256-CBC
@@ -587,6 +593,12 @@ pub fn read(archive_data: []const u8, allocator: std.mem.Allocator) ArchiveError
 
 /// Read a .7z archive from memory with optional password for encrypted archives.
 pub fn readWithPassword(archive_data: []const u8, password: ?[]const u8, allocator: std.mem.Allocator) ArchiveError!ArchiveContents {
+    return readWithProgress(archive_data, password, .{}, allocator);
+}
+
+/// Read a .7z archive from memory with progress reporting.
+/// Progress reports packed bytes decompressed per folder.
+pub fn readWithProgress(archive_data: []const u8, password: ?[]const u8, progress: ProgressContext, allocator: std.mem.Allocator) ArchiveError!ArchiveContents {
     // Parse signature header
     const hdr = sig_header.parse(archive_data) catch |e| switch (e) {
         error.NotArchive => return ArchiveError.NotArchive,
@@ -643,8 +655,10 @@ pub fn readWithPassword(archive_data: []const u8, password: ?[]const u8, allocat
             var sub_idx: usize = 0; // index into sub_streams.unpack_sizes
             var file_idx: usize = 0; // index into metadata.files (skipping empty streams)
 
-            // Advance file_idx past leading empty-stream entries
-            // (empty streams don't belong to any folder)
+            // Compute total packed size for progress reporting
+            var total_pack_size: u64 = 0;
+            for (pi.pack_sizes) |ps| total_pack_size += ps;
+            var pack_bytes_done: u64 = 0;
 
             for (0..num_folders) |fi| {
                 const folder = metadata.folders[fi];
@@ -691,6 +705,10 @@ pub fn readWithPassword(archive_data: []const u8, password: ?[]const u8, allocat
                     error.OutOfMemory => return ArchiveError.OutOfMemory,
                 };
                 defer allocator.free(unpacked);
+
+                // Report progress: this folder's packed data has been decompressed
+                pack_bytes_done += @as(u64, @intCast(folder_pack_size));
+                progress.report(pack_bytes_done, total_pack_size);
 
                 // Split decompressed data among this folder's substreams
                 const folder_sub_count: usize = if (fi < subs_per_folder.len) @intCast(subs_per_folder[fi]) else 1;
@@ -1154,4 +1172,89 @@ test "archive: reject bad signature" {
     const allocator = std.testing.allocator;
     const bad = [_]u8{0} ** 32;
     try std.testing.expectError(ArchiveError.NotArchive, read(&bad, allocator));
+}
+
+test "archive: createWithProgress fires callback" {
+    const allocator = std.testing.allocator;
+
+    const State = struct {
+        call_count: u32 = 0,
+        last_done: u64 = 0,
+        last_total: u64 = 0,
+
+        fn callback(done: u64, total: u64, user_data: ?*anyopaque) callconv(.c) void {
+            const self: *@This() = @ptrCast(@alignCast(user_data.?));
+            self.call_count += 1;
+            self.last_done = done;
+            self.last_total = total;
+        }
+    };
+
+    var state = State{};
+    const progress = ProgressContext{
+        .callback = &State.callback,
+        .user_data = @ptrCast(&state),
+    };
+
+    // Create enough data to trigger compression progress (>64KB for chunked reporting)
+    const big_data = try allocator.alloc(u8, 128 * 1024);
+    defer allocator.free(big_data);
+    @memset(big_data, 'A');
+
+    const files = [_]FileEntry{
+        .{ .name = "big.txt", .data = big_data },
+    };
+
+    const archive_data = try createWithProgress(&files, .lzma2, null, progress, allocator);
+    defer allocator.free(archive_data);
+
+    // Progress must have been called at least once
+    try std.testing.expect(state.call_count > 0);
+    // Final callback should report done == total (compression complete)
+    try std.testing.expectEqual(state.last_done, state.last_total);
+    try std.testing.expect(state.last_total > 0);
+}
+
+test "archive: readWithProgress fires callback on extraction" {
+    const allocator = std.testing.allocator;
+
+    // Create an LZMA2 archive first
+    const data = "hello progress world";
+    const files = [_]FileEntry{
+        .{ .name = "test.txt", .data = data },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    // Now read it back with progress
+    const State = struct {
+        call_count: u32 = 0,
+        last_done: u64 = 0,
+        last_total: u64 = 0,
+
+        fn callback(done: u64, total: u64, user_data: ?*anyopaque) callconv(.c) void {
+            const self: *@This() = @ptrCast(@alignCast(user_data.?));
+            self.call_count += 1;
+            self.last_done = done;
+            self.last_total = total;
+        }
+    };
+
+    var state = State{};
+    const progress = ProgressContext{
+        .callback = &State.callback,
+        .user_data = @ptrCast(&state),
+    };
+
+    var contents = try readWithProgress(archive_data, null, progress, allocator);
+    defer contents.deinit();
+
+    // Should have called progress for the single folder
+    try std.testing.expect(state.call_count > 0);
+    // Final report should show done == total
+    try std.testing.expectEqual(state.last_done, state.last_total);
+    try std.testing.expect(state.last_total > 0);
+    // Data should still be correct
+    try std.testing.expectEqualStrings(data, contents.file_data[0]);
 }

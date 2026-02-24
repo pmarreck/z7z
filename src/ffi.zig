@@ -299,6 +299,142 @@ export fn z7z_create(
 	return Z7Z_OK;
 }
 
+/// C-compatible progress callback type.
+pub const z7z_progress_fn = *const fn (u64, u64, ?*anyopaque) callconv(.c) void;
+
+/// Open a .7z archive with progress reporting during decompression.
+/// The callback fires per-folder with (packed_bytes_done, packed_bytes_total, user_data).
+export fn z7z_open_ex(
+	data: ?[*]const u8,
+	len: usize,
+	progress_cb: ?z7z_progress_fn,
+	user_data: ?*anyopaque,
+	out: ?*?*ArchiveHandle,
+) c_int {
+	const out_ptr = out orelse return Z7Z_ERR_INVALID_ARG;
+	const data_ptr = data orelse return Z7Z_ERR_INVALID_ARG;
+
+	const allocator = ffiAllocator();
+	const slice = data_ptr[0..len];
+
+	const progress = archive.ProgressContext{
+		.callback = progress_cb,
+		.user_data = user_data,
+	};
+
+	const contents = archive.readWithProgress(slice, null, progress, allocator) catch |e| {
+		return mapArchiveError(e);
+	};
+
+	const handle = ArchiveHandle.init(contents, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	out_ptr.* = handle;
+	return Z7Z_OK;
+}
+
+/// Open a .7z archive with password and progress reporting.
+export fn z7z_open_ex_pw(
+	data: ?[*]const u8,
+	len: usize,
+	password: ?[*:0]const u8,
+	progress_cb: ?z7z_progress_fn,
+	user_data: ?*anyopaque,
+	out: ?*?*ArchiveHandle,
+) c_int {
+	const out_ptr = out orelse return Z7Z_ERR_INVALID_ARG;
+	const data_ptr = data orelse return Z7Z_ERR_INVALID_ARG;
+
+	const allocator = ffiAllocator();
+	const slice = data_ptr[0..len];
+
+	const pw: ?[]const u8 = if (password) |p| std.mem.span(p) else null;
+
+	const progress = archive.ProgressContext{
+		.callback = progress_cb,
+		.user_data = user_data,
+	};
+
+	const contents = archive.readWithProgress(slice, pw, progress, allocator) catch |e| {
+		return mapArchiveError(e);
+	};
+
+	const handle = ArchiveHandle.init(contents, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	out_ptr.* = handle;
+	return Z7Z_OK;
+}
+
+/// Create a .7z archive with progress reporting during compression.
+/// The callback fires per-chunk/block with (bytes_compressed, bytes_total, user_data).
+export fn z7z_create_ex(
+	files: ?[*]const Z7zFileEntry,
+	count: usize,
+	progress_cb: ?z7z_progress_fn,
+	user_data: ?*anyopaque,
+	out_data: ?*?[*]u8,
+	out_len: ?*usize,
+) c_int {
+	const out_d = out_data orelse return Z7Z_ERR_INVALID_ARG;
+	const out_l = out_len orelse return Z7Z_ERR_INVALID_ARG;
+	const files_ptr = files orelse {
+		if (count == 0) {
+			out_d.* = null;
+			out_l.* = 0;
+			return Z7Z_OK;
+		}
+		return Z7Z_ERR_INVALID_ARG;
+	};
+
+	const allocator = ffiAllocator();
+
+	const zig_files = allocator.alloc(archive.FileEntry, count) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	defer allocator.free(zig_files);
+
+	for (0..count) |i| {
+		const cf = files_ptr[i];
+		const name_len = std.mem.len(cf.name);
+		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
+		const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
+		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
+		const mtime: ?u64 = if (cf.mtime > 0)
+			(@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
+		const ctime: ?u64 = if (cf.ctime > 0)
+			(@as(u64, @intCast(cf.ctime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
+		const atime: ?u64 = if (cf.atime > 0)
+			(@as(u64, @intCast(cf.atime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+		else
+			null;
+		const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
+		const xattr_data: ?[]const u8 = if (cf.xattrs) |xp|
+			xp[0..cf.xattrs_len]
+		else
+			null;
+		zig_files[i] = .{
+			.name = cf.name[0..name_len],
+			.data = data_slice,
+			.is_dir = is_dir,
+			.is_symlink = is_symlink,
+			.mtime = mtime,
+			.ctime = ctime,
+			.atime = atime,
+			.win_attrib = attrib,
+			.xattrs = xattr_data,
+		};
+	}
+
+	const progress = archive.ProgressContext{
+		.callback = progress_cb,
+		.user_data = user_data,
+	};
+
+	const result = archive.createWithProgress(zig_files, .lzma2, null, progress, allocator) catch |e| return mapCreateError(e);
+	out_d.* = result.ptr;
+	out_l.* = result.len;
+	return Z7Z_OK;
+}
+
 /// Free memory allocated by z7z_create.
 export fn z7z_free(data: ?[*]u8, len: usize) void {
 	const ptr = data orelse return;
@@ -563,4 +699,87 @@ test "ffi: open null args returns INVALID_ARG" {
 	var handle: ?*ArchiveHandle = null;
 	try std.testing.expectEqual(Z7Z_ERR_INVALID_ARG, z7z_open(null, 0, &handle));
 	try std.testing.expectEqual(Z7Z_ERR_INVALID_ARG, z7z_open(null, 0, null));
+}
+
+test "ffi: create_ex with progress callback fires" {
+	const State = struct {
+		call_count: u32 = 0,
+		fn callback(done: u64, total: u64, user_data: ?*anyopaque) callconv(.c) void {
+			_ = done;
+			_ = total;
+			const self: *@This() = @ptrCast(@alignCast(user_data.?));
+			self.call_count += 1;
+		}
+	};
+
+	var state = State{};
+
+	// Create a small file (Copy method won't fire progress, but LZMA2 via create_ex will)
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "p.txt",
+			.data = "test data for progress",
+			.data_len = 22,
+			.flags = 0,
+			.mtime = 0,
+			.win_attrib = 0,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = null,
+			.xattrs_len = 0,
+		},
+	};
+
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	const rc = z7z_create_ex(&entries, 1, &State.callback, @ptrCast(&state), &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	// Progress should have been called at least once (compress fires at completion for small data)
+	try std.testing.expect(state.call_count > 0);
+}
+
+test "ffi: open_ex with progress callback fires" {
+	const State = struct {
+		call_count: u32 = 0,
+		fn callback(done: u64, total: u64, user_data: ?*anyopaque) callconv(.c) void {
+			_ = done;
+			_ = total;
+			const self: *@This() = @ptrCast(@alignCast(user_data.?));
+			self.call_count += 1;
+		}
+	};
+
+	// First create an archive
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "p.txt",
+			.data = "test data for progress extraction",
+			.data_len = 33,
+			.flags = 0,
+			.mtime = 0,
+			.win_attrib = 0,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = null,
+			.xattrs_len = 0,
+		},
+	};
+
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	const rc = z7z_create(&entries, 1, &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	// Now open with progress
+	var state = State{};
+	var handle: ?*ArchiveHandle = null;
+	const rc2 = z7z_open_ex(out_data.?, out_len, &State.callback, @ptrCast(&state), &handle);
+	try std.testing.expectEqual(Z7Z_OK, rc2);
+	defer z7z_close(handle);
+
+	// Progress should have been called for the folder decompression
+	try std.testing.expect(state.call_count > 0);
 }

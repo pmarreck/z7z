@@ -108,7 +108,30 @@ typedef struct {
 int z7z_create(const z7z_file_entry *files, size_t count,
                uint8_t **out_data, size_t *out_len);
 
-/* Free archive data returned by z7z_create. */
+/* Progress callback type: (bytes_done, bytes_total, user_data).
+ * Called during compression/decompression to report progress. */
+typedef void (*z7z_progress_fn)(uint64_t bytes_done, uint64_t bytes_total,
+                                void *user_data);
+
+/* Open a .7z archive with progress reporting during decompression.
+ * The callback fires per-folder with packed bytes decompressed. */
+int z7z_open_ex(const uint8_t *data, size_t len,
+                z7z_progress_fn progress, void *user_data,
+                z7z_archive **out);
+
+/* Open a .7z archive with password and progress reporting. */
+int z7z_open_ex_pw(const uint8_t *data, size_t len,
+                   const char *password,
+                   z7z_progress_fn progress, void *user_data,
+                   z7z_archive **out);
+
+/* Create a .7z archive with progress reporting during compression.
+ * The callback fires per-chunk/block with uncompressed bytes processed. */
+int z7z_create_ex(const z7z_file_entry *files, size_t count,
+                  z7z_progress_fn progress, void *user_data,
+                  uint8_t **out_data, size_t *out_len);
+
+/* Free archive data returned by z7z_create / z7z_create_ex. */
 void z7z_free(uint8_t *data, size_t len);
 
 /* Human-readable error message for an error code. Never returns NULL. */

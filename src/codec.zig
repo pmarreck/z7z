@@ -7,6 +7,7 @@ const std = @import("std");
 const meta = @import("metadata.zig");
 const lzma2_enc = @import("lzma2_encoder.zig");
 const aes = @import("aes_crypt.zig");
+const ProgressContext = @import("progress.zig").ProgressContext;
 
 pub const CodecError = error{
 	UnsupportedMethod,
@@ -231,8 +232,8 @@ fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.All
 
 /// Compress data using LZMA2.
 /// Returns owned slice of LZMA2-compressed bytes.
-pub fn compressLzma2(data: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
-	return lzma2_enc.compress(data, allocator) catch |e| switch (e) {
+pub fn compressLzma2(data: []const u8, progress: ProgressContext, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+	return lzma2_enc.compress(data, progress, allocator) catch |e| switch (e) {
 		error.OutOfMemory => return error.OutOfMemory,
 		else => unreachable, // encoder only allocates; no other runtime errors
 	};
@@ -449,7 +450,7 @@ test "codec: multi-coder folder (BCJ+LZMA2)" {
 	// BCJ encode then LZMA2 compress
 	var bcj_buf = input;
 	bcjX86Encode(&bcj_buf);
-	const lzma2_data = try compressLzma2(&bcj_buf, allocator);
+	const lzma2_data = try compressLzma2(&bcj_buf, .{}, allocator);
 	defer allocator.free(lzma2_data);
 
 	// Build a two-coder folder and decompress
