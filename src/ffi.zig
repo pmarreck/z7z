@@ -178,7 +178,7 @@ export fn z7z_create(
 		};
 	}
 
-	const result = archive.create(zig_files, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	const result = archive.create(zig_files, allocator) catch |e| return mapCreateError(e);
 	out_d.* = result.ptr;
 	out_l.* = result.len;
 	return Z7Z_OK;
@@ -215,6 +215,21 @@ fn mapArchiveError(e: archive.ArchiveError) c_int {
 		error.UnsupportedFeature => Z7Z_ERR_UNSUPPORTED,
 		error.OutOfMemory => Z7Z_ERR_OUT_OF_MEMORY,
 		error.EndOfStream => Z7Z_ERR_TRUNCATED,
+	};
+}
+
+/// Map errors from archive creation. The create path returns anyerror
+/// (inferred), so we match known errors and treat the rest as structural.
+fn mapCreateError(e: anyerror) c_int {
+	return switch (e) {
+		error.OutOfMemory => Z7Z_ERR_OUT_OF_MEMORY,
+		error.NotArchive => Z7Z_ERR_NOT_ARCHIVE,
+		error.ChecksumError => Z7Z_ERR_CHECKSUM,
+		error.TruncatedInput => Z7Z_ERR_TRUNCATED,
+		error.StructuralError => Z7Z_ERR_STRUCTURAL,
+		error.UnsupportedFeature => Z7Z_ERR_UNSUPPORTED,
+		error.EndOfStream => Z7Z_ERR_TRUNCATED,
+		else => Z7Z_ERR_STRUCTURAL,
 	};
 }
 

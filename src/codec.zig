@@ -217,8 +217,11 @@ fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.All
 
 /// Compress data using LZMA2.
 /// Returns owned slice of LZMA2-compressed bytes.
-pub fn compressLzma2(data: []const u8, allocator: std.mem.Allocator) CodecError![]u8 {
-	return lzma2_enc.compress(data, allocator) catch return CodecError.OutOfMemory;
+pub fn compressLzma2(data: []const u8, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+	return lzma2_enc.compress(data, allocator) catch |e| switch (e) {
+		error.OutOfMemory => return error.OutOfMemory,
+		else => unreachable, // encoder only allocates; no other runtime errors
+	};
 }
 
 // ============================================================================

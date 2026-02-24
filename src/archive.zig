@@ -89,7 +89,7 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     }
 
     // Compress with LZMA2
-    const compressed = codec.compressLzma2(raw_data, allocator) catch return error.OutOfMemory;
+    const compressed = try codec.compressLzma2(raw_data, allocator);
     defer allocator.free(compressed);
 
     // Build metadata
@@ -215,7 +215,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
     }
 
     // Step 2: Compress with LZMA2
-    const compressed = codec.compressLzma2(raw_data, allocator) catch return error.OutOfMemory;
+    const compressed = try codec.compressLzma2(raw_data, allocator);
     defer allocator.free(compressed);
 
     // Step 3: Encrypt with AES-256-CBC
