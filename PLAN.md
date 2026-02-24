@@ -151,3 +151,14 @@
   - com.apple.ResourceFork preserved (not on blocklist)
   - 7zz validates z7z archives with 0x7A property ("Everything is Ok")
   - 89 total CLI tests (20 new), all passing
+- [x] CLI UX: --help, --about, --version, --verbose, --no-progress flags (~2026-02-24 EST)
+- [x] Progress reporting with rate/ETA for compression and extraction (~2026-02-24 EST)
+  - ProgressContext struct (C-callable callback + user_data) in separate progress.zig module
+  - Threaded through entire pipeline: lzma2_encoder → codec → archive → FFI
+  - Sequential: per-64KB-chunk reporting in compressChunked()
+  - Parallel: per-block atomic counter in compressParallel()
+  - Extraction: per-folder packed bytes decompressed
+  - FFI: z7z_create_ex(), z7z_open_ex(), z7z_open_ex_pw() with z7z_progress_fn callback
+  - CLI: progress bar with rate/ETA on interactive terminals, summary stats on completion
+  - isatty() check + --no-progress flag to suppress
+  - 106 total CLI tests (7 new progress tests), all passing

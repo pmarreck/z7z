@@ -45,15 +45,18 @@ LZMA2 compression encoder with forward optimal parser.
 - `compressBlock()` — self-contained single-block LZMA2 compression (own MatchFinder + LzmaEncoder)
 - `compressParallel()` — parallel block compression via std.Thread.Pool (splits data, concatenates results)
 
+## src/progress.zig
+Progress callback context shared across compression/extraction pipeline.
+- `ProgressContext` — struct with C-callable callback + user_data, no-op when callback is null
+
 ## src/archive.zig
 Archive-level create and read operations.
 - `FileEntry` — input struct with name, data, is_dir, is_symlink, mtime, win_attrib, ctime, atime, xattrs
 - `ArchiveContents` — result struct with metadata + extracted file data
 - `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
-  - Symlinks stored as data-bearing entries (target path as data, S_IFLNK in win_attrib)
-  - Threads ctime, atime, xattrs from FileEntry through to FileInfo for encoding
-- `read()` / `readWithPassword()` — archive extraction
+- `createWithProgress()` — archive creation with progress callback (fires during LZMA2 compression)
+- `readWithProgress()` — archive extraction with progress callback (fires per-folder decompressed)
   - Multi-folder support: iterates ALL folders with correct pack offset calculation
   - Per-folder file mapping via SubStreamInfo.num_unpack_per_folder
   - Handles empty stream (directory) entries correctly during file→folder assignment
@@ -86,7 +89,7 @@ Codec dispatch: decompress packed data for a folder's coder pipeline.
 - `decodeLzma()` — LZMA1 decompression with Zig stdlib dictionary wrap bug workaround
 - `decodeLzma2()` — LZMA2 decompression via std.compress.lzma2
 - `bcjX86Decode()` / `bcjX86Encode()` — x86 BCJ filter (jump/call address translation)
-- `compressLzma2()` — LZMA2 compression via lzma2_encoder
+- `compressLzma2()` — LZMA2 compression via lzma2_encoder (accepts ProgressContext for progress reporting)
 
 ## src/ffi.zig
 C FFI boundary for z7z. All functions use C calling convention.
@@ -100,6 +103,8 @@ C FFI boundary for z7z. All functions use C calling convention.
 - `z7z_file_attrib` — get file's win_attrib (POSIX mode in upper 16, Windows attrs in lower 16)
 - `z7z_file_xattrs` — get xattr blob pointer + length (NULL if none)
 - `z7z_create` — create archive from file entries (supports flags, mtime, ctime, atime, win_attrib, xattrs)
+- `z7z_create_ex` — create with progress callback (fires per-chunk/block during compression)
+- `z7z_open_ex` / `z7z_open_ex_pw` — open with progress callback (fires per-folder during decompression)
 - `z7z_close`, `z7z_free` — memory management
 - `z7z_error_string` — human-readable error messages
 - `Z7zFileEntry` — extern struct with name, data, data_len, flags, mtime, ctime, atime, win_attrib, xattrs, xattrs_len
@@ -107,6 +112,9 @@ C FFI boundary for z7z. All functions use C calling convention.
 ## include/z7z.h
 C header for the FFI. Matches ffi.zig exports.
 - `z7z_file_entry` — struct with name, data, data_len, flags, mtime, win_attrib, ctime, atime, xattrs, xattrs_len
+- `z7z_progress_fn` — progress callback typedef: (bytes_done, bytes_total, user_data)
+- `z7z_open_ex()` / `z7z_open_ex_pw()` — open with progress + optional password
+- `z7z_create_ex()` — create with progress callback
 - `z7z_file_mtime()` — get file modification time as Unix timestamp
 - `z7z_file_ctime()` — get file creation/birth time as Unix timestamp
 - `z7z_file_atime()` — get file access time as Unix timestamp
@@ -119,12 +127,15 @@ C CLI that dogfoods the FFI (list, extract, create commands).
 - `cmd_create` — accepts files, directories, and symlinks
   - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`
   - Captures st_mtime, birthtime, atime, st_mode, xattrs from lstat()
+  - Uses z7z_create_ex() with progress callback for compression progress bar + stats summary
 - `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets
   - Flags: `--no-ctime`, `--no-xattr`
   - Restores permissions, mtime+atime via set_times(), birthtime via set_birthtime(), xattrs via restore_xattrs()
   - Deferred directory mtime restoration (deepest-first) to avoid clobbering by child writes
+  - Uses z7z_open_ex() with progress callback for decompression progress bar + stats summary
   - Warnings: --no-ctime with no ctime in archive, --no-xattr with xattr data present
 - `cmd_list` — shows `<dir>`, `<symlink>` with target, `[+xattr]` marker for xattr data
+- `progress_state` / `progress_callback()` — progress bar with rate/ETA, isatty() gated, --no-progress flag
 - `capture_birthtime()` — macOS: st_birthtimespec; Linux: statx() STATX_BTIME; others: 0
 - `capture_atime()` — returns atime when --atime flag set
 - `set_birthtime()` — macOS: setattrlist ATTR_CMN_CRTIME
