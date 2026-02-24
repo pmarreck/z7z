@@ -47,9 +47,11 @@ LZMA2 compression encoder with forward optimal parser.
 
 ## src/archive.zig
 Archive-level create and read operations.
-- `FileEntry` — input struct with name, data, is_dir, mtime, win_attrib
+- `FileEntry` — input struct with name, data, is_dir, is_symlink, mtime, win_attrib
 - `ArchiveContents` — result struct with metadata + extracted file data
+- `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
+  - Symlinks stored as data-bearing entries (target path as data, S_IFLNK in win_attrib)
 - `read()` / `readWithPassword()` — archive extraction
   - Multi-folder support: iterates ALL folders with correct pack offset calculation
   - Per-folder file mapping via SubStreamInfo.num_unpack_per_folder
@@ -76,22 +78,26 @@ C FFI boundary for z7z. All functions use C calling convention.
 - `z7z_open` — open archive from memory buffer, returns opaque handle
 - `z7z_file_count`, `z7z_file_name`, `z7z_file_data`, `z7z_file_size` — query file entries
 - `z7z_file_is_dir` — check if entry is a directory (EmptyStream && !EmptyFile)
-- `z7z_create` — create archive from file entries (supports Z7Z_FLAG_DIRECTORY)
+- `z7z_file_is_symlink` — check if entry is a symlink (POSIX S_IFLNK in win_attrib upper bits)
+- `z7z_create` — create archive from file entries (supports Z7Z_FLAG_DIRECTORY, Z7Z_FLAG_SYMLINK)
 - `z7z_close`, `z7z_free` — memory management
 - `z7z_error_string` — human-readable error messages
 - `Z7zFileEntry` — extern struct with name, data, data_len, flags
 
 ## include/z7z.h
 C header for the FFI. Matches ffi.zig exports.
-- `z7z_file_entry` — struct with name, data, data_len, flags (Z7Z_FLAG_DIRECTORY = 0x01)
+- `z7z_file_entry` — struct with name, data, data_len, flags (Z7Z_FLAG_DIRECTORY = 0x01, Z7Z_FLAG_SYMLINK = 0x02)
+- `z7z_file_is_symlink()` — query if archive entry is a symbolic link
 
 ## cli/main.c
 C CLI that dogfoods the FFI (list, extract, create commands).
-- `cmd_create` — accepts files and directories; uses `walk_directory()` for recursive collection
-- `cmd_extract` — directory-aware: creates directories via `ensure_dir_recursive()`, ensures parent dirs
-- `cmd_list` — shows `<dir>` for directory entries
+- `cmd_create` — accepts files, directories, and symlinks; `--dereference`/`-L` flag to follow symlinks
+- `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets
+- `cmd_list` — shows `<dir>` for directories, `<symlink>` with target for symbolic links
 - `entry_list` — dynamic array for collecting file entries during directory walking
-- `walk_directory()` — recursive POSIX directory traversal (opendir/readdir)
+- `entry_list_add_symlink()` — add symlink entry with target path as data
+- `walk_directory()` — recursive POSIX directory traversal using lstat() (preserves symlinks by default)
+- `symlink_target_is_safe()` — security check: rejects absolute paths and ../ traversal
 - `ensure_dir_recursive()` — mkdir -p equivalent
 - `ensure_parent_dir()` — creates parent directories for a file path
 

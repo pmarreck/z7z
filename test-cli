@@ -40,6 +40,21 @@ assert_cmd_fails() {
 	if "$@" > /dev/null 2>&1; then fail "$1"; else pass "$1"; fi
 }
 
+assert_symlink_target() {
+	# $1 = test name, $2 = symlink path, $3 = expected target
+	if [ -L "$2" ]; then
+		local actual
+		actual=$(readlink "$2")
+		if [ "$actual" = "$3" ]; then pass "$1"; else fail "$1 (got '$actual', expected '$3')"; fi
+	else
+		fail "$1 (not a symlink)"
+	fi
+}
+
+assert_is_symlink() {
+	if [ -L "$2" ]; then pass "$1"; else fail "$1 (not a symlink)"; fi
+}
+
 # Build first
 echo "Building z7z..."
 zig build
@@ -299,6 +314,127 @@ if command -v 7zz &>/dev/null; then
 	assert_files_equal "multiblock: ms_b.txt" "$TMPDIR/ms_b.txt" "$TMPDIR/out_multiblock/ms_b.txt"
 else
 	echo "  SKIP: 7zz not found"
+fi
+
+# ============================================================================
+# Test: symlink roundtrip (create + extract)
+# ============================================================================
+echo ""
+echo "--- symlink roundtrip ---"
+
+mkdir -p "$TMPDIR/symdir"
+echo -n "Symlink target content" > "$TMPDIR/symdir/target.txt"
+ln -s target.txt "$TMPDIR/symdir/link.txt"
+
+$Z7Z create "$TMPDIR/symlink.7z" "$TMPDIR/symdir"
+assert_file_exists "symlink: archive created" "$TMPDIR/symlink.7z"
+
+mkdir -p "$TMPDIR/out_sym"
+$Z7Z extract "$TMPDIR/symlink.7z" "$TMPDIR/out_sym"
+assert_symlink_target "symlink: link.txt target" "$TMPDIR/out_sym/symdir/link.txt" "target.txt"
+assert_files_equal "symlink: target.txt content" "$TMPDIR/symdir/target.txt" "$TMPDIR/out_sym/symdir/target.txt"
+
+# ============================================================================
+# Test: symlink list display
+# ============================================================================
+echo ""
+echo "--- symlink list display ---"
+
+LIST_OUT=$($Z7Z list "$TMPDIR/symlink.7z")
+assert_contains "symlink list: shows symlink marker" "$LIST_OUT" "<symlink>"
+assert_contains "symlink list: shows target" "$LIST_OUT" "target.txt"
+
+# ============================================================================
+# Test: broken symlink (target doesn't exist)
+# ============================================================================
+echo ""
+echo "--- broken symlink preservation ---"
+
+mkdir -p "$TMPDIR/broken"
+ln -s nonexistent_file "$TMPDIR/broken/dead_link"
+
+$Z7Z create "$TMPDIR/broken.7z" "$TMPDIR/broken"
+assert_file_exists "broken symlink: archive created" "$TMPDIR/broken.7z"
+
+mkdir -p "$TMPDIR/out_broken"
+$Z7Z extract "$TMPDIR/broken.7z" "$TMPDIR/out_broken"
+assert_symlink_target "broken symlink: preserved" "$TMPDIR/out_broken/broken/dead_link" "nonexistent_file"
+
+# ============================================================================
+# Test: --dereference flag (follow symlinks)
+# ============================================================================
+echo ""
+echo "--- --dereference flag ---"
+
+mkdir -p "$TMPDIR/deref"
+echo -n "Dereference content" > "$TMPDIR/deref/real.txt"
+ln -s real.txt "$TMPDIR/deref/follow_me"
+
+$Z7Z create --dereference "$TMPDIR/deref.7z" "$TMPDIR/deref"
+assert_file_exists "dereference: archive created" "$TMPDIR/deref.7z"
+
+mkdir -p "$TMPDIR/out_deref"
+$Z7Z extract "$TMPDIR/deref.7z" "$TMPDIR/out_deref"
+# With --dereference, the symlink should be stored as a regular file
+if [ -L "$TMPDIR/out_deref/deref/follow_me" ]; then
+	fail "dereference: should NOT be a symlink"
+else
+	if [ -f "$TMPDIR/out_deref/deref/follow_me" ]; then
+		# Content should match the target file
+		if diff -q "$TMPDIR/deref/real.txt" "$TMPDIR/out_deref/deref/follow_me" > /dev/null 2>&1; then
+			pass "dereference: stored as regular file with correct content"
+		else
+			fail "dereference: content mismatch"
+		fi
+	else
+		fail "dereference: file not found"
+	fi
+fi
+
+# ============================================================================
+# Test: 7zz interop (z7z → 7zz)
+# ============================================================================
+echo ""
+echo "--- symlink 7zz interop ---"
+
+if command -v 7zz &>/dev/null; then
+	ORACLE_OUT=$(7zz t "$TMPDIR/symlink.7z" 2>&1)
+	assert_contains "7zz symlink: Everything is Ok" "$ORACLE_OUT" "Everything is Ok"
+
+	# 7zz interop (7zz → z7z): create archive with symlinks using 7zz -snl
+	mkdir -p "$TMPDIR/7zz_sym"
+	echo -n "7zz symlink test" > "$TMPDIR/7zz_sym/file.txt"
+	ln -s file.txt "$TMPDIR/7zz_sym/link.txt"
+	7zz a -snl "$TMPDIR/7zz_symlink.7z" "$TMPDIR/7zz_sym/" > /dev/null
+
+	mkdir -p "$TMPDIR/out_7zz_sym"
+	$Z7Z extract "$TMPDIR/7zz_symlink.7z" "$TMPDIR/out_7zz_sym"
+	assert_symlink_target "7zz→z7z: symlink target" "$TMPDIR/out_7zz_sym/7zz_sym/link.txt" "file.txt"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# ============================================================================
+# Test: security — absolute symlink target rejected
+# ============================================================================
+echo ""
+echo "--- symlink security ---"
+
+# Create an archive manually with an absolute symlink target
+# We use the FFI through z7z — create a dir with a symlink pointing to /etc/passwd
+mkdir -p "$TMPDIR/evil"
+ln -s /etc/passwd "$TMPDIR/evil/pwned"
+
+$Z7Z create "$TMPDIR/evil.7z" "$TMPDIR/evil"
+assert_file_exists "security: evil archive created" "$TMPDIR/evil.7z"
+
+# Extraction should warn and skip the absolute symlink
+# (extract may return non-zero when entries are skipped, so capture with || true)
+EXTRACT_OUT=$($Z7Z extract "$TMPDIR/evil.7z" "$TMPDIR/out_evil" 2>&1 || true)
+if [ -L "$TMPDIR/out_evil/evil/pwned" ]; then
+	fail "security: absolute symlink should be rejected"
+else
+	assert_contains "security: warns about absolute target" "$EXTRACT_OUT" "absolute"
 fi
 
 # ============================================================================

@@ -140,6 +140,17 @@ export fn z7z_file_is_dir(handle: ?*const ArchiveHandle, index: usize) c_int {
 	return if (fi.is_empty_stream and !fi.is_empty_file) 1 else 0;
 }
 
+/// Check if a file entry is a symbolic link.
+/// Detection: (win_attrib >> 16) & 0xF000 == 0xA000 (POSIX S_IFLNK).
+/// Returns 1 if symlink, 0 otherwise (including invalid handle/index).
+export fn z7z_file_is_symlink(handle: ?*const ArchiveHandle, index: usize) c_int {
+	const h = handle orelse return 0;
+	if (index >= h.contents.metadata.files.len) return 0;
+	const fi = h.contents.metadata.files[index];
+	const attr = fi.win_attrib orelse return 0;
+	return if ((attr >> 16) & 0xF000 == 0xA000) 1 else 0;
+}
+
 /// Close an archive and free all associated memory.
 export fn z7z_close(handle: ?*ArchiveHandle) void {
 	const h = handle orelse return;
@@ -155,6 +166,7 @@ pub const Z7zFileEntry = extern struct {
 };
 
 const Z7Z_FLAG_DIRECTORY: u32 = 0x01;
+const Z7Z_FLAG_SYMLINK: u32 = 0x02;
 
 /// Create a .7z archive from file entries.
 /// On success, writes archive bytes to `out_data`/`out_len` and returns Z7Z_OK.
@@ -185,11 +197,13 @@ export fn z7z_create(
 		const cf = files_ptr[i];
 		const name_len = std.mem.len(cf.name);
 		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
+		const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
 		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
 		zig_files[i] = .{
 			.name = cf.name[0..name_len],
 			.data = data_slice,
 			.is_dir = is_dir,
+			.is_symlink = is_symlink,
 		};
 	}
 
@@ -282,7 +296,51 @@ test "ffi: null handle safety" {
 	try std.testing.expectEqual(@as(?[*]const u8, null), z7z_file_data(null, 0));
 	try std.testing.expectEqual(@as(usize, 0), z7z_file_size(null, 0));
 	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_dir(null, 0));
+	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_symlink(null, 0));
 	z7z_close(null); // should not crash
+}
+
+test "ffi: symlink create and query via FFI" {
+	// Create archive with a symlink entry via z7z_create
+	const target = "target.txt";
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "link.txt",
+			.data = target,
+			.data_len = target.len,
+			.flags = Z7Z_FLAG_SYMLINK,
+		},
+		.{
+			.name = "real.txt",
+			.data = "hello",
+			.data_len = 5,
+			.flags = 0,
+		},
+	};
+
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	const rc = z7z_create(&entries, 2, &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	// Open the created archive and query
+	var handle: ?*ArchiveHandle = null;
+	const rc2 = z7z_open(out_data.?, out_len, &handle);
+	try std.testing.expectEqual(Z7Z_OK, rc2);
+	defer z7z_close(handle);
+
+	try std.testing.expectEqual(@as(usize, 2), z7z_file_count(handle));
+
+	// First entry: symlink
+	try std.testing.expectEqual(@as(c_int, 1), z7z_file_is_symlink(handle, 0));
+	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_dir(handle, 0));
+	// Symlink target data should be readable
+	try std.testing.expectEqual(@as(usize, target.len), z7z_file_size(handle, 0));
+
+	// Second entry: regular file
+	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_symlink(handle, 1));
+	try std.testing.expectEqual(@as(c_int, 0), z7z_file_is_dir(handle, 1));
 }
 
 test "ffi: open with invalid data returns error" {

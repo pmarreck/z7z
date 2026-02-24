@@ -51,11 +51,16 @@ size_t z7z_file_size(const z7z_archive *archive, size_t index);
 /* Returns 1 if the entry at index is a directory, 0 otherwise. */
 int z7z_file_is_dir(const z7z_archive *archive, size_t index);
 
+/* Returns 1 if the entry at index is a symbolic link, 0 otherwise.
+ * Symlink target path is available via z7z_file_data()/z7z_file_size(). */
+int z7z_file_is_symlink(const z7z_archive *archive, size_t index);
+
 /* Close an archive and free all memory. Safe to call with NULL. */
 void z7z_close(z7z_archive *archive);
 
 /* File entry flags */
 #define Z7Z_FLAG_DIRECTORY  0x01   /* entry is a directory (no data) */
+#define Z7Z_FLAG_SYMLINK    0x02   /* entry is a symbolic link (data = target path) */
 
 /* File entry for creating archives. */
 typedef struct {

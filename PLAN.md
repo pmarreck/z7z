@@ -108,7 +108,14 @@
   - Workaround for Zig stdlib LZMA dictionary wrap bug (CorruptInput when output > dict_size)
   - 5 new CLI tests: non-solid 3-file extraction, solid multi-block extraction
   - Verified against real-world 107MB archive (16905 files, 2 folders, BCJ+LZMA2)
-- [ ] Symlink support (reading + writing symlinks as 7z stores them)
+- [x] Symlink support (reading + writing symlinks as 7z stores them) (~2026-02-24 EST)
+  - FileEntry.is_symlink, computeWinAttrib() with S_IFLNK in upper 16 bits of win_attrib
+  - FFI: Z7Z_FLAG_SYMLINK, z7z_file_is_symlink() detection via POSIX mode bits
+  - CLI create: lstat() + readlink() for symlink detection, --dereference/-L flag
+  - CLI extract: symlink() creation with path traversal security (rejects absolute/../ targets)
+  - CLI list: <symlink> display with target path
+  - Broken symlink preservation, bidirectional 7zz interop verified
+  - 62 CLI tests (7 new symlink tests), 2 new Zig unit tests, 2 new FFI tests
 - [x] Shannon entropy adaptive nice_len (~2026-02-24 EST)
   - Kept as experimental: documented trade-offs and rollback sites in code
   - Replaces unique-byte-count probe with multi-window Shannon entropy

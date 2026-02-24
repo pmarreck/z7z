@@ -229,6 +229,67 @@ File role derivation:
   - `kEmptyFile[emptyIndex] == true` => empty regular file.
 - `kAnti` marks anti-items among empty-stream entries.
 
+### 2.6 `kWinAttrib` Encoding — POSIX Mode Bits and Symlinks
+
+*Determined empirically by creating test archives with 7zz and inspecting raw metadata bytes.
+Not derived from any implementation source code.*
+
+The `kWinAttrib` `REAL_UINT32` value encodes both Windows and POSIX attributes in a single 32-bit field:
+
+| Bits | Content |
+|------|---------|
+| 0-15 | Windows file attributes |
+| 16-31 | POSIX `st_mode` (from `lstat()`) |
+
+#### Windows Attribute Bits (lower 16)
+
+| Bit | Value | Name |
+|-----|-------|------|
+| 0 | 0x0001 | `FILE_ATTRIBUTE_READONLY` |
+| 1 | 0x0002 | `FILE_ATTRIBUTE_HIDDEN` |
+| 2 | 0x0004 | `FILE_ATTRIBUTE_SYSTEM` |
+| 4 | 0x0010 | `FILE_ATTRIBUTE_DIRECTORY` |
+| 5 | 0x0020 | `FILE_ATTRIBUTE_ARCHIVE` |
+| 15 | 0x8000 | POSIX attributes present in upper 16 bits |
+
+The `0x8000` bit in the lower word signals that the upper 16 bits contain valid POSIX mode bits.
+
+#### POSIX Mode Bits (upper 16)
+
+The upper 16 bits store the value of `lstat().st_mode`, including file type and permission bits:
+
+| File type | `st_mode & 0xF000` | Hex |
+|-----------|---------------------|-----|
+| `S_IFREG` (regular file) | `0o100000` | `0x8000` |
+| `S_IFDIR` (directory) | `0o040000` | `0x4000` |
+| `S_IFLNK` (symbolic link) | `0o120000` | `0xA000` |
+
+Permission bits (`st_mode & 0x0FFF`) occupy the remaining 12 bits (standard POSIX rwxrwxrwx).
+
+#### Observed Values
+
+From inspecting archives created by `7zz a -snl -m0=copy`:
+
+| Entry type | `win_attrib` | Breakdown |
+|------------|-------------|-----------|
+| Symlink (`lrwxr-xr-x`) | `0xA1ED8020` | POSIX: `S_IFLNK\|0755`, Win: `ARCHIVE\|POSIX_PRESENT` |
+| Regular file (`-rw-r--r--`) | `0x81A48020` | POSIX: `S_IFREG\|0644`, Win: `ARCHIVE\|POSIX_PRESENT` |
+
+Formula: `win_attrib = (lstat_st_mode << 16) | 0x8020`
+
+#### Symlink Storage
+
+Symlinks are stored as **regular data-bearing file entries** (NOT empty streams):
+
+- `kEmptyStream` bit is `false` for symlinks
+- File data = the symlink target path, encoded as UTF-8
+- Data participates in the normal pack stream alongside regular files
+- Detection: `(win_attrib >> 16) & 0xF000 == 0xA000`
+
+7zz behavior:
+- Default: follows/dereferences symlinks (stores resolved target content as regular file)
+- With `-snl` flag: stores symbolic links as links (target path as data, S_IFLNK in attributes)
+
 
 ## 3. Method Identifiers
 

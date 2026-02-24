@@ -11,6 +11,25 @@ const encoder = @import("encoder.zig");
 const codec = @import("codec.zig");
 const aes_crypt = @import("aes_crypt.zig");
 
+// POSIX and Windows attribute constants for kWinAttrib encoding.
+// See SPEC_7Z_CLEANROOM.md section 2.6.
+const S_IFLNK: u32 = 0xA000; // POSIX symlink file type
+const POSIX_PRESENT_FLAG: u32 = 0x8000; // low word: POSIX attrs in high word
+const ARCHIVE_FLAG: u32 = 0x0020; // low word: Windows Archive bit
+const DEFAULT_SYMLINK_ATTRIB: u32 = (0xA1FF << 16) | POSIX_PRESENT_FLAG | ARCHIVE_FLAG; // lrwxrwxrwx
+
+/// Compute win_attrib for a FileEntry based on its type.
+fn computeWinAttrib(f: FileEntry) ?u32 {
+    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+    if (f.is_dir) {
+        return (f.win_attrib orelse 0) | FILE_ATTRIBUTE_DIRECTORY;
+    } else if (f.is_symlink) {
+        return f.win_attrib orelse DEFAULT_SYMLINK_ATTRIB;
+    } else {
+        return f.win_attrib;
+    }
+}
+
 pub const ArchiveError = error{
     NotArchive,
     ChecksumError,
@@ -31,8 +50,9 @@ pub const Method = enum {
 /// A file entry for creating an archive.
 pub const FileEntry = struct {
     name: []const u8, // UTF-8 filename
-    data: []const u8, // file content (empty for directories)
+    data: []const u8, // file content (empty for directories, target path for symlinks)
     is_dir: bool = false, // true for directory entries
+    is_symlink: bool = false, // true for symbolic link entries
     mtime: ?u64 = null, // optional NTFS FILETIME
     win_attrib: ?u32 = null, // optional Windows attributes
 };
@@ -151,20 +171,19 @@ fn createLzma2(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
         }
     }
 
-    // Build file info (all entries: files AND directories)
-    const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
+    // Build file info (all entries: files, directories, AND symlinks)
     var file_infos = try allocator.alloc(meta.FileInfo, files.len);
     for (files, 0..) |f, i| {
         const name_copy = try allocator.dupe(u8, f.name);
         file_infos[i] = .{
             .name = name_copy,
-            .is_empty_stream = f.is_dir,
+            .is_empty_stream = f.is_dir, // only dirs are empty streams; symlinks carry data
             .is_empty_file = false,
             .is_anti = false,
             .ctime = null,
             .atime = null,
             .mtime = f.mtime,
-            .win_attrib = if (f.is_dir) (f.win_attrib orelse 0) | FILE_ATTRIBUTE_DIRECTORY else f.win_attrib,
+            .win_attrib = computeWinAttrib(f),
             .start_pos = null,
         };
     }
@@ -335,8 +354,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
         }
     }
 
-    // Build file info (all entries: files AND directories)
-    const FILE_ATTRIBUTE_DIRECTORY2: u32 = 0x10;
+    // Build file info (all entries: files, directories, AND symlinks)
     var file_infos = try allocator.alloc(meta.FileInfo, files.len);
     for (files, 0..) |f, i| {
         const name_copy = try allocator.dupe(u8, f.name);
@@ -348,7 +366,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, allocator: std
             .ctime = null,
             .atime = null,
             .mtime = f.mtime,
-            .win_attrib = if (f.is_dir) (f.win_attrib orelse 0) | FILE_ATTRIBUTE_DIRECTORY2 else f.win_attrib,
+            .win_attrib = computeWinAttrib(f),
             .start_pos = null,
         };
     }
@@ -494,8 +512,7 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
         }
     }
 
-    // Build file info (all entries: files AND directories)
-    const COPY_DIR_ATTRIB: u32 = 0x10;
+    // Build file info (all entries: files, directories, AND symlinks)
     var file_infos = try allocator.alloc(meta.FileInfo, files.len);
     for (files, 0..) |f, i| {
         const name_copy = try allocator.dupe(u8, f.name);
@@ -507,7 +524,7 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
             .ctime = null,
             .atime = null,
             .mtime = f.mtime,
-            .win_attrib = if (f.is_dir) (f.win_attrib orelse 0) | COPY_DIR_ATTRIB else f.win_attrib,
+            .win_attrib = computeWinAttrib(f),
             .start_pos = null,
         };
     }
@@ -959,6 +976,76 @@ test "archive: directory entries roundtrip" {
     // File entries: should have their data intact
     try std.testing.expectEqualStrings("Hello from subdir\n", contents.file_data[1]);
     try std.testing.expectEqualStrings("Root file\n", contents.file_data[2]);
+}
+
+test "archive: symlink entry roundtrip" {
+    const allocator = std.testing.allocator;
+
+    // Symlink entries carry data (the target path) and are NOT empty streams.
+    // They must have S_IFLNK (0xA000) in the upper 16 bits of win_attrib.
+    const files = [_]FileEntry{
+        .{ .name = "link.txt", .data = "target.txt", .is_symlink = true },
+        .{ .name = "real.txt", .data = "Hello world\n" },
+    };
+
+    const archive_data = try createWithMethod(&files, .copy, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), contents.metadata.files.len);
+
+    // Symlink entry: must NOT be empty stream, must have data = target path
+    const link_info = contents.metadata.files[0];
+    try std.testing.expectEqualStrings("link.txt", link_info.name.?);
+    try std.testing.expect(!link_info.is_empty_stream); // symlinks carry data
+    try std.testing.expectEqualStrings("target.txt", contents.file_data[0]);
+
+    // Verify S_IFLNK in win_attrib upper bits
+    if (link_info.win_attrib) |attr| {
+        try std.testing.expectEqual(@as(u32, 0xA000), (attr >> 16) & 0xF000);
+    } else {
+        return error.TestUnexpectedResult; // win_attrib must be set for symlinks
+    }
+
+    // Regular file: unaffected
+    try std.testing.expectEqualStrings("real.txt", contents.metadata.files[1].name.?);
+    try std.testing.expectEqualStrings("Hello world\n", contents.file_data[1]);
+}
+
+test "archive: symlink LZMA2 roundtrip" {
+    const allocator = std.testing.allocator;
+
+    const files = [_]FileEntry{
+        .{ .name = "dir/", .data = "", .is_dir = true },
+        .{ .name = "dir/link", .data = "../other.txt", .is_symlink = true },
+        .{ .name = "dir/file.txt", .data = "content" },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 3), contents.metadata.files.len);
+
+    // Directory
+    try std.testing.expect(contents.metadata.files[0].is_empty_stream);
+
+    // Symlink — data-bearing, not empty stream
+    const link_info = contents.metadata.files[1];
+    try std.testing.expect(!link_info.is_empty_stream);
+    try std.testing.expectEqualStrings("../other.txt", contents.file_data[1]);
+    if (link_info.win_attrib) |attr| {
+        try std.testing.expectEqual(@as(u32, 0xA000), (attr >> 16) & 0xF000);
+    } else {
+        return error.TestUnexpectedResult;
+    }
+
+    // Regular file
+    try std.testing.expectEqualStrings("content", contents.file_data[2]);
 }
 
 test "archive: reject bad signature" {

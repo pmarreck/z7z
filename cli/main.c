@@ -3,7 +3,7 @@
  * Usage:
  *   z7z list   <archive.7z>
  *   z7z extract <archive.7z> [output-dir]
- *   z7z create  <archive.7z> <file1|dir1> [file2|dir2 ...]
+ *   z7z create  [--dereference|-L] <archive.7z> <file1|dir1> [file2|dir2 ...]
  */
 
 #include <errno.h>
@@ -12,26 +12,40 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <unistd.h>
 
 #ifdef _WIN32
 #include <direct.h>
 #define mkdir(path, mode) _mkdir(path)
+#define lstat stat
+#define readlink(p, b, s) (-1)
+#define symlink(t, l) (-1)
 #ifndef S_ISDIR
 #define S_ISDIR(m) (((m) & S_IFMT) == S_IFDIR)
 #endif
 #ifndef S_ISREG
 #define S_ISREG(m) (((m) & S_IFMT) == S_IFREG)
 #endif
+#ifndef S_ISLNK
+#define S_ISLNK(m) (0)
+#endif
+#else
+#ifndef S_ISLNK
+#define S_ISLNK(m) (((m) & S_IFMT) == S_IFLNK)
+#endif
 #endif
 
 #include "z7z.h"
+
+/* Global flag: --dereference / -L */
+static int g_dereference = 0;
 
 static void usage(const char *prog) {
 	fprintf(stderr,
 		"Usage:\n"
 		"  %s list   <archive.7z>\n"
 		"  %s extract <archive.7z> [output-dir]\n"
-		"  %s create  <archive.7z> <file1|dir1> [file2|dir2 ...]\n",
+		"  %s create  [--dereference|-L] <archive.7z> <file1|dir1> [file2|dir2 ...]\n",
 		prog, prog, prog);
 }
 
@@ -156,6 +170,31 @@ static int ensure_parent_dir(const char *filepath) {
 	return ensure_dir_recursive(buf);
 }
 
+/* Check if a symlink target is safe for extraction.
+ * Rejects absolute paths and paths that escape the extraction root via "..". */
+static int symlink_target_is_safe(const char *target) {
+	/* Reject absolute targets */
+	if (target[0] == '/' || target[0] == '\\')
+		return 0;
+#ifdef _WIN32
+	/* Reject Windows drive letter paths like C:\ */
+	if (strlen(target) >= 2 && target[1] == ':')
+		return 0;
+#endif
+	/* Reject targets that start with ../ or are exactly ".." */
+	if (strncmp(target, "../", 3) == 0 || strcmp(target, "..") == 0)
+		return 0;
+	/* Reject targets containing /../ */
+	if (strstr(target, "/../") != NULL)
+		return 0;
+	/* Reject targets ending with /.. */
+	size_t tlen = strlen(target);
+	if (tlen >= 3 && strcmp(target + tlen - 3, "/..") == 0)
+		return 0;
+
+	return 1;
+}
+
 /* ========================================================================== */
 /* Dynamic entry list for directory walking                                   */
 /* ========================================================================== */
@@ -232,9 +271,40 @@ static int entry_list_add_file(entry_list *list, const char *name,
 	return 0;
 }
 
+static int entry_list_add_symlink(entry_list *list, const char *name,
+                                  const char *target) {
+	if (list->count >= list->capacity && entry_list_grow(list) != 0) return 1;
+	size_t idx = list->count;
+	list->names[idx] = strdup(name);
+	if (!list->names[idx]) return 1;
+	size_t tlen = strlen(target);
+	list->bufs[idx] = (uint8_t *)strdup(target);
+	if (!list->bufs[idx]) return 1;
+	list->entries[idx].name = list->names[idx];
+	list->entries[idx].data = list->bufs[idx];
+	list->entries[idx].data_len = tlen;
+	list->entries[idx].flags = Z7Z_FLAG_SYMLINK;
+	list->count++;
+	return 0;
+}
+
 /* ========================================================================== */
 /* Recursive directory walking                                                */
 /* ========================================================================== */
+
+/* Read symlink target and add as entry. Returns 0 on success. */
+static int add_symlink_entry(entry_list *list, const char *fs_path,
+                             const char *archive_name) {
+	char target[4096];
+	ssize_t tlen = readlink(fs_path, target, sizeof(target) - 1);
+	if (tlen < 0) {
+		fprintf(stderr, "warning: cannot read symlink '%s': %s\n",
+			fs_path, strerror(errno));
+		return 1;
+	}
+	target[tlen] = '\0';
+	return entry_list_add_symlink(list, archive_name, target);
+}
 
 static int walk_directory(entry_list *list, const char *fs_path,
                           const char *archive_prefix) {
@@ -256,13 +326,51 @@ static int walk_directory(entry_list *list, const char *fs_path,
 		snprintf(rel_path, sizeof(rel_path), "%s%s", archive_prefix, ent->d_name);
 
 		struct stat st;
-		if (stat(full_path, &st) != 0) {
+		if (lstat(full_path, &st) != 0) {
 			fprintf(stderr, "warning: cannot stat '%s': %s\n",
 				full_path, strerror(errno));
 			continue;
 		}
 
-		if (S_ISDIR(st.st_mode)) {
+		if (S_ISLNK(st.st_mode) && !g_dereference) {
+			/* Symlink — store as link */
+			if (add_symlink_entry(list, full_path, rel_path) != 0) {
+				closedir(d);
+				return 1;
+			}
+		} else if (S_ISLNK(st.st_mode) && g_dereference) {
+			/* Dereference: stat the target, store as regular file */
+			struct stat target_st;
+			if (stat(full_path, &target_st) != 0) {
+				fprintf(stderr, "warning: cannot stat symlink target '%s': %s\n",
+					full_path, strerror(errno));
+				continue;
+			}
+			if (S_ISDIR(target_st.st_mode)) {
+				char dir_name[4096];
+				snprintf(dir_name, sizeof(dir_name), "%s/", rel_path);
+				if (entry_list_add_dir(list, dir_name) != 0) {
+					closedir(d);
+					return 1;
+				}
+				if (walk_directory(list, full_path, dir_name) != 0) {
+					closedir(d);
+					return 1;
+				}
+			} else if (S_ISREG(target_st.st_mode)) {
+				size_t flen = 0;
+				uint8_t *data = read_file(full_path, &flen);
+				if (!data) {
+					closedir(d);
+					return 1;
+				}
+				if (entry_list_add_file(list, rel_path, data, flen) != 0) {
+					free(data);
+					closedir(d);
+					return 1;
+				}
+			}
+		} else if (S_ISDIR(st.st_mode)) {
 			char dir_name[4096];
 			snprintf(dir_name, sizeof(dir_name), "%s/", rel_path);
 			if (entry_list_add_dir(list, dir_name) != 0) {
@@ -286,7 +394,7 @@ static int walk_directory(entry_list *list, const char *fs_path,
 				return 1;
 			}
 		}
-		/* Skip symlinks, devices, etc. */
+		/* Skip devices, sockets, etc. */
 	}
 
 	closedir(d);
@@ -321,6 +429,18 @@ static int cmd_list(const char *archive_path) {
 		size_t size = z7z_file_size(ar, i);
 		if (z7z_file_is_dir(ar, i)) {
 			printf("%-12s  %s\n", "<dir>", name ? name : "(unnamed)");
+		} else if (z7z_file_is_symlink(ar, i)) {
+			/* Show symlink with target path */
+			const uint8_t *tdata = z7z_file_data(ar, i);
+			if (tdata && size > 0) {
+				char target[4096];
+				size_t tlen = size < sizeof(target) - 1 ? size : sizeof(target) - 1;
+				memcpy(target, tdata, tlen);
+				target[tlen] = '\0';
+				printf("<symlink>     %s -> %s\n", name ? name : "(unnamed)", target);
+			} else {
+				printf("<symlink>     %s\n", name ? name : "(unnamed)");
+			}
 		} else {
 			printf("%-12zu  %s\n", size, name ? name : "(unnamed)");
 		}
@@ -374,6 +494,42 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 			} else {
 				printf("  %s (directory)\n", name);
 			}
+		} else if (z7z_file_is_symlink(ar, i)) {
+			/* Symlink entry — create symbolic link */
+			const uint8_t *tdata = z7z_file_data(ar, i);
+			size_t tsize = z7z_file_size(ar, i);
+			if (!tdata || tsize == 0) {
+				fprintf(stderr, "warning: symlink '%s' has no target, skipping\n", name);
+				errors++;
+				continue;
+			}
+			/* Build null-terminated target string */
+			char target[4096];
+			size_t tlen = tsize < sizeof(target) - 1 ? tsize : sizeof(target) - 1;
+			memcpy(target, tdata, tlen);
+			target[tlen] = '\0';
+
+			/* Security: reject unsafe targets */
+			if (!symlink_target_is_safe(target)) {
+				fprintf(stderr, "warning: skipping symlink '%s' with absolute or traversal target '%s'\n",
+					name, target);
+				errors++;
+				continue;
+			}
+
+			if (ensure_parent_dir(out_path) != 0) {
+				errors++;
+			} else {
+				/* Remove existing file/symlink at target path if present */
+				unlink(out_path);
+				if (symlink(target, out_path) != 0) {
+					fprintf(stderr, "error: cannot create symlink '%s' -> '%s': %s\n",
+						out_path, target, strerror(errno));
+					errors++;
+				} else {
+					printf("  %s -> %s (symlink)\n", name, target);
+				}
+			}
 		} else {
 			/* File entry — ensure parent exists, then write */
 			if (ensure_parent_dir(out_path) != 0) {
@@ -403,14 +559,36 @@ static int cmd_create(const char *archive_path, int file_count, char **file_path
 
 	for (int i = 0; i < file_count; i++) {
 		struct stat st;
-		if (stat(file_paths[i], &st) != 0) {
+		if (lstat(file_paths[i], &st) != 0) {
 			fprintf(stderr, "error: cannot stat '%s': %s\n",
 				file_paths[i], strerror(errno));
 			entry_list_free(&list);
 			return 1;
 		}
 
-		if (S_ISDIR(st.st_mode)) {
+		if (S_ISLNK(st.st_mode) && !g_dereference) {
+			/* Top-level symlink argument — store as symlink */
+			if (add_symlink_entry(&list, file_paths[i], basename_of(file_paths[i])) != 0) {
+				fprintf(stderr, "error: out of memory\n");
+				entry_list_free(&list);
+				return 1;
+			}
+		} else if (S_ISLNK(st.st_mode) && g_dereference) {
+			/* Dereference: stat the target */
+			struct stat target_st;
+			if (stat(file_paths[i], &target_st) != 0) {
+				fprintf(stderr, "error: cannot stat symlink target '%s': %s\n",
+					file_paths[i], strerror(errno));
+				entry_list_free(&list);
+				return 1;
+			}
+			if (S_ISDIR(target_st.st_mode)) {
+				goto handle_dir;
+			} else {
+				goto handle_file;
+			}
+		} else if (S_ISDIR(st.st_mode)) {
+handle_dir:;
 			/* Strip trailing slashes */
 			char clean[4096];
 			size_t plen = strlen(file_paths[i]);
@@ -441,6 +619,7 @@ static int cmd_create(const char *archive_path, int file_count, char **file_path
 				return 1;
 			}
 		} else {
+handle_file:;
 			/* Regular file — use basename only */
 			size_t flen = 0;
 			uint8_t *data = read_file(file_paths[i], &flen);
@@ -493,12 +672,22 @@ int main(int argc, char **argv) {
 		const char *out_dir = (argc >= 4) ? argv[3] : NULL;
 		return cmd_extract(argv[2], out_dir);
 	} else if (strcmp(cmd, "create") == 0 || strcmp(cmd, "a") == 0) {
-		if (argc < 4) {
-			fprintf(stderr, "error: create requires at least one input file or directory\n");
+		/* Parse optional flags before archive path */
+		int arg_start = 2;
+		for (int i = 2; i < argc; i++) {
+			if (strcmp(argv[i], "--dereference") == 0 || strcmp(argv[i], "-L") == 0) {
+				g_dereference = 1;
+				arg_start = i + 1;
+			} else {
+				break;
+			}
+		}
+		if (arg_start >= argc || arg_start + 1 >= argc) {
+			fprintf(stderr, "error: create requires archive path and at least one input file or directory\n");
 			usage(argv[0]);
 			return 1;
 		}
-		return cmd_create(argv[2], argc - 3, argv + 3);
+		return cmd_create(argv[arg_start], argc - arg_start - 1, argv + arg_start + 1);
 	} else {
 		fprintf(stderr, "error: unknown command '%s'\n", cmd);
 		usage(argv[0]);
