@@ -45,11 +45,26 @@ pub fn build(b: *std.Build) void {
     });
     cli.root_module.addCSourceFile(.{
         .file = b.path("cli/main.c"),
-        .flags = &.{ "-std=c11", "-Wall", "-Wextra", "-Wpedantic" },
+        .flags = &.{ "-std=gnu11", "-Wall", "-Wextra", "-Wpedantic" },
     });
     cli.root_module.addIncludePath(b.path("include"));
     cli.linkLibrary(lib);
-    cli.root_module.linkSystemLibrary("magic", .{});
+
+    // libmagic + POSIX extensions: non-Windows only
+    const is_windows = target.result.os.tag == .windows;
+    if (!is_windows) {
+        // _GNU_SOURCE needed for statx(), asprintf(), etc. on Linux musl
+        cli.root_module.addCMacro("_GNU_SOURCE", "");
+        const magic_dep = b.dependency("libmagic", .{
+            .target = target,
+            .optimize = optimize,
+            .linkage = .static,
+        });
+        const magic_lib = magic_dep.artifact("magic");
+        cli.root_module.addIncludePath(magic_lib.getEmittedIncludeTree());
+        cli.linkLibrary(magic_lib);
+    }
+
     b.installArtifact(cli);
     const install_cli = b.addInstallArtifact(cli, .{});
 

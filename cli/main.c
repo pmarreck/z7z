@@ -17,12 +17,14 @@
 #elif defined(__linux__)
 #include <sys/xattr.h>
 #include <sys/sysmacros.h>
-#include <linux/stat.h>   /* statx */
 #include <fcntl.h>        /* AT_FDCWD, AT_SYMLINK_NOFOLLOW */
 #endif
 
 #ifdef _WIN32
 #include <direct.h>
+#include <io.h>
+#include <fcntl.h>
+#include <sys/utime.h>
 #define mkdir(path, mode) _mkdir(path)
 #define lstat stat
 #define readlink(p, b, s) (-1)
@@ -80,7 +82,7 @@ static int init_magic(void) {
 	}
 	return 0;
 #else
-	return 1; /* libmagic not available on Windows */
+	return 1; /* libmagic not available */
 #endif
 }
 
@@ -650,16 +652,23 @@ static uint32_t win_attrib_from_mode(mode_t mode) {
 	return attrib;
 }
 
-/* Set file mtime (and optionally atime) using utimes(). Returns 0 on success.
+/* Set file mtime (and optionally atime). Returns 0 on success.
  * If atime_ts > 0, use it for atime; otherwise mirror mtime. */
 static int set_times(const char *path, int64_t mtime_ts, int64_t atime_ts) {
 	if (mtime_ts <= 0 && atime_ts <= 0) return 0;
+#ifdef _WIN32
+	struct _utimbuf ut;
+	ut.actime = (time_t)(atime_ts > 0 ? atime_ts : mtime_ts);
+	ut.modtime = (time_t)(mtime_ts > 0 ? mtime_ts : atime_ts);
+	return _utime(path, &ut);
+#else
 	struct timeval tv[2];
 	tv[0].tv_sec = (time_t)(atime_ts > 0 ? atime_ts : mtime_ts);  /* atime */
 	tv[0].tv_usec = 0;
 	tv[1].tv_sec = (time_t)(mtime_ts > 0 ? mtime_ts : atime_ts);  /* mtime */
 	tv[1].tv_usec = 0;
 	return utimes(path, tv);
+#endif
 }
 
 /* Set file permissions from win_attrib (POSIX mode in upper 16 bits).
