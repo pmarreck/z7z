@@ -1835,3 +1835,83 @@ test "archive: createMultiFolder with encryption groups files into separate encr
     try std.testing.expectEqualStrings("classified text", contents.file_data[0]);
     try std.testing.expectEqualStrings("classified binary", contents.file_data[1]);
 }
+
+test "archive: createMultiFolder single group creates one folder" {
+    const allocator = std.testing.allocator;
+
+    // All files have default group_index=0 — createMultiFolder should still work,
+    // producing exactly one folder (degenerate case).
+    var files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "aaa" },
+        .{ .name = "b.txt", .data = "bbb" },
+    };
+
+    const data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    defer allocator.free(data);
+
+    var contents = try read(data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 2), contents.file_data.len);
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.folders.len);
+    try std.testing.expectEqualStrings("aaa", contents.file_data[0]);
+    try std.testing.expectEqualStrings("bbb", contents.file_data[1]);
+}
+
+test "archive: createMultiFolder with 3 groups" {
+    const allocator = std.testing.allocator;
+
+    var files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "text data", .group_index = 0 },
+        .{ .name = "b.bin", .data = "\x00\x01\x02", .group_index = 1 },
+        .{ .name = "c.json", .data = "{\"k\":1}", .group_index = 2 },
+        .{ .name = "d.txt", .data = "more text", .group_index = 0 },
+    };
+
+    const data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    defer allocator.free(data);
+
+    var contents = try read(data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 4), contents.file_data.len);
+    try std.testing.expectEqual(@as(usize, 3), contents.metadata.folders.len);
+
+    // Group 0 files first (a.txt, d.txt), then group 1 (b.bin), then group 2 (c.json)
+    try std.testing.expectEqualStrings("text data", contents.file_data[0]);
+    try std.testing.expectEqualStrings("more text", contents.file_data[1]);
+    try std.testing.expectEqualStrings("\x00\x01\x02", contents.file_data[2]);
+    try std.testing.expectEqualStrings("{\"k\":1}", contents.file_data[3]);
+}
+
+test "archive: createMultiFolder preserves symlinks across groups" {
+    const allocator = std.testing.allocator;
+
+    var files = [_]FileEntry{
+        .{ .name = "real.txt", .data = "real content", .group_index = 0 },
+        .{ .name = "link.txt", .data = "target.txt", .is_symlink = true, .group_index = 1 },
+        .{ .name = "other.bin", .data = "binary", .group_index = 1 },
+    };
+
+    const data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    defer allocator.free(data);
+
+    var contents = try read(data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 3), contents.file_data.len);
+
+    // Group 0 first (real.txt), then group 1 (link.txt symlink + other.bin)
+    try std.testing.expectEqualStrings("real content", contents.file_data[0]);
+    try std.testing.expectEqualStrings("target.txt", contents.file_data[1]);
+    try std.testing.expectEqualStrings("binary", contents.file_data[2]);
+
+    // Verify the symlink has S_IFLNK in win_attrib
+    // The symlink is file index 1 (after sorting by group)
+    const link_info = contents.metadata.files[1];
+    if (link_info.win_attrib) |attr| {
+        try std.testing.expectEqual(@as(u32, 0xA000), (attr >> 16) & 0xF000);
+    } else {
+        return error.TestUnexpectedResult;
+    }
+}

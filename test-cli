@@ -1216,6 +1216,38 @@ else
 fi
 
 # ============================================================================
+# Edge case tests
+# ============================================================================
+echo ""
+echo "--- edge: single file create/extract ---"
+echo "single file test" > "$TMPDIR/single_edge.txt"
+$Z7Z create "$TMPDIR/single_file.7z" "$TMPDIR/single_edge.txt" > /dev/null 2>&1
+if [ $? -eq 0 ]; then pass "edge: single file create"; else fail "edge: single file create"; fi
+$Z7Z extract "$TMPDIR/single_file.7z" "$TMPDIR/single_out" > /dev/null 2>&1
+assert_file_exists "edge: single file extract" "$TMPDIR/single_out/single_edge.txt"
+
+echo ""
+echo "--- edge: all files same type ---"
+mkdir -p "$TMPDIR/alltext"
+echo "file one" > "$TMPDIR/alltext/a.txt"
+echo "file two" > "$TMPDIR/alltext/b.txt"
+echo "file three" > "$TMPDIR/alltext/c.txt"
+$Z7Z create "$TMPDIR/alltext.7z" "$TMPDIR/alltext" > /dev/null 2>&1
+if [ $? -eq 0 ]; then pass "edge: all same type create"; else fail "edge: all same type create"; fi
+if command -v 7zz &>/dev/null; then
+	7zz x -y -o"$TMPDIR/alltext_out" "$TMPDIR/alltext.7z" > /dev/null 2>&1
+	assert_file_exists "edge: all same type 7zz extract" "$TMPDIR/alltext_out/alltext/a.txt"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+echo ""
+echo "--- edge: empty directory ---"
+mkdir -p "$TMPDIR/emptydir/sub"
+$Z7Z create "$TMPDIR/emptydir.7z" "$TMPDIR/emptydir" > /dev/null 2>&1
+if [ $? -eq 0 ]; then pass "edge: empty dir create"; else fail "edge: empty dir create"; fi
+
+# ============================================================================
 # Summary
 # ============================================================================
 echo ""

@@ -51,13 +51,16 @@ Progress callback context shared across compression/extraction pipeline.
 
 ## src/archive.zig
 Archive-level create and read operations.
-- `FileEntry` — input struct with name, data, is_dir, is_symlink, mtime, win_attrib, ctime, atime, xattrs
+- `FileEntry` — input struct with name, data, is_dir, is_symlink, mtime, win_attrib, ctime, atime, xattrs, group_index
 - `ArchiveContents` — result struct with metadata + extracted file data
 - `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
 - `createWithProgress()` — archive creation with progress callback, auto-dispatches to multi-folder when mixed group_indices
-- `createMultiFolder()` — multi-folder archive creation: groups files by group_index, supports .lzma2, .copy, and .lzma2_aes methods
+- `createMultiFolder()` — multi-folder archive creation: groups files by group_index, one folder per unique group
+  - Sorts files by (is_dir last, group_index asc, original order); directories appended after all data files
+  - Supports .lzma2, .copy, and .lzma2_aes methods
   - For .lzma2_aes: per-group 2-coder pipeline (LZMA2 + 7zAES) with independent IV/salt/key derivation
+  - Single group degenerates to one folder (no multi-folder overhead)
 - `readWithProgress()` — archive extraction with progress callback (fires per-folder decompressed)
   - Multi-folder support: iterates ALL folders with correct pack offset calculation
   - Per-folder file mapping via SubStreamInfo.num_unpack_per_folder
@@ -110,11 +113,11 @@ C FFI boundary for z7z. All functions use C calling convention.
 - `z7z_open_ex` / `z7z_open_ex_pw` — open with progress callback (fires per-folder during decompression)
 - `z7z_close`, `z7z_free` — memory management
 - `z7z_error_string` — human-readable error messages
-- `Z7zFileEntry` — extern struct with name, data, data_len, flags, mtime, ctime, atime, win_attrib, xattrs, xattrs_len
+- `Z7zFileEntry` — extern struct with name, data, data_len, flags, mtime, ctime, atime, win_attrib, xattrs, xattrs_len, group_index
 
 ## include/z7z.h
 C header for the FFI. Matches ffi.zig exports.
-- `z7z_file_entry` — struct with name, data, data_len, flags, mtime, win_attrib, ctime, atime, xattrs, xattrs_len
+- `z7z_file_entry` — struct with name, data, data_len, flags, mtime, win_attrib, ctime, atime, xattrs, xattrs_len, group_index
 - `z7z_progress_fn` — progress callback typedef: (bytes_done, bytes_total, user_data)
 - `z7z_open_ex()` / `z7z_open_ex_pw()` — open with progress + optional password
 - `z7z_create_ex()` — create with progress callback
@@ -128,8 +131,12 @@ C header for the FFI. Matches ffi.zig exports.
 
 ## cli/main.c
 C CLI that dogfoods the FFI (list, extract, create commands).
+- `solid_mode_t` — enum: SOLID_AUTO (MIME-grouped), SOLID_ON (one block), SOLID_OFF (per-file blocks)
+- `init_magic()` — initialize libmagic handle (MAGIC_MIME_TYPE | MAGIC_SYMLINK); no-op on Windows
+- `detect_mime()` — detect MIME type for a filesystem path via libmagic; returns NULL on failure
+- `assign_mime_groups()` — cluster entry_list files by unique MIME type, assigning group_index per unique MIME
 - `cmd_create` — accepts files, directories, and symlinks
-  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`, `-p`/`--password`
+  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`, `-p`/`--password`, `--solid`, `--no-solid`
   - Captures st_mtime, birthtime, atime, st_mode, xattrs from lstat()
   - Uses z7z_create_ex() with progress callback for compression progress bar + stats summary
 - `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets

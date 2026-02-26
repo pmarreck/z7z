@@ -183,6 +183,16 @@
   - Each group gets independent 2-coder pipeline (LZMA2 + 7zAES) with unique IV/salt/key
   - Auto-dispatched via createWithProgress when mixed group_indices + encryption
   - 132 Zig unit tests (1 new), 123 CLI tests, all passing
+- [x] MIME-grouped solid archive creation via libmagic (~2026-02-26 EST)
+  - createMultiFolder() in archive.zig: N folders, one per unique group_index
+  - createMultiFolderAes() for encrypted multi-folder archives (integrated into createMultiFolder)
+  - libmagic integration in CLI: magic_open(MAGIC_MIME_TYPE) -> magic_file() per entry
+  - assign_mime_groups() clusters by exact MIME type
+  - --solid (one block), --no-solid (one file per block), default (MIME-grouped)
+  - group_index field added to FileEntry/Z7zFileEntry/z7z_file_entry
+  - 7zz interop verified for all modes (solid, no-solid, grouped, encrypted)
+  - Edge case tests: single group, 3+ groups, symlinks across groups, single file, all same type, empty dir
+  - 157 total CLI tests, all passing
 
 ## TODO
 - [ ] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
