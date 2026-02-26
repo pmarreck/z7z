@@ -224,6 +224,7 @@ pub const Z7zFileEntry = extern struct {
 	atime: i64, // Unix timestamp for access time (0 = not set)
 	xattrs: ?[*]const u8, // serialized xattr blob (NULL if none)
 	xattrs_len: usize, // length of xattr blob
+	group_index: u32, // solid block group (0 = default)
 };
 
 const Z7Z_FLAG_DIRECTORY: u32 = 0x01;
@@ -290,6 +291,7 @@ export fn z7z_create(
 			.atime = atime,
 			.win_attrib = attrib,
 			.xattrs = xattr_data,
+			.group_index = cf.group_index,
 		};
 	}
 
@@ -421,6 +423,7 @@ export fn z7z_create_ex(
 			.atime = atime,
 			.win_attrib = attrib,
 			.xattrs = xattr_data,
+			.group_index = cf.group_index,
 		};
 	}
 
@@ -495,6 +498,7 @@ export fn z7z_create_ex_pw(
 			.atime = atime,
 			.win_attrib = attrib,
 			.xattrs = xattr_data,
+			.group_index = cf.group_index,
 		};
 	}
 
@@ -619,6 +623,7 @@ test "ffi: symlink create and query via FFI" {
 			.atime = 0,
 			.xattrs = null,
 			.xattrs_len = 0,
+			.group_index = 0,
 		},
 		.{
 			.name = "real.txt",
@@ -631,6 +636,7 @@ test "ffi: symlink create and query via FFI" {
 			.atime = 0,
 			.xattrs = null,
 			.xattrs_len = 0,
+			.group_index = 0,
 		},
 	};
 
@@ -675,6 +681,7 @@ test "ffi: metadata roundtrip via FFI" {
 			.atime = 0,
 			.xattrs = null,
 			.xattrs_len = 0,
+			.group_index = 0,
 		},
 	};
 
@@ -711,6 +718,7 @@ test "ffi: ctime and atime roundtrip via FFI" {
 			.atime = test_atime,
 			.xattrs = null,
 			.xattrs_len = 0,
+			.group_index = 0,
 		},
 	};
 
@@ -743,6 +751,7 @@ test "ffi: xattr roundtrip via FFI" {
 			.atime = 0,
 			.xattrs = xattr_blob,
 			.xattrs_len = xattr_blob.len,
+			.group_index = 0,
 		},
 	};
 
@@ -804,6 +813,7 @@ test "ffi: create_ex with progress callback fires" {
 			.atime = 0,
 			.xattrs = null,
 			.xattrs_len = 0,
+			.group_index = 0,
 		},
 	};
 
@@ -841,6 +851,7 @@ test "ffi: open_ex with progress callback fires" {
 			.atime = 0,
 			.xattrs = null,
 			.xattrs_len = 0,
+			.group_index = 0,
 		},
 	};
 
@@ -877,6 +888,7 @@ test "ffi: encrypted roundtrip via create_ex_pw + open_ex_pw" {
 			.atime = 0,
 			.xattrs = null,
 			.xattrs_len = 0,
+			.group_index = 0,
 		},
 	};
 

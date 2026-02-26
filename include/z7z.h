@@ -100,6 +100,7 @@ typedef struct {
 	int64_t atime;             /* access time Unix timestamp (0 = not set) */
 	const uint8_t *xattrs;     /* serialized xattr blob (NULL if none) */
 	size_t xattrs_len;         /* length of xattr blob */
+	uint32_t group_index;      /* solid block group (0 = default) */
 } z7z_file_entry;
 
 /* Create a .7z archive from file entries.

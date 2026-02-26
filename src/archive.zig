@@ -59,6 +59,7 @@ pub const FileEntry = struct {
     atime: ?u64 = null, // optional NTFS FILETIME for access time
     win_attrib: ?u32 = null, // optional Windows attributes
     xattrs: ?[]const u8 = null, // optional serialized xattr blob
+    group_index: u32 = 0, // solid block group (0 = default, all files in one group)
 };
 
 /// Result of reading an archive: metadata + extracted file data.
@@ -1257,4 +1258,20 @@ test "archive: readWithProgress fires callback on extraction" {
     try std.testing.expect(state.last_total > 0);
     // Data should still be correct
     try std.testing.expectEqualStrings(data, contents.file_data[0]);
+}
+
+test "archive: FileEntry accepts group_index field" {
+    const f = FileEntry{
+        .name = "test.txt",
+        .data = "hello",
+        .group_index = 2,
+    };
+    try std.testing.expectEqual(@as(u32, 2), f.group_index);
+
+    // Default should be 0
+    const g = FileEntry{
+        .name = "default.txt",
+        .data = "world",
+    };
+    try std.testing.expectEqual(@as(u32, 0), g.group_index);
 }
