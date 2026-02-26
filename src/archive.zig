@@ -514,10 +514,12 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
     }
 
     // Step 3: For each group, concatenate data and compress
-    const compressed_blocks = try allocator.alloc([]u8, num_groups);
-    var compressed_count: usize = 0;
-    errdefer {
-        for (compressed_blocks[0..compressed_count]) |block| allocator.free(block);
+    var compressed_blocks = try allocator.alloc([]u8, num_groups);
+    @memset(compressed_blocks, &.{}); // sentinel: empty slice means "not yet allocated"
+    defer {
+        for (compressed_blocks) |block| {
+            if (block.len > 0) allocator.free(block);
+        }
         allocator.free(compressed_blocks);
     }
     const group_unpack_sizes = try allocator.alloc(u64, num_groups);
@@ -556,27 +558,36 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
                     break :blk copy;
                 },
             };
-            compressed_count += 1;
             data_idx += count;
         }
-    }
-    defer {
-        for (compressed_blocks) |block| allocator.free(block);
-        allocator.free(compressed_blocks);
     }
 
     // Step 4: Build metadata
     // Folders — one per group
     var folders = try allocator.alloc(meta.Folder, num_groups);
+    var folders_owned = true; // tracks whether we still own folders (false after archive_meta takes over)
+    // Initialize all entries to safe defaults so errdefer never touches uninitialized memory
+    for (folders) |*f| {
+        f.* = .{
+            .coders = &.{},
+            .bind_pairs = &.{},
+            .packed_indices = &.{},
+            .unpack_sizes = &.{},
+            .unpack_crc = null,
+        };
+    }
     errdefer {
-        for (folders) |folder| {
-            for (folder.coders) |coder| {
-                allocator.free(coder.method_id);
-                allocator.free(coder.properties);
+        if (folders_owned) {
+            for (folders) |folder| {
+                for (folder.coders) |coder| {
+                    allocator.free(coder.method_id);
+                    allocator.free(coder.properties);
+                }
+                if (folder.coders.len > 0) allocator.free(folder.coders);
+                if (folder.unpack_sizes.len > 0) allocator.free(folder.unpack_sizes);
             }
-            allocator.free(folder.coders);
+            allocator.free(folders);
         }
-        allocator.free(folders);
     }
     for (0..num_groups) |gi| {
         var coders = try allocator.alloc(meta.Coder, 1);
@@ -645,12 +656,30 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
 
     // FileInfo — data files in sorted order, then dirs
     var file_infos = try allocator.alloc(meta.FileInfo, num_files);
+    var file_infos_owned = true; // tracks whether we still own file_infos
+    // Initialize all entries to safe defaults so errdefer never touches uninitialized memory
+    for (file_infos) |*fi| {
+        fi.* = .{
+            .name = null,
+            .is_empty_stream = false,
+            .is_empty_file = false,
+            .is_anti = false,
+            .ctime = null,
+            .atime = null,
+            .mtime = null,
+            .win_attrib = null,
+            .start_pos = null,
+            .xattrs = null,
+        };
+    }
     errdefer {
-        for (file_infos) |fi| {
-            if (fi.name) |n| allocator.free(n);
-            if (fi.xattrs) |x| allocator.free(x);
+        if (file_infos_owned) {
+            for (file_infos) |fi| {
+                if (fi.name) |n| allocator.free(n);
+                if (fi.xattrs) |x| allocator.free(x);
+            }
+            allocator.free(file_infos);
         }
-        allocator.free(file_infos);
     }
     for (sorted_indices, 0..) |si, out_i| {
         const f = files[si];
@@ -684,6 +713,10 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
         .allocator = allocator,
     };
     defer archive_meta.deinit();
+
+    // archive_meta now owns these arrays — neutralize errdefers to prevent double-free
+    folders_owned = false;
+    file_infos_owned = false;
 
     // Step 5: Encode next-header
     const next_header = try encoder.encodeNextHeader(archive_meta, allocator);
