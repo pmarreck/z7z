@@ -93,7 +93,26 @@ pub fn createWithMethodAndPassword(files: []const FileEntry, method: Method, pas
 }
 
 /// Create a .7z archive with progress reporting.
+/// Automatically dispatches to multi-folder creation when files have mixed group_indices.
 pub fn createWithProgress(files: []const FileEntry, method: Method, password: ?[]const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+    // Check if multi-folder is needed (mixed group_indices among data files)
+    if (method != .copy) {
+        var needs_multi = false;
+        var first_group: ?u32 = null;
+        for (files) |f| {
+            if (f.is_dir) continue;
+            if (first_group == null) {
+                first_group = f.group_index;
+            } else if (f.group_index != first_group.?) {
+                needs_multi = true;
+                break;
+            }
+        }
+        if (needs_multi) {
+            return createMultiFolder(files, method, password, progress, allocator);
+        }
+    }
+
     return switch (method) {
         .copy => createCopy(files, allocator),
         .lzma2 => createLzma2(files, progress, allocator),
@@ -424,6 +443,279 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, progress: Prog
     @memcpy(archive_out[0..sig_header.HEADER_SIZE], &sig);
     @memcpy(archive_out[sig_header.HEADER_SIZE .. sig_header.HEADER_SIZE + encrypted.len], encrypted);
     @memcpy(archive_out[sig_header.HEADER_SIZE + encrypted.len ..], next_header);
+
+    return archive_out;
+}
+
+/// Create a multi-folder .7z archive where files are grouped by group_index.
+/// Each unique group_index becomes a separate folder (solid block), enabling
+/// MIME-type-aware grouping for better compression of heterogeneous file sets.
+fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+    _ = password; // TODO: encryption support in Task 4
+
+    // Step 1: Build a sorted index array — sort by (is_dir last, group_index asc, original order)
+    const num_files = files.len;
+    const sorted_indices = try allocator.alloc(usize, num_files);
+    defer allocator.free(sorted_indices);
+    for (sorted_indices, 0..) |*idx, i| idx.* = i;
+
+    const SortCtx = struct {
+        files: []const FileEntry,
+    };
+    const sort_ctx = SortCtx{ .files = files };
+
+    std.mem.sortUnstable(usize, sorted_indices, sort_ctx, struct {
+        fn lessThan(ctx: SortCtx, a: usize, b: usize) bool {
+            const fa = ctx.files[a];
+            const fb = ctx.files[b];
+            // Dirs sort last
+            if (fa.is_dir != fb.is_dir) return !fa.is_dir;
+            // Among non-dirs, sort by group_index
+            if (!fa.is_dir and !fb.is_dir) {
+                if (fa.group_index != fb.group_index) return fa.group_index < fb.group_index;
+            }
+            // Preserve original order within same group
+            return a < b;
+        }
+    }.lessThan);
+
+    // Step 2: Identify groups and count data files per group
+    // Walk sorted indices (dirs are at the end, skip them for group computation)
+    var num_data_files: usize = 0;
+    for (sorted_indices) |si| {
+        if (!files[si].is_dir) num_data_files += 1;
+    }
+
+    // Collect unique group indices in order
+    var group_ids = std.ArrayListUnmanaged(u32){};
+    defer group_ids.deinit(allocator);
+    var files_per_group = std.ArrayListUnmanaged(usize){};
+    defer files_per_group.deinit(allocator);
+
+    {
+        var cur_group: ?u32 = null;
+        for (sorted_indices) |si| {
+            if (files[si].is_dir) continue;
+            const gi = files[si].group_index;
+            if (cur_group == null or cur_group.? != gi) {
+                try group_ids.append(allocator, gi);
+                try files_per_group.append(allocator, 1);
+                cur_group = gi;
+            } else {
+                files_per_group.items[files_per_group.items.len - 1] += 1;
+            }
+        }
+    }
+
+    const num_groups = group_ids.items.len;
+    if (num_groups == 0) {
+        // No data files — fall back to single-folder empty archive
+        return createLzma2(files, progress, allocator);
+    }
+
+    // Step 3: For each group, concatenate data and compress
+    const compressed_blocks = try allocator.alloc([]u8, num_groups);
+    var compressed_count: usize = 0;
+    errdefer {
+        for (compressed_blocks[0..compressed_count]) |block| allocator.free(block);
+        allocator.free(compressed_blocks);
+    }
+    const group_unpack_sizes = try allocator.alloc(u64, num_groups);
+    defer allocator.free(group_unpack_sizes);
+
+    {
+        var data_idx: usize = 0; // tracks position in sorted data-file order
+        for (0..num_groups) |gi| {
+            const count = files_per_group.items[gi];
+            // Calculate total unpack size for this group
+            var total: u64 = 0;
+            for (0..count) |j| {
+                const si = sorted_indices[data_idx + j];
+                total += files[si].data.len;
+            }
+            group_unpack_sizes[gi] = total;
+
+            // Concatenate data
+            const raw = try allocator.alloc(u8, @intCast(total));
+            defer allocator.free(raw);
+            {
+                var off: usize = 0;
+                for (0..count) |j| {
+                    const si = sorted_indices[data_idx + j];
+                    const d = files[si].data;
+                    @memcpy(raw[off .. off + d.len], d);
+                    off += d.len;
+                }
+            }
+
+            // Compress
+            compressed_blocks[gi] = switch (method) {
+                .lzma2, .lzma2_aes => try codec.compressLzma2(raw, progress, allocator),
+                .copy => blk: {
+                    const copy = try allocator.dupe(u8, raw);
+                    break :blk copy;
+                },
+            };
+            compressed_count += 1;
+            data_idx += count;
+        }
+    }
+    defer {
+        for (compressed_blocks) |block| allocator.free(block);
+        allocator.free(compressed_blocks);
+    }
+
+    // Step 4: Build metadata
+    // Folders — one per group
+    var folders = try allocator.alloc(meta.Folder, num_groups);
+    errdefer {
+        for (folders) |folder| {
+            for (folder.coders) |coder| {
+                allocator.free(coder.method_id);
+                allocator.free(coder.properties);
+            }
+            allocator.free(folder.coders);
+        }
+        allocator.free(folders);
+    }
+    for (0..num_groups) |gi| {
+        var coders = try allocator.alloc(meta.Coder, 1);
+        const mid = try allocator.alloc(u8, 1);
+        const props = try allocator.alloc(u8, 1);
+
+        switch (method) {
+            .lzma2, .lzma2_aes => {
+                mid[0] = 0x21; // LZMA2
+                const data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
+                props[0] = calcLzma2DictProp(data_len);
+            },
+            .copy => {
+                mid[0] = 0x00;
+                props[0] = 0;
+            },
+        }
+
+        coders[0] = .{
+            .method_id = mid,
+            .properties = if (method == .copy) blk: {
+                allocator.free(props);
+                break :blk &.{};
+            } else props,
+            .num_in_streams = 1,
+            .num_out_streams = 1,
+        };
+
+        const unpack_sizes = try allocator.alloc(u64, 1);
+        unpack_sizes[0] = group_unpack_sizes[gi];
+
+        folders[gi] = .{
+            .coders = coders,
+            .bind_pairs = &.{},
+            .packed_indices = &.{},
+            .unpack_sizes = unpack_sizes,
+            .unpack_crc = null,
+        };
+    }
+
+    // PackInfo — one pack_size per folder
+    var pack_sizes = try allocator.alloc(u64, num_groups);
+    for (0..num_groups) |gi| {
+        pack_sizes[gi] = compressed_blocks[gi].len;
+    }
+
+    // SubStreamInfo
+    var sub_sizes = try allocator.alloc(u64, num_data_files);
+    var sub_digests = try allocator.alloc(?u32, num_data_files);
+    var num_per_folder = try allocator.alloc(u64, num_groups);
+    {
+        var si: usize = 0;
+        var data_idx: usize = 0;
+        for (0..num_groups) |gi| {
+            const count = files_per_group.items[gi];
+            num_per_folder[gi] = count;
+            for (0..count) |j| {
+                const fi = sorted_indices[data_idx + j];
+                sub_sizes[si] = files[fi].data.len;
+                sub_digests[si] = crc32.hash(files[fi].data);
+                si += 1;
+            }
+            data_idx += count;
+        }
+    }
+
+    // FileInfo — data files in sorted order, then dirs
+    var file_infos = try allocator.alloc(meta.FileInfo, num_files);
+    errdefer {
+        for (file_infos) |fi| {
+            if (fi.name) |n| allocator.free(n);
+            if (fi.xattrs) |x| allocator.free(x);
+        }
+        allocator.free(file_infos);
+    }
+    for (sorted_indices, 0..) |si, out_i| {
+        const f = files[si];
+        file_infos[out_i] = .{
+            .name = try allocator.dupe(u8, f.name),
+            .is_empty_stream = f.is_dir,
+            .is_empty_file = false,
+            .is_anti = false,
+            .ctime = f.ctime,
+            .atime = f.atime,
+            .mtime = f.mtime,
+            .win_attrib = computeWinAttrib(f),
+            .start_pos = null,
+            .xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null,
+        };
+    }
+
+    var archive_meta = meta.ArchiveMetadata{
+        .pack_info = .{
+            .pack_pos = 0,
+            .pack_sizes = pack_sizes,
+            .pack_crcs = null,
+        },
+        .folders = folders,
+        .sub_streams = .{
+            .num_unpack_per_folder = num_per_folder,
+            .unpack_sizes = sub_sizes,
+            .digests = sub_digests,
+        },
+        .files = file_infos,
+        .allocator = allocator,
+    };
+    defer archive_meta.deinit();
+
+    // Step 5: Encode next-header
+    const next_header = try encoder.encodeNextHeader(archive_meta, allocator);
+    defer allocator.free(next_header);
+
+    const next_header_crc = crc32.hash(next_header);
+
+    // Total packed size (sum of all compressed blocks)
+    var total_pack: usize = 0;
+    for (compressed_blocks) |block| total_pack += block.len;
+
+    // Build signature header
+    const sig = sig_header.encode(.{
+        .major_version = 0,
+        .minor_version = 4,
+        .next_header_offset = total_pack,
+        .next_header_size = next_header.len,
+        .next_header_crc = next_header_crc,
+    });
+
+    // Step 6: Assemble: sig header + all compressed blocks concatenated + next header
+    const total_size = sig_header.HEADER_SIZE + total_pack + next_header.len;
+    const archive_out = try allocator.alloc(u8, total_size);
+    @memcpy(archive_out[0..sig_header.HEADER_SIZE], &sig);
+    {
+        var off: usize = sig_header.HEADER_SIZE;
+        for (compressed_blocks) |block| {
+            @memcpy(archive_out[off .. off + block.len], block);
+            off += block.len;
+        }
+    }
+    @memcpy(archive_out[sig_header.HEADER_SIZE + total_pack ..], next_header);
 
     return archive_out;
 }
@@ -1274,4 +1566,105 @@ test "archive: FileEntry accepts group_index field" {
         .data = "world",
     };
     try std.testing.expectEqual(@as(u32, 0), g.group_index);
+}
+
+test "archive: createMultiFolder groups files into separate folders" {
+    const allocator = std.testing.allocator;
+
+    // 3 files in 2 groups
+    var files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "hello from group 0", .group_index = 0 },
+        .{ .name = "b.bin", .data = "binary group 1 data", .group_index = 1 },
+        .{ .name = "c.txt", .data = "more text group 0", .group_index = 0 },
+    };
+
+    const archive_data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    defer allocator.free(archive_data);
+
+    // Read it back
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    // Should have 3 files
+    try std.testing.expectEqual(@as(usize, 3), contents.file_data.len);
+
+    // Files are reordered by group in the archive, so extraction
+    // returns them in group order: group 0 files first, then group 1
+    try std.testing.expectEqualStrings("hello from group 0", contents.file_data[0]);
+    try std.testing.expectEqualStrings("more text group 0", contents.file_data[1]);
+    try std.testing.expectEqualStrings("binary group 1 data", contents.file_data[2]);
+}
+
+test "archive: createMultiFolder with directories" {
+    const allocator = std.testing.allocator;
+
+    // Mix of files in different groups plus a directory
+    var files = [_]FileEntry{
+        .{ .name = "dir/", .data = "", .is_dir = true },
+        .{ .name = "dir/text.txt", .data = "text content", .group_index = 0 },
+        .{ .name = "dir/image.bin", .data = "fake image data", .group_index = 1 },
+    };
+
+    const archive_data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    // 3 entries total (2 data files + 1 dir)
+    try std.testing.expectEqual(@as(usize, 3), contents.metadata.files.len);
+
+    // Data files come first (group 0, then group 1), dir at end
+    try std.testing.expectEqualStrings("text content", contents.file_data[0]);
+    try std.testing.expectEqualStrings("fake image data", contents.file_data[1]);
+    // Dir entry has empty data
+    try std.testing.expectEqualStrings("", contents.file_data[2]);
+
+    // Verify the dir is marked as empty stream
+    try std.testing.expect(contents.metadata.files[2].is_empty_stream);
+}
+
+test "archive: createWithProgress auto-dispatches to multi-folder" {
+    const allocator = std.testing.allocator;
+
+    // Mixed group_indices should trigger multi-folder path
+    const files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "group zero", .group_index = 0 },
+        .{ .name = "b.txt", .data = "group one", .group_index = 1 },
+    };
+
+    // This goes through createWithProgress, which should auto-detect mixed groups
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    // Verify the archive has 2 folders (one per group)
+    try std.testing.expectEqual(@as(usize, 2), contents.metadata.folders.len);
+
+    // Data should roundtrip in group order
+    try std.testing.expectEqualStrings("group zero", contents.file_data[0]);
+    try std.testing.expectEqualStrings("group one", contents.file_data[1]);
+}
+
+test "archive: single group_index does NOT trigger multi-folder" {
+    const allocator = std.testing.allocator;
+
+    // All files have the same group_index (default 0) — should use single-folder
+    const files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "aaa" },
+        .{ .name = "b.txt", .data = "bbb" },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    // Single folder path
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.folders.len);
+    try std.testing.expectEqualStrings("aaa", contents.file_data[0]);
+    try std.testing.expectEqualStrings("bbb", contents.file_data[1]);
 }
