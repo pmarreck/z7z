@@ -164,10 +164,18 @@ C CLI that dogfoods the FFI (list, extract, create commands).
 - `symlink_target_is_safe()` — security check: rejects absolute paths and ../ traversal
 
 ## build.zig
-Build configuration. Static lib + test step. ReleaseFast default.
+Build configuration. Static lib + C CLI + test step. ReleaseFast default.
+- libmagic linked as a static dependency via build.zig.zon on non-Windows targets
+- `_GNU_SOURCE` macro added for Linux musl compatibility (statx, asprintf)
+- CLI compiled with `-std=gnu11` for POSIX extension support
+
+## build.zig.zon
+Package manifest. Dependencies:
+- `libmagic` — pmarreck/libmagic (file-5.46 with Zig build system, static linkage)
 
 ## flake.nix
-Nix devShell: zig 0.15.x, 7zz (oracle), hyperfine, luajit, jq.
+Nix devShell: zig 0.15.x, 7zz (oracle), hyperfine, luajit, jq, file (for magic database).
+- Pre-fetches libmagic tarball for Nix sandbox builds via `--system` flag pattern.
 
 ## tools/
 Vendored LuaJIT tools for self-contained benchmarking (no external PATH dependencies).

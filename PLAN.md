@@ -194,8 +194,17 @@
   - Edge case tests: single group, 3+ groups, symlinks across groups, single file, all same type, empty dir
   - 157 total CLI tests, all passing
 
+- [x] Vendor libmagic via build.zig.zon for cross-platform CI (~2026-02-26 EST)
+  - Created pmarreck/libmagic GitHub repo with Zig build system for file-5.46
+  - Replaced linkSystemLibrary("magic") with static dependency via build.zig.zon
+  - Platform-conditional: libmagic linked on non-Windows, skipped on Windows (CLI already gated)
+  - Fixed Linux cross-compile: removed <linux/stat.h>, use musl statx via _GNU_SOURCE
+  - Fixed Windows cross-compile: added <io.h>/<fcntl.h>/<sys/utime.h>, _utime fallback
+  - Updated flake.nix with pre-fetch + --system pattern for Nix sandbox builds
+  - All 5 CI targets build: macOS aarch64, Linux x86_64/aarch64, Windows x86_64/aarch64
+
 ## TODO
-- [ ] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
+- [x] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
 - [ ] Actual i18n translations (30 languages) once textual UI is stable
 - [ ] `--simple` flag (suppress emoji + ANSI)
 - [ ] `--no-ansi`/`--no-color` flags
