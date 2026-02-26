@@ -25,6 +25,15 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(lib);
 
+    // Expose named module for downstream Zig consumers:
+    //   dep.module("z7z") — full z7z API (lzma2_encoder, codec, etc.)
+    _ = b.addModule("z7z", .{
+        .root_source_file = b.path("src/lib.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+
     // --- C CLI executable ---
     const cli = b.addExecutable(.{
         .name = "z7z",
