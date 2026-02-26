@@ -40,6 +40,7 @@ pub fn build(b: *std.Build) void {
     });
     cli.root_module.addIncludePath(b.path("include"));
     cli.linkLibrary(lib);
+    cli.root_module.linkSystemLibrary("magic", .{});
     b.installArtifact(cli);
     const install_cli = b.addInstallArtifact(cli, .{});
 

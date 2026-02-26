@@ -16,7 +16,7 @@
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = [ pkgs.zig ];
+          nativeBuildInputs = [ pkgs.zig pkgs.file ];
 
           dontConfigure = true;
 
@@ -35,7 +35,7 @@
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = [ pkgs.zig ];
+          nativeBuildInputs = [ pkgs.zig pkgs.file ];
 
           dontConfigure = true;
 
@@ -56,6 +56,7 @@
             pkgs.hyperfine
             pkgs.luajit
             pkgs.jq
+            pkgs.file
           ];
 
           shellHook = ''
