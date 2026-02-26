@@ -1078,6 +1078,144 @@ V_OUT=$($Z7Z extract -v "$TMPDIR/prog.7z" "$TMPDIR/prog_v" 2>&1)
 assert_contains "verbose shows filename" "$V_OUT" "prog.txt"
 
 # ============================================================================
+# Test: --no-solid flag (each file gets its own solid block)
+# ============================================================================
+echo ""
+echo "--- multi-folder: --no-solid flag ---"
+
+mkdir -p "$TMPDIR/mixed"
+echo "hello world text file" > "$TMPDIR/mixed/a.txt"
+echo "more text content here" > "$TMPDIR/mixed/b.txt"
+printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR' > "$TMPDIR/mixed/c.png"
+echo '{"key":"value","type":"json"}' > "$TMPDIR/mixed/d.json"
+
+OUT=$($Z7Z create --no-solid "$TMPDIR/nosolid.7z" "$TMPDIR/mixed" 2>&1)
+if [ $? -eq 0 ]; then pass "no-solid: create succeeds"; else fail "no-solid: create succeeds"; fi
+
+# 7zz should extract no-solid archive
+if command -v 7zz &>/dev/null; then
+	mkdir -p "$TMPDIR/nosolid_out"
+	7zz x -y -o"$TMPDIR/nosolid_out" "$TMPDIR/nosolid.7z" > /dev/null 2>&1
+	assert_file_exists "no-solid: 7zz extracts a.txt" "$TMPDIR/nosolid_out/mixed/a.txt"
+	assert_file_exists "no-solid: 7zz extracts c.png" "$TMPDIR/nosolid_out/mixed/c.png"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# z7z can extract its own no-solid archive
+mkdir -p "$TMPDIR/nosolid_self"
+$Z7Z extract "$TMPDIR/nosolid.7z" "$TMPDIR/nosolid_self" > /dev/null 2>&1
+assert_file_exists "no-solid: z7z extracts a.txt" "$TMPDIR/nosolid_self/mixed/a.txt"
+assert_file_exists "no-solid: z7z extracts c.png" "$TMPDIR/nosolid_self/mixed/c.png"
+assert_file_exists "no-solid: z7z extracts d.json" "$TMPDIR/nosolid_self/mixed/d.json"
+
+# ============================================================================
+# Test: --solid flag (all files in one solid block)
+# ============================================================================
+echo ""
+echo "--- multi-folder: --solid flag ---"
+
+OUT=$($Z7Z create --solid "$TMPDIR/solid.7z" "$TMPDIR/mixed" 2>&1)
+if [ $? -eq 0 ]; then pass "solid: create succeeds"; else fail "solid: create succeeds"; fi
+
+if command -v 7zz &>/dev/null; then
+	mkdir -p "$TMPDIR/solid_out"
+	7zz x -y -o"$TMPDIR/solid_out" "$TMPDIR/solid.7z" > /dev/null 2>&1
+	assert_file_exists "solid: 7zz extracts a.txt" "$TMPDIR/solid_out/mixed/a.txt"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# z7z can extract its own solid archive
+mkdir -p "$TMPDIR/solid_self"
+$Z7Z extract "$TMPDIR/solid.7z" "$TMPDIR/solid_self" > /dev/null 2>&1
+assert_file_exists "solid: z7z extracts a.txt" "$TMPDIR/solid_self/mixed/a.txt"
+assert_file_exists "solid: z7z extracts c.png" "$TMPDIR/solid_self/mixed/c.png"
+
+# ============================================================================
+# Test: default MIME-grouped solid blocks
+# ============================================================================
+echo ""
+echo "--- multi-folder: default MIME-grouped ---"
+
+OUT=$($Z7Z create "$TMPDIR/grouped.7z" "$TMPDIR/mixed" 2>&1)
+if [ $? -eq 0 ]; then pass "grouped: create succeeds"; else fail "grouped: create succeeds"; fi
+
+if command -v 7zz &>/dev/null; then
+	mkdir -p "$TMPDIR/grouped_out"
+	7zz x -y -o"$TMPDIR/grouped_out" "$TMPDIR/grouped.7z" > /dev/null 2>&1
+	assert_file_exists "grouped: 7zz extracts a.txt" "$TMPDIR/grouped_out/mixed/a.txt"
+	assert_file_exists "grouped: 7zz extracts c.png" "$TMPDIR/grouped_out/mixed/c.png"
+	assert_file_exists "grouped: 7zz extracts d.json" "$TMPDIR/grouped_out/mixed/d.json"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# z7z can list its own grouped archive
+OUT=$($Z7Z list "$TMPDIR/grouped.7z" 2>&1)
+assert_contains "grouped: z7z lists a.txt" "$OUT" "a.txt"
+assert_contains "grouped: z7z lists c.png" "$OUT" "c.png"
+
+# z7z can extract its own grouped archive
+mkdir -p "$TMPDIR/grouped_self"
+$Z7Z extract "$TMPDIR/grouped.7z" "$TMPDIR/grouped_self" > /dev/null 2>&1
+assert_file_exists "grouped: z7z extracts a.txt" "$TMPDIR/grouped_self/mixed/a.txt"
+assert_file_exists "grouped: z7z extracts d.json" "$TMPDIR/grouped_self/mixed/d.json"
+
+# ============================================================================
+# Test: --solid with password encryption
+# ============================================================================
+echo ""
+echo "--- multi-folder: --solid with password ---"
+
+OUT=$($Z7Z create --solid -p testpw "$TMPDIR/solid_enc.7z" "$TMPDIR/mixed" 2>&1)
+if [ $? -eq 0 ]; then pass "solid+password: create succeeds"; else fail "solid+password: create succeeds"; fi
+
+mkdir -p "$TMPDIR/solid_enc_out"
+$Z7Z extract -p testpw "$TMPDIR/solid_enc.7z" "$TMPDIR/solid_enc_out" > /dev/null 2>&1
+assert_file_exists "solid+password: extract a.txt" "$TMPDIR/solid_enc_out/mixed/a.txt"
+assert_file_exists "solid+password: extract c.png" "$TMPDIR/solid_enc_out/mixed/c.png"
+
+# ============================================================================
+# Test: --no-solid with password encryption
+# ============================================================================
+echo ""
+echo "--- multi-folder: --no-solid with password ---"
+
+OUT=$($Z7Z create --no-solid -p testpw2 "$TMPDIR/nosolid_enc.7z" "$TMPDIR/mixed" 2>&1)
+if [ $? -eq 0 ]; then pass "no-solid+password: create succeeds"; else fail "no-solid+password: create succeeds"; fi
+
+mkdir -p "$TMPDIR/nosolid_enc_out"
+$Z7Z extract -p testpw2 "$TMPDIR/nosolid_enc.7z" "$TMPDIR/nosolid_enc_out" > /dev/null 2>&1
+assert_file_exists "no-solid+password: extract a.txt" "$TMPDIR/nosolid_enc_out/mixed/a.txt"
+assert_file_exists "no-solid+password: extract d.json" "$TMPDIR/nosolid_enc_out/mixed/d.json"
+
+# ============================================================================
+# Test: 7zz validates all solid mode archives
+# ============================================================================
+echo ""
+echo "--- multi-folder: 7zz interop validation ---"
+
+if command -v 7zz &>/dev/null; then
+	ORACLE_OUT=$(7zz t "$TMPDIR/nosolid.7z" 2>&1)
+	assert_contains "7zz validates no-solid archive" "$ORACLE_OUT" "Everything is Ok"
+
+	ORACLE_OUT=$(7zz t "$TMPDIR/solid.7z" 2>&1)
+	assert_contains "7zz validates solid archive" "$ORACLE_OUT" "Everything is Ok"
+
+	ORACLE_OUT=$(7zz t "$TMPDIR/grouped.7z" 2>&1)
+	assert_contains "7zz validates grouped archive" "$ORACLE_OUT" "Everything is Ok"
+
+	ORACLE_OUT=$(7zz t -ptestpw "$TMPDIR/solid_enc.7z" 2>&1)
+	assert_contains "7zz validates solid+password archive" "$ORACLE_OUT" "Everything is Ok"
+
+	ORACLE_OUT=$(7zz t -ptestpw2 "$TMPDIR/nosolid_enc.7z" 2>&1)
+	assert_contains "7zz validates no-solid+password archive" "$ORACLE_OUT" "Everything is Ok"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# ============================================================================
 # Summary
 # ============================================================================
 echo ""

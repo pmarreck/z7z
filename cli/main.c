@@ -44,6 +44,10 @@
 
 #include "z7z.h"
 
+#ifndef _WIN32
+#include <magic.h>
+#endif
+
 #define Z7Z_VERSION "0.1.0"
 
 /* Global flags */
@@ -55,6 +59,51 @@ static int g_verbose = 0;
 static int g_no_progress = 0;
 static const char *g_password = NULL;
 static const char *g_lang = "en";  /* default language; overridden by Z7Z_LANG or --lang */
+
+/* Solid block grouping mode */
+typedef enum { SOLID_AUTO, SOLID_ON, SOLID_OFF } solid_mode_t;
+static solid_mode_t g_solid_mode = SOLID_AUTO;
+
+/* libmagic handle for MIME detection */
+#ifndef _WIN32
+static magic_t g_magic = NULL;
+#endif
+
+static int init_magic(void) {
+#ifndef _WIN32
+	g_magic = magic_open(MAGIC_MIME_TYPE | MAGIC_SYMLINK);
+	if (!g_magic) return 1;
+	if (magic_load(g_magic, NULL) != 0) {
+		magic_close(g_magic);
+		g_magic = NULL;
+		return 1;
+	}
+	return 0;
+#else
+	return 1; /* libmagic not available on Windows */
+#endif
+}
+
+static void cleanup_magic(void) {
+#ifndef _WIN32
+	if (g_magic) {
+		magic_close(g_magic);
+		g_magic = NULL;
+	}
+#endif
+}
+
+/* Detect MIME type for a filesystem path. Returns malloc'd string or NULL. */
+static char *detect_mime(const char *fs_path) {
+#ifndef _WIN32
+	if (!g_magic) return NULL;
+	const char *mime = magic_file(g_magic, fs_path);
+	return mime ? strdup(mime) : strdup("application/octet-stream");
+#else
+	(void)fs_path;
+	return NULL;
+#endif
+}
 
 /* ============================================================================
  * Progress bar
@@ -166,6 +215,8 @@ static void usage(const char *prog) {
 		"  --no-ctime            Don't store file creation/birth times\n"
 		"  --atime               Store file access times (off by default)\n"
 		"  --no-xattr            Don't store extended attributes\n"
+		"  --solid               Force all files into one solid block\n"
+		"  --no-solid            Separate solid block per file (no solid)\n"
 		"\n"
 		"Extract options:\n"
 		"  --no-ctime            Don't restore file creation/birth times\n"
@@ -416,6 +467,7 @@ typedef struct {
 	uint8_t **bufs;       /* file data buffers (NULL for directories) */
 	char **names;          /* allocated name strings */
 	uint8_t **xattr_bufs; /* xattr blob buffers (NULL if none) */
+	char **mime_types;     /* MIME type strings for MIME-grouped solid blocks */
 	size_t count;
 	size_t capacity;
 } entry_list;
@@ -427,7 +479,8 @@ static int entry_list_init(entry_list *list, size_t initial_cap) {
 	list->bufs = calloc(initial_cap, sizeof(uint8_t *));
 	list->names = calloc(initial_cap, sizeof(char *));
 	list->xattr_bufs = calloc(initial_cap, sizeof(uint8_t *));
-	return (list->entries && list->bufs && list->names && list->xattr_bufs) ? 0 : 1;
+	list->mime_types = calloc(initial_cap, sizeof(char *));
+	return (list->entries && list->bufs && list->names && list->xattr_bufs && list->mime_types) ? 0 : 1;
 }
 
 static int entry_list_grow(entry_list *list) {
@@ -436,15 +489,18 @@ static int entry_list_grow(entry_list *list) {
 	uint8_t **nb = realloc(list->bufs, new_cap * sizeof(uint8_t *));
 	char **nn = realloc(list->names, new_cap * sizeof(char *));
 	uint8_t **nx = realloc(list->xattr_bufs, new_cap * sizeof(uint8_t *));
-	if (!ne || !nb || !nn || !nx) return 1;
+	char **nm = realloc(list->mime_types, new_cap * sizeof(char *));
+	if (!ne || !nb || !nn || !nx || !nm) return 1;
 	memset(ne + list->capacity, 0, (new_cap - list->capacity) * sizeof(z7z_file_entry));
 	memset(nb + list->capacity, 0, (new_cap - list->capacity) * sizeof(uint8_t *));
 	memset(nn + list->capacity, 0, (new_cap - list->capacity) * sizeof(char *));
 	memset(nx + list->capacity, 0, (new_cap - list->capacity) * sizeof(uint8_t *));
+	memset(nm + list->capacity, 0, (new_cap - list->capacity) * sizeof(char *));
 	list->entries = ne;
 	list->bufs = nb;
 	list->names = nn;
 	list->xattr_bufs = nx;
+	list->mime_types = nm;
 	list->capacity = new_cap;
 	return 0;
 }
@@ -454,11 +510,13 @@ static void entry_list_free(entry_list *list) {
 		free(list->bufs[i]);
 		free(list->names[i]);
 		free(list->xattr_bufs[i]);
+		free(list->mime_types[i]);
 	}
 	free(list->entries);
 	free(list->bufs);
 	free(list->names);
 	free(list->xattr_bufs);
+	free(list->mime_types);
 }
 
 static int entry_list_add_dir(entry_list *list, const char *name,
@@ -534,6 +592,48 @@ static int entry_list_add_symlink(entry_list *list, const char *name,
 	list->entries[idx].xattrs_len = xattr_len;
 	list->count++;
 	return 0;
+}
+
+/* Set MIME type for the most recently added entry (must be called right after
+ * entry_list_add_file/symlink/dir). For files, pass the filesystem path for
+ * detection; for directories/symlinks, pass NULL to skip. */
+static void entry_list_set_mime(entry_list *list, const char *fs_path) {
+	if (list->count == 0) return;
+	size_t idx = list->count - 1;
+	if (fs_path) {
+		list->mime_types[idx] = detect_mime(fs_path);
+	}
+	/* else: left as NULL from calloc/memset */
+}
+
+/* Assign group_index to each entry based on MIME type clustering.
+ * Files with identical MIME types share a solid block group.
+ * Directories/symlinks (NULL mime) go to group 0. */
+static void assign_mime_groups(entry_list *list) {
+	char *unique_mimes[4096];
+	size_t unique_count = 0;
+
+	for (size_t i = 0; i < list->count; i++) {
+		if (!list->mime_types[i]) {
+			list->entries[i].group_index = 0;
+			continue;
+		}
+		uint32_t group = 0;
+		int found = 0;
+		for (size_t j = 0; j < unique_count; j++) {
+			if (strcmp(unique_mimes[j], list->mime_types[i]) == 0) {
+				group = (uint32_t)j;
+				found = 1;
+				break;
+			}
+		}
+		if (!found && unique_count < 4096) {
+			unique_mimes[unique_count] = list->mime_types[i];
+			group = (uint32_t)unique_count;
+			unique_count++;
+		}
+		list->entries[i].group_index = group;
+	}
 }
 
 /* ========================================================================== */
@@ -883,6 +983,7 @@ static int walk_directory(entry_list *list, const char *fs_path,
 					closedir(d);
 					return 1;
 				}
+				entry_list_set_mime(list, full_path);
 			}
 		} else if (S_ISDIR(st.st_mode)) {
 			char dir_name[4096];
@@ -919,6 +1020,7 @@ static int walk_directory(entry_list *list, const char *fs_path,
 				closedir(d);
 				return 1;
 			}
+			entry_list_set_mime(list, full_path);
 		}
 		/* Skip devices, sockets, etc. */
 	}
@@ -1185,6 +1287,11 @@ static int cmd_create(const char *archive_path, int file_count, char **file_path
 		return 1;
 	}
 
+	/* Initialize libmagic early so MIME detection works during file collection */
+	if (g_solid_mode == SOLID_AUTO) {
+		init_magic(); /* OK if this fails — detect_mime returns NULL, all stay group 0 */
+	}
+
 	for (int i = 0; i < file_count; i++) {
 		struct stat st;
 		if (lstat(file_paths[i], &st) != 0) {
@@ -1275,6 +1382,26 @@ handle_file:;
 				entry_list_free(&list);
 				return 1;
 			}
+			entry_list_set_mime(&list, file_paths[i]);
+		}
+	}
+
+	/* Apply solid block mode */
+	if (g_solid_mode == SOLID_AUTO) {
+		/* MIME types were detected during file collection (init_magic called above).
+		 * Now assign group indices based on MIME clustering. */
+		assign_mime_groups(&list);
+		cleanup_magic();
+		/* If magic init failed, mime_types are all NULL and everything stays group 0 */
+	} else if (g_solid_mode == SOLID_ON) {
+		for (size_t i = 0; i < list.count; i++)
+			list.entries[i].group_index = 0;
+	} else { /* SOLID_OFF */
+		uint32_t g = 0;
+		for (size_t i = 0; i < list.count; i++) {
+			if (list.entries[i].flags & Z7Z_FLAG_DIRECTORY) continue;
+			if (list.entries[i].flags & Z7Z_FLAG_SYMLINK) continue;
+			list.entries[i].group_index = g++;
 		}
 	}
 
@@ -1325,6 +1452,8 @@ static int parse_flag(const char *arg) {
 	if (strcmp(arg, "--dereference") == 0 || strcmp(arg, "-L") == 0) { g_dereference = 1; return 1; }
 	if (strcmp(arg, "-v") == 0 || strcmp(arg, "--verbose") == 0) { g_verbose = 1; return 1; }
 	if (strcmp(arg, "--no-progress") == 0) { g_no_progress = 1; return 1; }
+	if (strcmp(arg, "--solid") == 0) { g_solid_mode = SOLID_ON; return 1; }
+	if (strcmp(arg, "--no-solid") == 0) { g_solid_mode = SOLID_OFF; return 1; }
 	return 0;
 }
 
