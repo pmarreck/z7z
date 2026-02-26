@@ -178,6 +178,11 @@
   - --lang <code> flag overrides Z7Z_LANG env var which overrides locale detection
   - Refactored flag parsing to support flags before and after command name
   - 123 total CLI tests (3 new i18n tests), all passing
+- [x] Multi-folder encrypted archive support (createMultiFolderAes) (~2026-02-26 EST)
+  - createMultiFolder now handles .lzma2_aes method with per-group encryption
+  - Each group gets independent 2-coder pipeline (LZMA2 + 7zAES) with unique IV/salt/key
+  - Auto-dispatched via createWithProgress when mixed group_indices + encryption
+  - 132 Zig unit tests (1 new), 123 CLI tests, all passing
 
 ## TODO
 - [ ] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64

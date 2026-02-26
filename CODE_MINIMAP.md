@@ -55,7 +55,9 @@ Archive-level create and read operations.
 - `ArchiveContents` — result struct with metadata + extracted file data
 - `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
-- `createWithProgress()` — archive creation with progress callback (fires during LZMA2 compression)
+- `createWithProgress()` — archive creation with progress callback, auto-dispatches to multi-folder when mixed group_indices
+- `createMultiFolder()` — multi-folder archive creation: groups files by group_index, supports .lzma2, .copy, and .lzma2_aes methods
+  - For .lzma2_aes: per-group 2-coder pipeline (LZMA2 + 7zAES) with independent IV/salt/key derivation
 - `readWithProgress()` — archive extraction with progress callback (fires per-folder decompressed)
   - Multi-folder support: iterates ALL folders with correct pack offset calculation
   - Per-folder file mapping via SubStreamInfo.num_unpack_per_folder

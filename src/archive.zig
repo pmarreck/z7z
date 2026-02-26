@@ -451,7 +451,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, progress: Prog
 /// Each unique group_index becomes a separate folder (solid block), enabling
 /// MIME-type-aware grouping for better compression of heterogeneous file sets.
 fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
-    _ = password; // TODO: encryption support in Task 4
+    const is_encrypted = method == .lzma2_aes;
 
     // Step 1: Build a sorted index array — sort by (is_dir last, group_index asc, original order)
     const num_files = files.len;
@@ -513,7 +513,7 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
         return createLzma2(files, progress, allocator);
     }
 
-    // Step 3: For each group, concatenate data and compress
+    // Step 3: For each group, concatenate data, compress, and optionally encrypt
     var compressed_blocks = try allocator.alloc([]u8, num_groups);
     @memset(compressed_blocks, &.{}); // sentinel: empty slice means "not yet allocated"
     defer {
@@ -524,6 +524,13 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
     }
     const group_unpack_sizes = try allocator.alloc(u64, num_groups);
     defer allocator.free(group_unpack_sizes);
+
+    // For encrypted archives, track the LZMA2-compressed size (pre-encryption) per group
+    // and the AES properties per group (each group gets its own IV/salt/key)
+    var group_lzma2_sizes: []u64 = if (is_encrypted) try allocator.alloc(u64, num_groups) else &[_]u64{};
+    defer if (is_encrypted) allocator.free(group_lzma2_sizes);
+    var group_aes_props: []aes_crypt.AesProperties = if (is_encrypted) try allocator.alloc(aes_crypt.AesProperties, num_groups) else &[_]aes_crypt.AesProperties{};
+    defer if (is_encrypted) allocator.free(group_aes_props);
 
     {
         var data_idx: usize = 0; // tracks position in sorted data-file order
@@ -551,13 +558,56 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
             }
 
             // Compress
-            compressed_blocks[gi] = switch (method) {
+            const lzma2_compressed = switch (method) {
                 .lzma2, .lzma2_aes => try codec.compressLzma2(raw, progress, allocator),
-                .copy => blk: {
-                    const copy = try allocator.dupe(u8, raw);
-                    break :blk copy;
-                },
+                .copy => try allocator.dupe(u8, raw),
             };
+
+            // Encrypt if needed
+            if (is_encrypted) {
+                defer allocator.free(lzma2_compressed); // free the intermediate compressed data
+                const pw = password orelse return error.OutOfMemory;
+
+                // Record pre-encryption compressed size
+                group_lzma2_sizes[gi] = lzma2_compressed.len;
+
+                // Generate random salt and IV per group
+                var salt: [8]u8 = undefined;
+                var iv: [16]u8 = undefined;
+                std.crypto.random.bytes(&salt);
+                std.crypto.random.bytes(&iv);
+
+                const aes_props = aes_crypt.AesProperties{
+                    .num_cycles_power = 19, // 2^19 = 524288 iterations (7zz default)
+                    .salt = salt ++ ([_]u8{0} ** 8),
+                    .salt_size = 8,
+                    .iv = iv,
+                    .iv_size = 16,
+                };
+                group_aes_props[gi] = aes_props;
+
+                const key = aes_crypt.deriveKey(pw, aes_props);
+
+                // Pad to 16-byte boundary for AES-CBC
+                const padded_len = (lzma2_compressed.len + 15) & ~@as(usize, 15);
+                var encrypted = try allocator.alloc(u8, padded_len);
+                @memcpy(encrypted[0..lzma2_compressed.len], lzma2_compressed);
+                if (padded_len > lzma2_compressed.len) {
+                    @memset(encrypted[lzma2_compressed.len..], 0);
+                }
+
+                aes_crypt.encryptCbc(encrypted, key, iv) catch |e| {
+                    allocator.free(encrypted);
+                    return switch (e) {
+                        error.OutOfMemory => error.OutOfMemory,
+                        else => error.StructuralError,
+                    };
+                };
+
+                compressed_blocks[gi] = encrypted;
+            } else {
+                compressed_blocks[gi] = lzma2_compressed;
+            }
             data_idx += count;
         }
     }
@@ -584,48 +634,100 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
                     allocator.free(coder.properties);
                 }
                 if (folder.coders.len > 0) allocator.free(folder.coders);
+                if (folder.bind_pairs.len > 0) allocator.free(folder.bind_pairs);
                 if (folder.unpack_sizes.len > 0) allocator.free(folder.unpack_sizes);
             }
             allocator.free(folders);
         }
     }
     for (0..num_groups) |gi| {
-        var coders = try allocator.alloc(meta.Coder, 1);
-        const mid = try allocator.alloc(u8, 1);
-        const props = try allocator.alloc(u8, 1);
+        if (is_encrypted) {
+            // 2-coder pipeline: LZMA2 + 7zAES (same structure as createLzma2Aes)
 
-        switch (method) {
-            .lzma2, .lzma2_aes => {
-                mid[0] = 0x21; // LZMA2
-                const data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
-                props[0] = calcLzma2DictProp(data_len);
-            },
-            .copy => {
-                mid[0] = 0x00;
-                props[0] = 0;
-            },
+            // Coder 0: LZMA2
+            const lzma2_mid = try allocator.alloc(u8, 1);
+            lzma2_mid[0] = 0x21;
+            const lzma2_props = try allocator.alloc(u8, 1);
+            const data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
+            lzma2_props[0] = calcLzma2DictProp(data_len);
+
+            // Coder 1: 7zAES
+            const aes_mid = try allocator.alloc(u8, 4);
+            @memcpy(aes_mid, &[_]u8{ 0x06, 0xF1, 0x07, 0x01 });
+            const encoded_aes_props = aes_crypt.encodeProperties(group_aes_props[gi]);
+            const aes_prop_data = try allocator.alloc(u8, encoded_aes_props.len);
+            @memcpy(aes_prop_data, encoded_aes_props.data[0..encoded_aes_props.len]);
+
+            var coders = try allocator.alloc(meta.Coder, 2);
+            coders[0] = .{
+                .method_id = lzma2_mid,
+                .properties = lzma2_props,
+                .num_in_streams = 1,
+                .num_out_streams = 1,
+            };
+            coders[1] = .{
+                .method_id = aes_mid,
+                .properties = aes_prop_data,
+                .num_in_streams = 1,
+                .num_out_streams = 1,
+            };
+
+            // Bind pair: AES output (stream 1) → LZMA2 input (stream 0)
+            var bind_pairs = try allocator.alloc(meta.BindPair, 1);
+            bind_pairs[0] = .{ .in_index = 0, .out_index = 1 };
+
+            // Unpack sizes: [0]=LZMA2 output (final), [1]=AES output (intermediate=compressed len)
+            var unpack_sizes = try allocator.alloc(u64, 2);
+            unpack_sizes[0] = group_unpack_sizes[gi];
+            unpack_sizes[1] = group_lzma2_sizes[gi];
+
+            folders[gi] = .{
+                .coders = coders,
+                .bind_pairs = bind_pairs,
+                .packed_indices = &.{},
+                .unpack_sizes = unpack_sizes,
+                .unpack_crc = null,
+            };
+        } else {
+            // Single-coder folder (LZMA2 or Copy)
+            var coders = try allocator.alloc(meta.Coder, 1);
+            const mid = try allocator.alloc(u8, 1);
+            const props = try allocator.alloc(u8, 1);
+
+            switch (method) {
+                .lzma2 => {
+                    mid[0] = 0x21; // LZMA2
+                    const data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
+                    props[0] = calcLzma2DictProp(data_len);
+                },
+                .copy => {
+                    mid[0] = 0x00;
+                    props[0] = 0;
+                },
+                .lzma2_aes => unreachable,
+            }
+
+            coders[0] = .{
+                .method_id = mid,
+                .properties = if (method == .copy) blk: {
+                    allocator.free(props);
+                    break :blk &.{};
+                } else props,
+                .num_in_streams = 1,
+                .num_out_streams = 1,
+            };
+
+            const unpack_sizes = try allocator.alloc(u64, 1);
+            unpack_sizes[0] = group_unpack_sizes[gi];
+
+            folders[gi] = .{
+                .coders = coders,
+                .bind_pairs = &.{},
+                .packed_indices = &.{},
+                .unpack_sizes = unpack_sizes,
+                .unpack_crc = null,
+            };
         }
-
-        coders[0] = .{
-            .method_id = mid,
-            .properties = if (method == .copy) blk: {
-                allocator.free(props);
-                break :blk &.{};
-            } else props,
-            .num_in_streams = 1,
-            .num_out_streams = 1,
-        };
-
-        const unpack_sizes = try allocator.alloc(u64, 1);
-        unpack_sizes[0] = group_unpack_sizes[gi];
-
-        folders[gi] = .{
-            .coders = coders,
-            .bind_pairs = &.{},
-            .packed_indices = &.{},
-            .unpack_sizes = unpack_sizes,
-            .unpack_crc = null,
-        };
     }
 
     // PackInfo — one pack_size per folder
@@ -1700,4 +1802,36 @@ test "archive: single group_index does NOT trigger multi-folder" {
     try std.testing.expectEqual(@as(usize, 1), contents.metadata.folders.len);
     try std.testing.expectEqualStrings("aaa", contents.file_data[0]);
     try std.testing.expectEqualStrings("bbb", contents.file_data[1]);
+}
+
+test "archive: createMultiFolder with encryption groups files into separate encrypted folders" {
+    const allocator = std.testing.allocator;
+
+    var files = [_]FileEntry{
+        .{ .name = "secret.txt", .data = "classified text", .group_index = 0 },
+        .{ .name = "secret.bin", .data = "classified binary", .group_index = 1 },
+    };
+
+    const archive_data = try createMultiFolder(&files, .lzma2_aes, "password123", .{}, allocator);
+    defer allocator.free(archive_data);
+
+    // Must NOT be readable without password (encrypted)
+    try std.testing.expectError(ArchiveError.UnsupportedFeature, read(archive_data, allocator));
+
+    // Read with correct password
+    var contents = try readWithPassword(archive_data, "password123", allocator);
+    defer contents.deinit();
+
+    // Should have 2 folders (one per group)
+    try std.testing.expectEqual(@as(usize, 2), contents.metadata.folders.len);
+
+    // Each folder should have 2 coders (LZMA2 + 7zAES)
+    for (contents.metadata.folders) |folder| {
+        try std.testing.expectEqual(@as(usize, 2), folder.coders.len);
+        try std.testing.expectEqual(@as(usize, 1), folder.bind_pairs.len);
+    }
+
+    try std.testing.expectEqual(@as(usize, 2), contents.file_data.len);
+    try std.testing.expectEqualStrings("classified text", contents.file_data[0]);
+    try std.testing.expectEqualStrings("classified binary", contents.file_data[1]);
 }
