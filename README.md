@@ -7,74 +7,65 @@ A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives t
 
 ## Features
 
-- **LZMA2 compression** — full encoder and decoder
-- **AES-256-CBC encryption** — password-protected archives
+- **LZMA2 compression** — BT4+HC2/HC3 match finder, forward optimal parser, parallel compression
+- **AES-256-CBC encryption** — password-protected archives with `-p`/`--password`
 - **BCJ x86 filter** — executable pre-processing for better compression
-- **Multi-coder pipelines** — chained coders (e.g., LZMA2 + AES, BCJ + LZMA2)
-- **Copy method** — store files without compression
-- **Encoded headers** — metadata stream compression
-- **CRC-32 verification** — integrity checks on all data streams
-- **C FFI boundary** — all functionality exposed through a C API
-- **CLI tool** — create, extract, list, and test archives
+- **MIME-grouped solid blocks** — content-based file type detection via libmagic (`--solid`/`--no-solid` overrides)
+- **Full metadata** — mtime, birthtime, atime, POSIX permissions, extended attributes (custom property 0x7A)
+- **Symlink support** — with path-traversal security
+- **Progress reporting** — rate/ETA on interactive terminals
+- **stdin/stdout** — pipe support via `-`/`@stdin`/`@stdout`
+- **i18n groundwork** — `--lang` flag, `Z7Z_LANG` env var (30-language translation ready)
+- **Cross-platform** — macOS aarch64, Linux x86_64/aarch64, Windows x86_64/aarch64
+
+## Architecture
+
+```
+CLI (C) ──► C FFI boundary ──► Zig core (pure logic, no I/O)
+```
+
+All business logic lives in the Zig core with no I/O. The C FFI is the public API — the CLI itself calls through it, dogfooding the same interface that external consumers use.
+
+## Performance
+
+Compared against `7zz` at `-mx=5` on macOS/ARM64 (Apple M4):
+
+| Workload | z7z | 7zz -mmt=1 | z7z vs 7zz-st |
+|----------|-----|------------|---------------|
+| 1.16MB text | 12.3ms | 23.1ms | **1.88x faster** |
+| 4MB text | 19.5ms | 73.2ms | **3.76x faster** |
+| 1MB random | 8.5ms | 54.3ms | **6.43x faster** |
+
+Compression ratios within 1-2% of 7zz at `-mx=5`. Full bidirectional interop verified.
 
 ## Building
 
-Requires Zig 0.14+:
+Requires Zig 0.15+:
 
 ```sh
-zig build              # build the CLI
-zig build test         # run all tests (92 tests)
+zig build                          # ReleaseFast by default
+zig build -Doptimize=Debug         # debug build
+zig build test                     # run all tests
+```
+
+Or with Nix:
+
+```sh
+nix develop                        # enter dev shell
+nix build                          # build package
+nix flake check                    # run checks
 ```
 
 ## Usage
 
 ```sh
-# Create an archive
-z7z create archive.7z file1.txt file2.txt
-
-# Create with encryption
-z7z create -p mypassword archive.7z secret.txt
-
-# Extract
-z7z extract archive.7z output_dir/
-
-# Extract encrypted archive
-z7z extract -p mypassword archive.7z output_dir/
-
-# List contents
-z7z list archive.7z
-
-# Test integrity
-z7z test archive.7z
+z7z create archive.7z file1.txt file2.txt dir/   # create archive
+z7z create -p secret enc.7z file1.txt             # encrypted archive
+z7z extract archive.7z                            # extract to current dir
+z7z extract archive.7z -o outdir/                 # extract to specific dir
+z7z list archive.7z                               # list contents
+z7z --help                                        # full usage
 ```
-
-## Benchmarks
-
-Compared against `7z` at `-mx=5` on macOS/ARM64:
-
-### Compression
-
-| File | Size | z7z ratio | 7z ratio |
-|------|------|-----------|----------|
-| text_1mb.txt | 928K | 15.8% | 15.7% |
-| source_2mb.zig | 1399K | 19.7% | 19.0% |
-| text_5mb.txt | 4639K | 3.1% | 3.1% |
-| biased_exp_512k.bin | 512K | 22.1% | 21.7% |
-| random_512k.bin | 512K | 100.0% | 100.0% |
-
-z7z uses a BT4 binary tree match finder, forward optimal parser with price-based decisions, continuous LZMA state across chunks, and dictionary carry-across. It **matches `7z -mx=5`** compression quality across all tested file types.
-
-### Speed
-
-Single-threaded on macOS/ARM64 (Apple M-series), z7z matches `7z -mx=5 -mmt=1` within ~4%.
-
-## Architecture
-
-```
-CLI (z7z) ──> C FFI boundary ──> Zig core (pure logic, no I/O)
-```
-
-All business logic lives in the Zig core with no I/O. The C FFI is the public API — the CLI itself calls through it, dogfooding the same interface that external consumers use.
 
 ## Status
 
