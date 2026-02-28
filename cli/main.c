@@ -59,6 +59,7 @@ static int g_atime = 0;
 static int g_no_xattr = 0;
 static int g_verbose = 0;
 static int g_no_progress = 0;
+static int g_level = Z7Z_DEFAULT_LEVEL;  /* compression level 0-9, default 5 */
 static const char *g_password = NULL;
 static const char *g_lang = "en";  /* default language; overridden by Z7Z_LANG or --lang */
 
@@ -213,6 +214,9 @@ static void usage(const char *prog) {
 		"  --lang <code>         Set language (overrides Z7Z_LANG env var)\n"
 		"\n"
 		"Create options:\n"
+		"  -N                    Compression level 0-9 (e.g. -0, -5, -9)\n"
+		"  -mx=N                 Compression level 0-9 (7zz compatible)\n"
+		"  --level N             Compression level 0-9 (default: 5)\n"
 		"  -L, --dereference     Follow symbolic links\n"
 		"  --no-ctime            Don't store file creation/birth times\n"
 		"  --atime               Store file access times (off by default)\n"
@@ -1426,7 +1430,7 @@ handle_file:;
 	uint8_t *out_data = NULL;
 	size_t out_len = 0;
 	int rc = z7z_create_ex_pw(list.entries, list.count,
-	                           g_password,
+	                           g_password, (uint8_t)g_level,
 	                           progress_callback, &ps,
 	                           &out_data, &out_len);
 	if (rc != Z7Z_OK) {
@@ -1463,6 +1467,30 @@ static int parse_flag(const char *arg) {
 	if (strcmp(arg, "--no-progress") == 0) { g_no_progress = 1; return 1; }
 	if (strcmp(arg, "--solid") == 0) { g_solid_mode = SOLID_ON; return 1; }
 	if (strcmp(arg, "--no-solid") == 0) { g_solid_mode = SOLID_OFF; return 1; }
+	/* Compression level: -mx=N (7zz compatible) */
+	if (strncmp(arg, "-mx=", 4) == 0) {
+		int lvl = atoi(arg + 4);
+		if (lvl >= 0 && lvl <= 9) { g_level = lvl; return 1; }
+		fprintf(stderr, "warning: invalid compression level '%s', using default %d\n", arg + 4, Z7Z_DEFAULT_LEVEL);
+		return 1;
+	}
+	/* Compression level: -0 through -9 (Unix shorthand) */
+	if (arg[0] == '-' && arg[1] >= '0' && arg[1] <= '9' && arg[2] == '\0') {
+		g_level = arg[1] - '0';
+		return 1;
+	}
+	return 0;
+}
+
+/* Parse a flag that takes a following argument. Returns 2 if consumed (flag + value), 0 otherwise. */
+static int parse_flag_with_arg(const char *arg, const char *next_arg) {
+	/* --level N */
+	if (strcmp(arg, "--level") == 0 && next_arg != NULL) {
+		int lvl = atoi(next_arg);
+		if (lvl >= 0 && lvl <= 9) { g_level = lvl; return 2; }
+		fprintf(stderr, "warning: invalid compression level '%s', using default %d\n", next_arg, Z7Z_DEFAULT_LEVEL);
+		return 2;
+	}
 	return 0;
 }
 
@@ -1504,6 +1532,8 @@ int main(int argc, char **argv) {
 			i++;
 		} else if (argv[i][0] == '-' && parse_flag(argv[i])) {
 			/* boolean flag consumed */
+		} else if (argv[i][0] == '-' && i + 1 < argc && parse_flag_with_arg(argv[i], argv[i + 1])) {
+			i++;  /* skip the value argument */
 		} else if (!cmd) {
 			cmd = argv[i];
 			cmd_idx = i;
@@ -1530,6 +1560,9 @@ int main(int argc, char **argv) {
 			i++;
 			arg_start = i + 1;
 		} else if (argv[i][0] == '-' && parse_flag(argv[i])) {
+			arg_start = i + 1;
+		} else if (argv[i][0] == '-' && i + 1 < argc && parse_flag_with_arg(argv[i], argv[i + 1])) {
+			i++;
 			arg_start = i + 1;
 		} else {
 			break;

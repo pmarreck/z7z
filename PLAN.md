@@ -203,6 +203,18 @@
   - Updated flake.nix with pre-fetch + --system pattern for Nix sandbox builds
   - All 5 CI targets build: macOS aarch64, Linux x86_64/aarch64, Windows x86_64/aarch64
 
+- [x] Compression levels: -mx=N, -N, --level N (0-9) (~2026-02-28 EST)
+  - LevelParams struct in lzma2_encoder.zig: dict_size (64KB-64MB) + nice_len (8-256) per level
+  - Threaded through entire call chain: encoder → codec → archive → FFI → CLI
+  - createWithLevel() in archive.zig accepts level: u4
+  - z7z_create_ex_pw() FFI extended with level: u8 parameter
+  - CLI: -mx=N (7zz compatible), -N (Unix shorthand), --level N (verbose)
+  - Default level 5 (matches 7zz -mx=5)
+  - Dict size clamped to data length for small files
+  - Adaptive nice_len uses level's nice_len as ceiling
+  - 7zz interop verified at levels 0, 3, 9
+  - 172 total CLI tests (15 new), all passing
+
 ## TODO
 - [x] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
 - [ ] Actual i18n translations (30 languages) once textual UI is stable

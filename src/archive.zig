@@ -77,7 +77,10 @@ pub const ArchiveContents = struct {
     }
 };
 
-/// Create a .7z archive in memory using Copy method (no compression).
+/// Re-export LevelParams for consumers.
+pub const LevelParams = codec.LevelParams;
+
+/// Create a .7z archive in memory using LZMA2 at the default compression level.
 pub fn create(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     return createWithMethod(files, .lzma2, allocator);
 }
@@ -92,9 +95,14 @@ pub fn createWithMethodAndPassword(files: []const FileEntry, method: Method, pas
     return createWithProgress(files, method, password, .{}, allocator);
 }
 
-/// Create a .7z archive with progress reporting.
+/// Create a .7z archive with progress reporting (uses default level 5).
 /// Automatically dispatches to multi-folder creation when files have mixed group_indices.
 pub fn createWithProgress(files: []const FileEntry, method: Method, password: ?[]const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+    return createWithLevel(files, method, password, LevelParams.DEFAULT_LEVEL, progress, allocator);
+}
+
+/// Create a .7z archive with progress reporting and explicit compression level (0-9).
+pub fn createWithLevel(files: []const FileEntry, method: Method, password: ?[]const u8, level: u4, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     // Check if multi-folder is needed (mixed group_indices among data files)
     if (method != .copy) {
         var needs_multi = false;
@@ -109,19 +117,20 @@ pub fn createWithProgress(files: []const FileEntry, method: Method, password: ?[
             }
         }
         if (needs_multi) {
-            return createMultiFolder(files, method, password, progress, allocator);
+            return createMultiFolder(files, method, password, level, progress, allocator);
         }
     }
 
+    const lp = LevelParams.fromLevel(level);
     return switch (method) {
         .copy => createCopy(files, allocator),
-        .lzma2 => createLzma2(files, progress, allocator),
-        .lzma2_aes => createLzma2Aes(files, password orelse return error.OutOfMemory, progress, allocator),
+        .lzma2 => createLzma2(files, lp.dict_size, lp.nice_len, progress, allocator),
+        .lzma2_aes => createLzma2Aes(files, password orelse return error.OutOfMemory, lp.dict_size, lp.nice_len, progress, allocator),
     };
 }
 
 /// Create a .7z archive in memory using LZMA2 compression.
-fn createLzma2(files: []const FileEntry, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+fn createLzma2(files: []const FileEntry, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     // Concatenate all non-directory file data
     var total_unpack_size: u64 = 0;
     for (files) |f| {
@@ -141,7 +150,7 @@ fn createLzma2(files: []const FileEntry, progress: ProgressContext, allocator: s
     }
 
     // Compress with LZMA2
-    const compressed = try codec.compressLzma2(raw_data, progress, allocator);
+    const compressed = try codec.compressLzma2(raw_data, dict_size, nice_len, progress, allocator);
     defer allocator.free(compressed);
 
     // Build metadata
@@ -152,13 +161,11 @@ fn createLzma2(files: []const FileEntry, progress: ProgressContext, allocator: s
     const method_id = try allocator.alloc(u8, 1);
     method_id[0] = 0x21;
 
-    // LZMA2 property byte: encodes dictionary size
-    // Property byte p: dict_size = (2 | (p & 1)) << (p/2 + 11) for p >= 1
-    // For small data, use a reasonable dict size indicator
-    // p=24 → 16MB dict, p=20 → 4MB dict, p=16 → 1MB dict
+    // LZMA2 property byte: encodes the actual dict_size used by the encoder
+    // (clamped to data length inside codec.compressLzma2)
     const props = try allocator.alloc(u8, 1);
-    const data_len = @as(u32, @intCast(@min(total_unpack_size, 0xFFFFFFFF)));
-    props[0] = calcLzma2DictProp(data_len);
+    const clamped_dict = @min(dict_size, @as(u32, @intCast(@min(total_unpack_size, 0xFFFFFFFF))));
+    props[0] = calcLzma2DictProp(clamped_dict);
 
     coders[0] = .{
         .method_id = method_id,
@@ -264,7 +271,7 @@ fn createLzma2(files: []const FileEntry, progress: ProgressContext, allocator: s
 }
 
 /// Create a .7z archive with LZMA2 compression + AES-256-CBC encryption.
-fn createLzma2Aes(files: []const FileEntry, password: []const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+fn createLzma2Aes(files: []const FileEntry, password: []const u8, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     // Step 1: Concatenate all non-directory file data
     var total_unpack_size: u64 = 0;
     for (files) |f| {
@@ -283,7 +290,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, progress: Prog
     }
 
     // Step 2: Compress with LZMA2
-    const compressed = try codec.compressLzma2(raw_data, progress, allocator);
+    const compressed = try codec.compressLzma2(raw_data, dict_size, nice_len, progress, allocator);
     defer allocator.free(compressed);
 
     // Step 3: Encrypt with AES-256-CBC
@@ -322,7 +329,8 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, progress: Prog
     const lzma2_mid = try allocator.alloc(u8, 1);
     lzma2_mid[0] = 0x21;
     const lzma2_props = try allocator.alloc(u8, 1);
-    lzma2_props[0] = calcLzma2DictProp(@intCast(@min(total_unpack_size, 0xFFFFFFFF)));
+    const clamped_dict = @min(dict_size, @as(u32, @intCast(@min(total_unpack_size, 0xFFFFFFFF))));
+    lzma2_props[0] = calcLzma2DictProp(clamped_dict);
 
     // Coder 1: 7zAES
     const aes_mid = try allocator.alloc(u8, 4);
@@ -450,8 +458,9 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, progress: Prog
 /// Create a multi-folder .7z archive where files are grouped by group_index.
 /// Each unique group_index becomes a separate folder (solid block), enabling
 /// MIME-type-aware grouping for better compression of heterogeneous file sets.
-fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]const u8, level: u4, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     const is_encrypted = method == .lzma2_aes;
+    const lp = LevelParams.fromLevel(level);
 
     // Step 1: Build a sorted index array — sort by (is_dir last, group_index asc, original order)
     const num_files = files.len;
@@ -510,7 +519,7 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
     const num_groups = group_ids.items.len;
     if (num_groups == 0) {
         // No data files — fall back to single-folder empty archive
-        return createLzma2(files, progress, allocator);
+        return createLzma2(files, lp.dict_size, lp.nice_len, progress, allocator);
     }
 
     // Step 3: For each group, concatenate data, compress, and optionally encrypt
@@ -559,7 +568,7 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
 
             // Compress
             const lzma2_compressed = switch (method) {
-                .lzma2, .lzma2_aes => try codec.compressLzma2(raw, progress, allocator),
+                .lzma2, .lzma2_aes => try codec.compressLzma2(raw, lp.dict_size, lp.nice_len, progress, allocator),
                 .copy => try allocator.dupe(u8, raw),
             };
 
@@ -648,8 +657,8 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
             const lzma2_mid = try allocator.alloc(u8, 1);
             lzma2_mid[0] = 0x21;
             const lzma2_props = try allocator.alloc(u8, 1);
-            const data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
-            lzma2_props[0] = calcLzma2DictProp(data_len);
+            const group_data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
+            lzma2_props[0] = calcLzma2DictProp(@min(lp.dict_size, group_data_len));
 
             // Coder 1: 7zAES
             const aes_mid = try allocator.alloc(u8, 4);
@@ -697,8 +706,8 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
             switch (method) {
                 .lzma2 => {
                     mid[0] = 0x21; // LZMA2
-                    const data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
-                    props[0] = calcLzma2DictProp(data_len);
+                    const group_data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
+                    props[0] = calcLzma2DictProp(@min(lp.dict_size, group_data_len));
                 },
                 .copy => {
                     mid[0] = 0x00;
@@ -1713,7 +1722,7 @@ test "archive: createMultiFolder groups files into separate folders" {
         .{ .name = "c.txt", .data = "more text group 0", .group_index = 0 },
     };
 
-    const archive_data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    const archive_data = try createMultiFolder(&files, .lzma2, null, LevelParams.DEFAULT_LEVEL, .{}, allocator);
     defer allocator.free(archive_data);
 
     // Read it back
@@ -1740,7 +1749,7 @@ test "archive: createMultiFolder with directories" {
         .{ .name = "dir/image.bin", .data = "fake image data", .group_index = 1 },
     };
 
-    const archive_data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    const archive_data = try createMultiFolder(&files, .lzma2, null, LevelParams.DEFAULT_LEVEL, .{}, allocator);
     defer allocator.free(archive_data);
 
     var contents = try read(archive_data, allocator);
@@ -1812,7 +1821,7 @@ test "archive: createMultiFolder with encryption groups files into separate encr
         .{ .name = "secret.bin", .data = "classified binary", .group_index = 1 },
     };
 
-    const archive_data = try createMultiFolder(&files, .lzma2_aes, "password123", .{}, allocator);
+    const archive_data = try createMultiFolder(&files, .lzma2_aes, "password123", LevelParams.DEFAULT_LEVEL, .{}, allocator);
     defer allocator.free(archive_data);
 
     // Must NOT be readable without password (encrypted)
@@ -1846,7 +1855,7 @@ test "archive: createMultiFolder single group creates one folder" {
         .{ .name = "b.txt", .data = "bbb" },
     };
 
-    const data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    const data = try createMultiFolder(&files, .lzma2, null, LevelParams.DEFAULT_LEVEL, .{}, allocator);
     defer allocator.free(data);
 
     var contents = try read(data, allocator);
@@ -1868,7 +1877,7 @@ test "archive: createMultiFolder with 3 groups" {
         .{ .name = "d.txt", .data = "more text", .group_index = 0 },
     };
 
-    const data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    const data = try createMultiFolder(&files, .lzma2, null, LevelParams.DEFAULT_LEVEL, .{}, allocator);
     defer allocator.free(data);
 
     var contents = try read(data, allocator);
@@ -1893,7 +1902,7 @@ test "archive: createMultiFolder preserves symlinks across groups" {
         .{ .name = "other.bin", .data = "binary", .group_index = 1 },
     };
 
-    const data = try createMultiFolder(&files, .lzma2, null, .{}, allocator);
+    const data = try createMultiFolder(&files, .lzma2, null, LevelParams.DEFAULT_LEVEL, .{}, allocator);
     defer allocator.free(data);
 
     var contents = try read(data, allocator);

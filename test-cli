@@ -1248,6 +1248,81 @@ $Z7Z create "$TMPDIR/emptydir.7z" "$TMPDIR/emptydir" > /dev/null 2>&1
 if [ $? -eq 0 ]; then pass "edge: empty dir create"; else fail "edge: empty dir create"; fi
 
 # ============================================================================
+# Test: compression levels (-mx=N, -N, --level N)
+# ============================================================================
+echo ""
+echo "--- compression levels ---"
+
+# Create a test file with enough data that compression level makes a difference.
+# Mix repetitive text with some entropy so levels actually diverge.
+mkdir -p "$TMPDIR/leveldata"
+for i in $(seq 1 200); do
+	echo "Line $i: The quick brown fox jumps over the lazy dog. Random=$RANDOM padding=$(date +%N 2>/dev/null || echo $i)" >> "$TMPDIR/leveldata/comptest.txt"
+done
+
+# Test -mx=0 (fastest) roundtrip
+$Z7Z create -mx=0 "$TMPDIR/level0.7z" "$TMPDIR/leveldata" > /dev/null 2>&1
+if [ $? -eq 0 ]; then pass "level: -mx=0 create succeeds"; else fail "level: -mx=0 create succeeds"; fi
+mkdir -p "$TMPDIR/level0_out"
+$Z7Z extract "$TMPDIR/level0.7z" "$TMPDIR/level0_out" > /dev/null 2>&1
+assert_files_equal "level: -mx=0 roundtrip" "$TMPDIR/leveldata/comptest.txt" "$TMPDIR/level0_out/leveldata/comptest.txt"
+
+# Test -9 (Unix shorthand for best) roundtrip
+$Z7Z create -9 "$TMPDIR/level9.7z" "$TMPDIR/leveldata" > /dev/null 2>&1
+if [ $? -eq 0 ]; then pass "level: -9 create succeeds"; else fail "level: -9 create succeeds"; fi
+mkdir -p "$TMPDIR/level9_out"
+$Z7Z extract "$TMPDIR/level9.7z" "$TMPDIR/level9_out" > /dev/null 2>&1
+assert_files_equal "level: -9 roundtrip" "$TMPDIR/leveldata/comptest.txt" "$TMPDIR/level9_out/leveldata/comptest.txt"
+
+# Test --level N (verbose form) roundtrip
+$Z7Z create --level 3 "$TMPDIR/level3.7z" "$TMPDIR/leveldata" > /dev/null 2>&1
+if [ $? -eq 0 ]; then pass "level: --level 3 create succeeds"; else fail "level: --level 3 create succeeds"; fi
+mkdir -p "$TMPDIR/level3_out"
+$Z7Z extract "$TMPDIR/level3.7z" "$TMPDIR/level3_out" > /dev/null 2>&1
+assert_files_equal "level: --level 3 roundtrip" "$TMPDIR/leveldata/comptest.txt" "$TMPDIR/level3_out/leveldata/comptest.txt"
+
+# Test default (no flag) roundtrip — should behave as level 5
+$Z7Z create "$TMPDIR/leveldef.7z" "$TMPDIR/leveldata" > /dev/null 2>&1
+if [ $? -eq 0 ]; then pass "level: default create succeeds"; else fail "level: default create succeeds"; fi
+mkdir -p "$TMPDIR/leveldef_out"
+$Z7Z extract "$TMPDIR/leveldef.7z" "$TMPDIR/leveldef_out" > /dev/null 2>&1
+assert_files_equal "level: default roundtrip" "$TMPDIR/leveldata/comptest.txt" "$TMPDIR/leveldef_out/leveldata/comptest.txt"
+
+# Level 9 should produce a file no larger than level 0
+SIZE_0=$(wc -c < "$TMPDIR/level0.7z" | tr -d ' ')
+SIZE_9=$(wc -c < "$TMPDIR/level9.7z" | tr -d ' ')
+if [ "$SIZE_9" -le "$SIZE_0" ]; then
+	pass "level: -9 output <= -0 output ($SIZE_9 <= $SIZE_0)"
+else
+	fail "level: -9 output <= -0 output ($SIZE_9 > $SIZE_0)"
+fi
+
+# 7zz interop: validate archives at different levels
+if command -v 7zz &>/dev/null; then
+	ORACLE_OUT=$(7zz t "$TMPDIR/level0.7z" 2>&1)
+	assert_contains "level: 7zz validates level 0" "$ORACLE_OUT" "Everything is Ok"
+
+	ORACLE_OUT=$(7zz t "$TMPDIR/level9.7z" 2>&1)
+	assert_contains "level: 7zz validates level 9" "$ORACLE_OUT" "Everything is Ok"
+
+	ORACLE_OUT=$(7zz t "$TMPDIR/level3.7z" 2>&1)
+	assert_contains "level: 7zz validates level 3" "$ORACLE_OUT" "Everything is Ok"
+else
+	echo "  SKIP: 7zz not found"
+fi
+
+# Test -mx=N combined with other flags
+$Z7Z create -mx=1 --solid "$TMPDIR/level1_solid.7z" "$TMPDIR/leveldata" > /dev/null 2>&1
+if [ $? -eq 0 ]; then pass "level: -mx=1 --solid create succeeds"; else fail "level: -mx=1 --solid create succeeds"; fi
+mkdir -p "$TMPDIR/level1_solid_out"
+$Z7Z extract "$TMPDIR/level1_solid.7z" "$TMPDIR/level1_solid_out" > /dev/null 2>&1
+assert_files_equal "level: -mx=1 --solid roundtrip" "$TMPDIR/leveldata/comptest.txt" "$TMPDIR/level1_solid_out/leveldata/comptest.txt"
+
+# Help text mentions compression level
+HELP_OUT=$($Z7Z --help 2>&1)
+assert_contains "level: help shows -mx=N" "$HELP_OUT" "mx=N"
+
+# ============================================================================
 # Summary
 # ============================================================================
 echo ""

@@ -232,12 +232,15 @@ fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.All
 
 /// Compress data using LZMA2.
 /// Returns owned slice of LZMA2-compressed bytes.
-pub fn compressLzma2(data: []const u8, progress: ProgressContext, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
-	return lzma2_enc.compress(data, progress, allocator) catch |e| switch (e) {
+pub fn compressLzma2(data: []const u8, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+	return lzma2_enc.compress(data, dict_size, nice_len, progress, allocator) catch |e| switch (e) {
 		error.OutOfMemory => return error.OutOfMemory,
 		else => unreachable, // encoder only allocates; no other runtime errors
 	};
 }
+
+/// Re-export LevelParams for consumers of codec.zig.
+pub const LevelParams = lzma2_enc.LevelParams;
 
 // ============================================================================
 // BCJ x86 filter (cleanroom from LZMA SDK public domain algorithm)
@@ -450,7 +453,8 @@ test "codec: multi-coder folder (BCJ+LZMA2)" {
 	// BCJ encode then LZMA2 compress
 	var bcj_buf = input;
 	bcjX86Encode(&bcj_buf);
-	const lzma2_data = try compressLzma2(&bcj_buf, .{}, allocator);
+	const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+	const lzma2_data = try compressLzma2(&bcj_buf, p.dict_size, p.nice_len, .{}, allocator);
 	defer allocator.free(lzma2_data);
 
 	// Build a two-coder folder and decompress

@@ -438,12 +438,14 @@ export fn z7z_create_ex(
 	return Z7Z_OK;
 }
 
-/// Create a .7z archive with password encryption and progress reporting.
+/// Create a .7z archive with password encryption, compression level, and progress reporting.
 /// Uses LZMA2+AES when password is non-null, plain LZMA2 otherwise.
+/// Level 0-9 (5 = default). Values > 9 are clamped to 9.
 export fn z7z_create_ex_pw(
 	files: ?[*]const Z7zFileEntry,
 	count: usize,
 	password: ?[*:0]const u8,
+	level: u8,
 	progress_cb: ?z7z_progress_fn,
 	user_data: ?*anyopaque,
 	out_data: ?*?[*]u8,
@@ -510,7 +512,9 @@ export fn z7z_create_ex_pw(
 		.user_data = user_data,
 	};
 
-	const result = archive.createWithProgress(zig_files, method, pw, progress, allocator) catch |e| return mapCreateError(e);
+	// Clamp level to 0-9, map to u4
+	const clamped_level: u4 = @intCast(@min(level, 9));
+	const result = archive.createWithLevel(zig_files, method, pw, clamped_level, progress, allocator) catch |e| return mapCreateError(e);
 	out_d.* = result.ptr;
 	out_l.* = result.len;
 	return Z7Z_OK;
@@ -895,7 +899,7 @@ test "ffi: encrypted roundtrip via create_ex_pw + open_ex_pw" {
 	// Create encrypted archive
 	var out_data: ?[*]u8 = null;
 	var out_len: usize = 0;
-	const rc = z7z_create_ex_pw(&entries, 1, password, null, null, &out_data, &out_len);
+	const rc = z7z_create_ex_pw(&entries, 1, password, 5, null, null, &out_data, &out_len);
 	try std.testing.expectEqual(Z7Z_OK, rc);
 	defer z7z_free(out_data, out_len);
 

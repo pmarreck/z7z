@@ -132,10 +132,14 @@ int z7z_create_ex(const z7z_file_entry *files, size_t count,
                   z7z_progress_fn progress, void *user_data,
                   uint8_t **out_data, size_t *out_len);
 
-/* Create a .7z archive with optional password encryption and progress.
- * Uses LZMA2+AES when password is non-NULL, plain LZMA2 otherwise. */
+/* Default compression level (matches 7zz -mx=5). */
+#define Z7Z_DEFAULT_LEVEL 5
+
+/* Create a .7z archive with optional password encryption, compression level, and progress.
+ * Uses LZMA2+AES when password is non-NULL, plain LZMA2 otherwise.
+ * level: 0 (fastest) to 9 (best compression). Values > 9 are clamped to 9. */
 int z7z_create_ex_pw(const z7z_file_entry *files, size_t count,
-                     const char *password,
+                     const char *password, uint8_t level,
                      z7z_progress_fn progress, void *user_data,
                      uint8_t **out_data, size_t *out_len);
 

@@ -167,7 +167,7 @@ const MatchFinder = struct {
     const BT_DEPTH: u32 = 32;
     const DEFAULT_NICE_LEN: u32 = 128;
 
-    fn init(data: []const u8, dict_size: u32, allocator: std.mem.Allocator) !MatchFinder {
+    fn init(data: []const u8, dict_size: u32, nice_len_param: u32, allocator: std.mem.Allocator) !MatchFinder {
         const hash = try allocator.alloc(u32, HASH_SIZE);
         @memset(hash, 0);
         const hash2 = try allocator.alloc(u32, HASH2_SIZE);
@@ -186,7 +186,7 @@ const MatchFinder = struct {
             .bt_right = bt_right,
             .data = data,
             .dict_size = dict_size,
-            .nice_len = DEFAULT_NICE_LEN,
+            .nice_len = nice_len_param,
         };
     }
 
@@ -916,7 +916,34 @@ const LenEncoder = struct {
 /// Compress data using LZMA2 format.
 /// Returns owned slice of LZMA2-compressed bytes.
 /// Progress callback fires after each 64KB chunk (sequential) or block (parallel).
-pub fn compress(data: []const u8, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+/// Compression level parameters: dict_size and nice_len for levels 0-9.
+pub const LevelParams = struct {
+    dict_size: u32,
+    nice_len: u32,
+
+    /// Map compression level (0-9) to dict_size + nice_len.
+    /// Level 5 is the default, matching 7zz -mx=5 convention.
+    pub fn fromLevel(level: u4) LevelParams {
+        return switch (level) {
+            0 => .{ .dict_size = 1 << 16, .nice_len = 8 }, // 64KB
+            1 => .{ .dict_size = 1 << 18, .nice_len = 16 }, // 256KB
+            2 => .{ .dict_size = 1 << 20, .nice_len = 24 }, // 1MB
+            3 => .{ .dict_size = 1 << 21, .nice_len = 32 }, // 2MB
+            4 => .{ .dict_size = 1 << 22, .nice_len = 48 }, // 4MB
+            5 => .{ .dict_size = 1 << 23, .nice_len = 64 }, // 8MB (default)
+            6 => .{ .dict_size = 1 << 24, .nice_len = 96 }, // 16MB
+            7 => .{ .dict_size = 1 << 24, .nice_len = 128 }, // 16MB (previous default)
+            8 => .{ .dict_size = 1 << 25, .nice_len = 192 }, // 32MB
+            9 => .{ .dict_size = 1 << 26, .nice_len = 256 }, // 64MB
+            else => .{ .dict_size = 1 << 23, .nice_len = 64 }, // fallback = level 5
+        };
+    }
+
+    /// Default compression level (5).
+    pub const DEFAULT_LEVEL: u4 = 5;
+};
+
+pub fn compress(data: []const u8, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     if (data.len == 0) {
         // Empty data: just end marker
         const result = try allocator.alloc(u8, 1);
@@ -928,7 +955,8 @@ pub fn compress(data: []const u8, progress: ProgressContext, allocator: std.mem.
     const lc: u3 = 3;
     const lp: u2 = 0;
     const pb: u2 = 2;
-    const dict_size: u32 = @min(@as(u32, @intCast(@min(data.len, 0xFFFFFFFF))), 1 << 24); // up to 16MB
+    // Clamp dict_size to data length (no point in bigger dict than data)
+    const clamped_dict_size: u32 = @min(dict_size, @as(u32, @intCast(@min(data.len, 0xFFFFFFFF))));
 
     // Parallel compression for large inputs on multi-core machines
     const MIN_PARALLEL_SIZE = 1 << 20; // 1MB
@@ -937,7 +965,7 @@ pub fn compress(data: []const u8, progress: ProgressContext, allocator: std.mem.
         if (cpu_count > 1) {
             const num_blocks = @min(cpu_count, data.len / MIN_PARALLEL_SIZE);
             if (num_blocks > 1) {
-                return compressParallel(data, lc, lp, pb, dict_size, num_blocks, progress, allocator);
+                return compressParallel(data, lc, lp, pb, clamped_dict_size, nice_len, num_blocks, progress, allocator);
             }
         }
     }
@@ -945,11 +973,11 @@ pub fn compress(data: []const u8, progress: ProgressContext, allocator: std.mem.
     // For data that might produce LZMA1 output > 65536 bytes (the LZMA2
     // packed size limit), use chunked compression with adaptive chunk sizing.
     if (data.len > 0x10000) {
-        return compressChunked(data, lc, lp, pb, dict_size, progress, allocator);
+        return compressChunked(data, lc, lp, pb, clamped_dict_size, nice_len, progress, allocator);
     }
 
     // Small data: compress as single LZMA2 chunk
-    const lzma_data = try compressLzma1(data, lc, lp, pb, dict_size, allocator);
+    const lzma_data = try compressLzma1(data, lc, lp, pb, clamped_dict_size, nice_len, allocator);
     defer allocator.free(lzma_data);
 
     // Build LZMA2 output
@@ -998,12 +1026,12 @@ pub fn compress(data: []const u8, progress: ProgressContext, allocator: std.mem.
 /// - Dictionary carries across chunks (cross-chunk match references)
 /// - Probability tables carry across chunks (better adaptation)
 /// - Only the range coder resets between chunks (as LZMA2 requires)
-fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     var output = std.ArrayListUnmanaged(u8){};
     defer output.deinit(allocator);
 
     // Single match finder over the entire input
-    var mf = try MatchFinder.init(data, dict_size, allocator);
+    var mf = try MatchFinder.init(data, dict_size, nice_len, allocator);
     defer mf.deinit(allocator);
 
     // Single LZMA encoder — state carries across all chunks
@@ -1078,19 +1106,19 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, pro
 
             const avg_entropy = total_entropy / @as(f64, @floatFromInt(num_probes));
 
-            // Adaptive nice_len based on entropy:
-            // - Low entropy (<4 bits/byte): highly compressible, long matches likely → nice_len=128
-            // - Medium entropy (4-6): moderately compressible, some long matches → nice_len=64
-            // - High entropy (6-7.5): barely compressible, matches are short → nice_len=32
-            // - Very high (>7.5): near-random, matches are rare → skip or nice_len=16
+            // Adaptive nice_len based on entropy (ceiling is the level's nice_len):
+            // - Low entropy (<4 bits/byte): highly compressible → use level's nice_len
+            // - Medium entropy (4-6): moderately compressible → min(64, nice_len)
+            // - High entropy (6-7.5): barely compressible → min(32, nice_len)
+            // - Very high (>7.5): near-random → min(16, nice_len)
             mf.nice_len = if (avg_entropy < 4.0)
-                MatchFinder.DEFAULT_NICE_LEN // 128
+                nice_len
             else if (avg_entropy < 6.0)
-                64
+                @min(nice_len, 64)
             else if (avg_entropy < 7.5)
-                32
+                @min(nice_len, 32)
             else
-                16;
+                @min(nice_len, 16);
 
             if (avg_entropy >= 7.9) {
                 // High entropy — but check if dictionary has cross-chunk matches.
@@ -1213,7 +1241,7 @@ fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, pro
 /// Compress a single independent block of data into LZMA2 format.
 /// Self-contained: creates its own MatchFinder and LzmaEncoder with full reset.
 /// Returns owned LZMA2 byte stream including end marker.
-fn compressBlock(block_data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, allocator: std.mem.Allocator) ![]u8 {
+fn compressBlock(block_data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, nice_len: u32, allocator: std.mem.Allocator) ![]u8 {
     if (block_data.len == 0) {
         const result = try allocator.alloc(u8, 1);
         result[0] = 0x00;
@@ -1222,7 +1250,7 @@ fn compressBlock(block_data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32,
 
     // Small block: compress as single LZMA2 chunk (same path as compress())
     if (block_data.len <= 0x10000) {
-        const lzma_data = try compressLzma1(block_data, lc, lp, pb, dict_size, allocator);
+        const lzma_data = try compressLzma1(block_data, lc, lp, pb, dict_size, nice_len, allocator);
         defer allocator.free(lzma_data);
 
         var output = std.ArrayListUnmanaged(u8){};
@@ -1254,7 +1282,7 @@ fn compressBlock(block_data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32,
     // Large block: use compressChunked with full reset at start
     // compressChunked already handles chunking internally with dict/state carry
     // No progress for individual blocks — parallel wrapper reports per-block completion
-    return compressChunked(block_data, lc, lp, pb, dict_size, .{}, allocator);
+    return compressChunked(block_data, lc, lp, pb, dict_size, nice_len, .{}, allocator);
 }
 
 /// Compress data in parallel by splitting into independent blocks.
@@ -1266,13 +1294,14 @@ fn compressParallel(
     lp: u2,
     pb: u2,
     dict_size: u32,
+    nice_len: u32,
     num_threads: usize,
     progress: ProgressContext,
     allocator: std.mem.Allocator,
 ) ![]u8 {
     const actual_threads = @min(num_threads, data.len / (1 << 20)); // min 1MB per block
     if (actual_threads <= 1) {
-        return compressChunked(data, lc, lp, pb, dict_size, progress, allocator);
+        return compressChunked(data, lc, lp, pb, dict_size, nice_len, progress, allocator);
     }
 
     const block_size = data.len / actual_threads;
@@ -1313,6 +1342,7 @@ fn compressParallel(
                 b_lp: u2,
                 b_pb: u2,
                 b_dict_size: u32,
+                b_nice_len: u32,
                 b_results: []?[]u8,
                 b_errors: []?anyerror,
                 b_idx: usize,
@@ -1321,7 +1351,7 @@ fn compressParallel(
                 b_progress: ProgressContext,
                 b_allocator: std.mem.Allocator,
             ) void {
-                const block_result = compressBlock(b_data, b_lc, b_lp, b_pb, b_dict_size, b_allocator) catch |err| {
+                const block_result = compressBlock(b_data, b_lc, b_lp, b_pb, b_dict_size, b_nice_len, b_allocator) catch |err| {
                     b_errors[b_idx] = err;
                     return;
                 };
@@ -1330,7 +1360,7 @@ fn compressParallel(
                 const new_done = b_progress_done.fetchAdd(b_data.len, .monotonic) + b_data.len;
                 b_progress.report(new_done, b_progress_total);
             }
-        }.run, .{ block_data, lc, lp, pb, dict_size, results, errors, block_idx, &progress_done, @as(u64, data.len), progress, allocator });
+        }.run, .{ block_data, lc, lp, pb, dict_size, nice_len, results, errors, block_idx, &progress_done, @as(u64, data.len), progress, allocator });
     }
 
     // Wait for all blocks to complete
@@ -1689,11 +1719,11 @@ fn encodeLzma1ChunkOptimal(
 /// Compress a block of data using LZMA1.
 /// Returns the raw LZMA1 compressed bytes (5-byte range coder init + compressed data).
 /// Does NOT include the 13-byte standalone LZMA header.
-fn compressLzma1(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, allocator: std.mem.Allocator) ![]u8 {
+fn compressLzma1(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, nice_len: u32, allocator: std.mem.Allocator) ![]u8 {
     var enc = try LzmaEncoder.init(lc, lp, pb, allocator);
     defer enc.deinit(allocator);
 
-    var mf = try MatchFinder.init(data, dict_size, allocator);
+    var mf = try MatchFinder.init(data, dict_size, nice_len, allocator);
     defer mf.deinit(allocator);
 
     var pos: usize = 0;
@@ -1853,7 +1883,7 @@ fn findRepMatch(enc: *const LzmaEncoder, data: []const u8, pos: usize) ?RepMatch
 test "lzma1 raw: encode single byte roundtrip" {
     const allocator = std.testing.allocator;
     const input = "A";
-    const lzma_data = try compressLzma1(input, 3, 0, 2, 4096, allocator);
+    const lzma_data = try compressLzma1(input, 3, 0, 2, 4096, MatchFinder.DEFAULT_NICE_LEN, allocator);
     defer allocator.free(lzma_data);
 
     // First byte must be 0x00 (range coder reserved byte)
@@ -1876,7 +1906,8 @@ test "lzma1 raw: encode single byte roundtrip" {
 
 test "lzma2 encoder: empty data" {
     const allocator = std.testing.allocator;
-    const result = try compress(&.{}, .{}, allocator);
+    const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+    const result = try compress(&.{}, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(result);
     try std.testing.expectEqual(@as(usize, 1), result.len);
     try std.testing.expectEqual(@as(u8, 0x00), result[0]); // end marker
@@ -1884,8 +1915,9 @@ test "lzma2 encoder: empty data" {
 
 test "lzma2 encoder: roundtrip small data" {
     const allocator = std.testing.allocator;
+    const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
     const input = "hello world";
-    const compressed = try compress(input, .{}, allocator);
+    const compressed = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
 
     // Decompress using stdlib decoder
@@ -1898,8 +1930,9 @@ test "lzma2 encoder: roundtrip small data" {
 
 test "lzma2 encoder: roundtrip repetitive data" {
     const allocator = std.testing.allocator;
+    const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
     const input = "ABCDEFGHIJ" ** 50;
-    const compressed = try compress(input, .{}, allocator);
+    const compressed = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
 
     // Should actually compress
@@ -1918,7 +1951,8 @@ test "lzma2 encoder: roundtrip varied text with matches" {
     // This specific input triggers match/rep-match encoding paths
     // that previously produced data 7zz couldn't decode.
     const input = "quick the jumps fox fox brown quick and quick cat lazy";
-    const compressed = try compress(input, .{}, allocator);
+    const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+    const compressed = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
 
     var in_stream = std.io.fixedBufferStream(compressed);
@@ -1934,7 +1968,8 @@ test "lzma2 encoder: roundtrip binary data" {
     for (&input, 0..) |*b, i| {
         b.* = @intCast(i);
     }
-    const compressed = try compress(&input, .{}, allocator);
+    const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+    const compressed = try compress(&input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
 
     var in_stream = std.io.fixedBufferStream(compressed);
@@ -1966,7 +2001,8 @@ test "lzma2 encoder: cross-chunk dictionary carry" {
         @memcpy(input[i * block_size .. (i + 1) * block_size], block);
     }
 
-    const compressed = try compress(input, .{}, allocator);
+    const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+    const compressed = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
 
     // Without dictionary carry: each block ~100% (random) = ~256KB total
@@ -1997,7 +2033,7 @@ test "compressBlock: standalone block roundtrip" {
     const pb: u2 = 2;
     const dict_size: u32 = 1 << 20;
 
-    const block_lzma2 = try compressBlock(input, lc, lp, pb, dict_size, allocator);
+    const block_lzma2 = try compressBlock(input, lc, lp, pb, dict_size, MatchFinder.DEFAULT_NICE_LEN, allocator);
     defer allocator.free(block_lzma2);
 
     // Must end with 0x00 (LZMA2 end marker)
@@ -2030,7 +2066,7 @@ test "compressParallel: 4MB roundtrip with explicit thread count" {
     const pb: u2 = 2;
     const dict_size: u32 = 1 << 20;
 
-    const compressed = try compressParallel(input, lc, lp, pb, dict_size, 4, .{}, allocator);
+    const compressed = try compressParallel(input, lc, lp, pb, dict_size, MatchFinder.DEFAULT_NICE_LEN, 4, .{}, allocator);
     defer allocator.free(compressed);
 
     // Must end with 0x00
@@ -2057,7 +2093,8 @@ test "compress: large data uses parallel path and roundtrips" {
         b.* = phrase[i % phrase.len];
     }
 
-    const compressed = try compress(input, .{}, allocator);
+    const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+    const compressed = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
 
     // Should actually compress well
@@ -2116,7 +2153,7 @@ test "match finder: short matches via HC2+HC3" {
     data[22] = 'C';
     data[23] = 'Y'; // different 4th byte — hash4 differs
 
-    var mf = try MatchFinder.init(&data, 64, allocator);
+    var mf = try MatchFinder.init(&data, 64, MatchFinder.DEFAULT_NICE_LEN, allocator);
     defer mf.deinit(allocator);
 
     // Walk through positions 0..19 to populate hash tables
@@ -2160,7 +2197,7 @@ test "lzma2 encoder: phase profiling" {
     // Just walk every position through findMatches/skip
     // ---------------------------------------------------------------
     {
-        var mf_a = try MatchFinder.init(input, dict_size, allocator);
+        var mf_a = try MatchFinder.init(input, dict_size, MatchFinder.DEFAULT_NICE_LEN, allocator);
         defer mf_a.deinit(allocator);
 
         var t_mf = try std.time.Timer.start();
@@ -2180,7 +2217,7 @@ test "lzma2 encoder: phase profiling" {
     // Measurement B: Full compression (match finding + DP + encoding)
     // ---------------------------------------------------------------
     var t_full = try std.time.Timer.start();
-    const compressed = try compress(input, .{}, allocator);
+    const compressed = try compress(input, dict_size, MatchFinder.DEFAULT_NICE_LEN, .{}, allocator);
     const full_ns = t_full.read();
     const full_ms = @as(f64, @floatFromInt(full_ns)) / 1_000_000.0;
     allocator.free(compressed);
@@ -2192,7 +2229,7 @@ test "lzma2 encoder: phase profiling" {
     // ---------------------------------------------------------------
     var mf_rerun_ns: u64 = undefined;
     {
-        var mf_d = try MatchFinder.init(input, dict_size, allocator);
+        var mf_d = try MatchFinder.init(input, dict_size, MatchFinder.DEFAULT_NICE_LEN, allocator);
         defer mf_d.deinit(allocator);
         var t_d = try std.time.Timer.start();
         var pos: usize = 0;
@@ -2228,13 +2265,16 @@ test "lzma2 encoder: compression speed regression guard" {
         b.* = @intCast(i % 251); // prime-cycle: compressible but non-trivial
     }
 
+    // Use old default params (level 7: 16MB dict, nice_len=128) for regression guard
+    const p = LevelParams.fromLevel(7);
+
     // Warm up (first run may be slower due to cache effects)
-    const warmup = try compress(input, .{}, allocator);
+    const warmup = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     allocator.free(warmup);
 
     // Timed run
     var timer = try std.time.Timer.start();
-    const compressed = try compress(input, .{}, allocator);
+    const compressed = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
     const elapsed_ns = timer.read();
     const elapsed_ms = @as(f64, @floatFromInt(elapsed_ns)) / 1_000_000.0;
@@ -2259,4 +2299,67 @@ test "lzma2 encoder: compression speed regression guard" {
         });
         return error.PerformanceRegression;
     }
+}
+
+test "LevelParams: level mapping" {
+    // Level 0: 64KB dict, nice_len 8
+    const l0 = LevelParams.fromLevel(0);
+    try std.testing.expectEqual(@as(u32, 1 << 16), l0.dict_size);
+    try std.testing.expectEqual(@as(u32, 8), l0.nice_len);
+
+    // Level 5 (default): 8MB dict, nice_len 64
+    const l5 = LevelParams.fromLevel(5);
+    try std.testing.expectEqual(@as(u32, 1 << 23), l5.dict_size);
+    try std.testing.expectEqual(@as(u32, 64), l5.nice_len);
+
+    // Level 9: 64MB dict, nice_len 256
+    const l9 = LevelParams.fromLevel(9);
+    try std.testing.expectEqual(@as(u32, 1 << 26), l9.dict_size);
+    try std.testing.expectEqual(@as(u32, 256), l9.nice_len);
+}
+
+test "compress: level 0 vs level 9 compression ratio" {
+    const allocator = std.testing.allocator;
+
+    // 128KB of compressible text data
+    const data_size = 128 * 1024;
+    const input = try allocator.alloc(u8, data_size);
+    defer allocator.free(input);
+    const phrase = "The quick brown fox jumps over the lazy dog. ";
+    for (input, 0..) |*b, i| {
+        b.* = phrase[i % phrase.len];
+    }
+
+    // Level 0: fastest, minimal compression
+    const p0 = LevelParams.fromLevel(0);
+    const compressed_0 = try compress(input, p0.dict_size, p0.nice_len, .{}, allocator);
+    defer allocator.free(compressed_0);
+
+    // Level 9: best compression
+    const p9 = LevelParams.fromLevel(9);
+    const compressed_9 = try compress(input, p9.dict_size, p9.nice_len, .{}, allocator);
+    defer allocator.free(compressed_9);
+
+    // Both must roundtrip correctly
+    {
+        var in_stream = std.io.fixedBufferStream(compressed_0);
+        const decompressed = try allocator.alloc(u8, data_size);
+        defer allocator.free(decompressed);
+        var out_stream = std.io.fixedBufferStream(decompressed);
+        try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
+        try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+    }
+    {
+        var in_stream = std.io.fixedBufferStream(compressed_9);
+        const decompressed = try allocator.alloc(u8, data_size);
+        defer allocator.free(decompressed);
+        var out_stream = std.io.fixedBufferStream(decompressed);
+        try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
+        try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+    }
+
+    // Level 9 should compress at least as well as level 0
+    // (For highly repetitive data, level 0 may also compress well, but 9 should be <= 0)
+    std.debug.print("\n  [level] Level 0: {d} bytes, Level 9: {d} bytes\n", .{ compressed_0.len, compressed_9.len });
+    try std.testing.expect(compressed_9.len <= compressed_0.len);
 }

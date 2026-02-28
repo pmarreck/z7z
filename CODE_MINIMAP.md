@@ -42,6 +42,7 @@ LZMA2 compression encoder with forward optimal parser.
   - Skip path: emit uncompressed + lightweight hash update via skip()
 - `priceLenVal`, `probPrice0/1`, `priceBitTreeVal`, `priceRevBitTree` — price estimation primitives
 - `prob_prices` — comptime-const probability price lookup table (thread-safe)
+- `LevelParams` — compression level config: dict_size + nice_len per level 0-9, with `fromLevel()` mapping
 - `compressBlock()` — self-contained single-block LZMA2 compression (own MatchFinder + LzmaEncoder)
 - `compressParallel()` — parallel block compression via std.Thread.Pool (splits data, concatenates results)
 
@@ -54,8 +55,10 @@ Archive-level create and read operations.
 - `FileEntry` — input struct with name, data, is_dir, is_symlink, mtime, win_attrib, ctime, atime, xattrs, group_index
 - `ArchiveContents` — result struct with metadata + extracted file data
 - `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
+- `LevelParams` — re-export from codec.zig (dict_size + nice_len per level 0-9)
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
-- `createWithProgress()` — archive creation with progress callback, auto-dispatches to multi-folder when mixed group_indices
+- `createWithLevel()` — archive creation with explicit compression level (0-9)
+- `createWithProgress()` — archive creation with progress callback, defaults to level 5
 - `createMultiFolder()` — multi-folder archive creation: groups files by group_index, one folder per unique group
   - Sorts files by (is_dir last, group_index asc, original order); directories appended after all data files
   - Supports .lzma2, .copy, and .lzma2_aes methods
@@ -94,7 +97,8 @@ Codec dispatch: decompress packed data for a folder's coder pipeline.
 - `decodeLzma()` — LZMA1 decompression with Zig stdlib dictionary wrap bug workaround
 - `decodeLzma2()` — LZMA2 decompression via std.compress.lzma2
 - `bcjX86Decode()` / `bcjX86Encode()` — x86 BCJ filter (jump/call address translation)
-- `compressLzma2()` — LZMA2 compression via lzma2_encoder (accepts ProgressContext for progress reporting)
+- `LevelParams` — re-export from lzma2_encoder (compression level config)
+- `compressLzma2()` — LZMA2 compression via lzma2_encoder (accepts dict_size, nice_len, ProgressContext)
 
 ## src/ffi.zig
 C FFI boundary for z7z. All functions use C calling convention.
@@ -109,7 +113,7 @@ C FFI boundary for z7z. All functions use C calling convention.
 - `z7z_file_xattrs` — get xattr blob pointer + length (NULL if none)
 - `z7z_create` — create archive from file entries (supports flags, mtime, ctime, atime, win_attrib, xattrs)
 - `z7z_create_ex` — create with progress callback (fires per-chunk/block during compression)
-- `z7z_create_ex_pw` — create with password encryption + progress (LZMA2+AES when password set)
+- `z7z_create_ex_pw` — create with password + level + progress (LZMA2+AES when password set, level 0-9)
 - `z7z_open_ex` / `z7z_open_ex_pw` — open with progress callback (fires per-folder during decompression)
 - `z7z_close`, `z7z_free` — memory management
 - `z7z_error_string` — human-readable error messages
@@ -121,7 +125,8 @@ C header for the FFI. Matches ffi.zig exports.
 - `z7z_progress_fn` — progress callback typedef: (bytes_done, bytes_total, user_data)
 - `z7z_open_ex()` / `z7z_open_ex_pw()` — open with progress + optional password
 - `z7z_create_ex()` — create with progress callback
-- `z7z_create_ex_pw()` — create with password + progress
+- `z7z_create_ex_pw()` — create with password + level + progress
+- `Z7Z_DEFAULT_LEVEL` — default compression level (5)
 - `z7z_file_mtime()` — get file modification time as Unix timestamp
 - `z7z_file_ctime()` — get file creation/birth time as Unix timestamp
 - `z7z_file_atime()` — get file access time as Unix timestamp
@@ -136,7 +141,7 @@ C CLI that dogfoods the FFI (list, extract, create commands).
 - `detect_mime()` — detect MIME type for a filesystem path via libmagic; returns NULL on failure
 - `assign_mime_groups()` — cluster entry_list files by unique MIME type, assigning group_index per unique MIME
 - `cmd_create` — accepts files, directories, and symlinks
-  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`, `-p`/`--password`, `--solid`, `--no-solid`
+  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`, `-p`/`--password`, `--solid`, `--no-solid`, `-mx=N`, `-0`..`-9`, `--level N`
   - Captures st_mtime, birthtime, atime, st_mode, xattrs from lstat()
   - Uses z7z_create_ex() with progress callback for compression progress bar + stats summary
 - `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets
