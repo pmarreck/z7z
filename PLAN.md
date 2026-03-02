@@ -215,6 +215,15 @@
   - 7zz interop verified at levels 0, 3, 9
   - 172 total CLI tests (15 new), all passing
 
+- [x] Integrate progrez library for progress display (~2026-02-28 EST)
+  - Replaced hand-rolled ~80-line progress bar (progress_state/progress_callback) with progrez library
+  - progrez provides: truecolor gradient bar, Unicode block elements, braille spinner, dedicated render thread
+  - Adapter callback bridges z7z FFI's (done, total, user_data) to progrez_update(ctx, files, bytes)
+  - Both cmd_create() and cmd_extract() use progrez; z7z-specific summary (ratio, sizes, entries) preserved
+  - --no-progress flag skips progrez_create() entirely and passes NULL callback
+  - PROGRESS env var, NO_COLOR support, ASCII fallback handled by progrez internally
+  - 172 CLI tests, all passing
+
 ## TODO
 - [x] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
 - [ ] Actual i18n translations (30 languages) once textual UI is stable

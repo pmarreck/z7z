@@ -109,30 +109,17 @@ static char *detect_mime(const char *fs_path) {
 }
 
 /* ============================================================================
- * Progress bar
+ * Progress (via progrez library)
  * ============================================================================ */
 
 #include <time.h>
+#include "progrez.h"
 
-typedef struct {
-	struct timespec start;
-	int is_tty;
-	const char *label;  /* "Compressing" or "Extracting" */
-	int last_pct;       /* avoid redundant redraws */
-} progress_state;
-
-static void progress_state_init(progress_state *ps, const char *label) {
-	clock_gettime(CLOCK_MONOTONIC, &ps->start);
-	ps->is_tty = isatty(STDERR_FILENO);
-	ps->label = label;
-	ps->last_pct = -1;
-}
-
-static double elapsed_secs(const progress_state *ps) {
+static double elapsed_since(const struct timespec *start) {
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	return (double)(now.tv_sec - ps->start.tv_sec) +
-	       (double)(now.tv_nsec - ps->start.tv_nsec) / 1e9;
+	return (double)(now.tv_sec - start->tv_sec) +
+	       (double)(now.tv_nsec - start->tv_nsec) / 1e9;
 }
 
 static void format_size(double bytes, char *buf, size_t buf_size) {
@@ -142,55 +129,10 @@ static void format_size(double bytes, char *buf, size_t buf_size) {
 	else snprintf(buf, buf_size, "%.0f B", bytes);
 }
 
-static void progress_callback(uint64_t done, uint64_t total, void *user_data) {
-	progress_state *ps = (progress_state *)user_data;
-	if (!ps->is_tty || g_no_progress || total == 0) return;
-
-	int pct = (int)((done * 100) / total);
-	if (pct == ps->last_pct && pct < 100) return; /* throttle redraws */
-	ps->last_pct = pct;
-
-	double elapsed = elapsed_secs(ps);
-	double rate = elapsed > 0.01 ? (double)done / elapsed : 0.0;
-
-	/* Build rate string */
-	char rate_str[32];
-	format_size(rate, rate_str, sizeof(rate_str));
-
-	/* ETA */
-	char eta_str[32] = "";
-	if (rate > 0 && done < total) {
-		double remaining = (double)(total - done) / rate;
-		if (remaining < 60)
-			snprintf(eta_str, sizeof(eta_str), "ETA %ds", (int)(remaining + 0.5));
-		else if (remaining < 3600)
-			snprintf(eta_str, sizeof(eta_str), "ETA %dm%02ds", (int)(remaining / 60), (int)remaining % 60);
-		else
-			snprintf(eta_str, sizeof(eta_str), "ETA %dh%02dm", (int)(remaining / 3600), ((int)remaining % 3600) / 60);
-	} else if (done >= total) {
-		snprintf(eta_str, sizeof(eta_str), "%.1fs", elapsed);
-	}
-
-	/* Progress bar: [=========>          ] 45%  12.3 MB/s  ETA 3s */
-	const int bar_width = 25;
-	int filled = (int)((long long)pct * bar_width / 100);
-	if (filled > bar_width) filled = bar_width;
-
-	char bar[64];
-	int bi = 0;
-	for (int i = 0; i < bar_width; i++) {
-		if (i < filled) bar[bi++] = '=';
-		else if (i == filled) bar[bi++] = '>';
-		else bar[bi++] = ' ';
-	}
-	bar[bi] = '\0';
-
-	fprintf(stderr, "\r\033[K%s [%s] %3d%%  %s/s  %s",
-		ps->label, bar, pct, rate_str, eta_str);
-
-	if (done >= total) {
-		fprintf(stderr, "\n");
-	}
+/* Adapter: bridges z7z's (done, total, user_data) callback to progrez's update API */
+static void progrez_adapter(uint64_t done, uint64_t total, void *user_data) {
+	(void)total;
+	progrez_update((progrez_ctx *)user_data, 0, done);
 }
 
 static void usage(const char *prog) {
@@ -1098,20 +1040,35 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 	uint8_t *data = read_file(archive_path, &data_len);
 	if (!data) return 1;
 
-	progress_state ps;
-	progress_state_init(&ps, "Extracting");
+	struct timespec t_start;
+	clock_gettime(CLOCK_MONOTONIC, &t_start);
+
+	progrez_ctx *prog = NULL;
+	if (!g_no_progress) {
+		prog = progrez_create("Extracting");
+		progrez_set_identity(prog, "z7z", archive_path);
+		progrez_set_determinate(prog, 0, (uint64_t)data_len);
+	}
 
 	z7z_archive *ar = NULL;
 	int rc = z7z_open_ex_pw(data, data_len, g_password,
-	                         progress_callback, &ps, &ar);
+	                         prog ? progrez_adapter : NULL, prog, &ar);
 	free(data);
 
 	if (rc != Z7Z_OK) {
 		fprintf(stderr, "error: %s\n", z7z_error_string(rc));
+		if (prog) { progrez_finish(prog); progrez_destroy(prog); }
 		return 1;
 	}
 
+	/* Update file count now that archive is open */
+	if (prog) {
+		size_t fc = z7z_file_count(ar);
+		progrez_set_determinate(prog, (uint64_t)fc, (uint64_t)data_len);
+	}
+
 	if (out_dir && ensure_dir(out_dir) != 0) {
+		if (prog) { progrez_finish(prog); progrez_destroy(prog); }
 		z7z_close(ar);
 		return 1;
 	}
@@ -1273,9 +1230,12 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 		}
 	}
 
+	/* Finish progress bar */
+	if (prog) { progrez_finish(prog); progrez_destroy(prog); }
+
 	/* Print extraction summary */
 	if (!errors) {
-		double elapsed = elapsed_secs(&ps);
+		double elapsed = elapsed_since(&t_start);
 		size_t total_extracted = 0;
 		for (size_t i = 0; i < count; i++) {
 			total_extracted += z7z_file_size(ar, i);
@@ -1424,26 +1384,36 @@ handle_file:;
 		total_input += list.entries[i].data_len;
 	}
 
-	progress_state ps;
-	progress_state_init(&ps, "Compressing");
+	struct timespec t_start;
+	clock_gettime(CLOCK_MONOTONIC, &t_start);
+
+	progrez_ctx *prog = NULL;
+	if (!g_no_progress) {
+		prog = progrez_create("Compressing");
+		progrez_set_identity(prog, "z7z", archive_path);
+		progrez_set_determinate(prog, (uint64_t)list.count, (uint64_t)total_input);
+	}
 
 	uint8_t *out_data = NULL;
 	size_t out_len = 0;
 	int rc = z7z_create_ex_pw(list.entries, list.count,
 	                           g_password, (uint8_t)g_level,
-	                           progress_callback, &ps,
+	                           prog ? progrez_adapter : NULL, prog,
 	                           &out_data, &out_len);
 	if (rc != Z7Z_OK) {
 		fprintf(stderr, "error: %s\n", z7z_error_string(rc));
+		if (prog) { progrez_finish(prog); progrez_destroy(prog); }
 		entry_list_free(&list);
 		return 1;
 	}
+
+	if (prog) { progrez_finish(prog); progrez_destroy(prog); }
 
 	int ret = 0;
 	if (write_file(archive_path, out_data, out_len) != 0) {
 		ret = 1;
 	} else {
-		double elapsed = elapsed_secs(&ps);
+		double elapsed = elapsed_since(&t_start);
 		char in_str[32], out_str[32];
 		format_size((double)total_input, in_str, sizeof(in_str));
 		format_size((double)out_len, out_str, sizeof(out_str));

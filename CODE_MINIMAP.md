@@ -143,15 +143,16 @@ C CLI that dogfoods the FFI (list, extract, create commands).
 - `cmd_create` — accepts files, directories, and symlinks
   - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`, `-p`/`--password`, `--solid`, `--no-solid`, `-mx=N`, `-0`..`-9`, `--level N`
   - Captures st_mtime, birthtime, atime, st_mode, xattrs from lstat()
-  - Uses z7z_create_ex() with progress callback for compression progress bar + stats summary
+  - Uses progrez library for progress display + z7z-specific archive summary (ratio, sizes, entries)
 - `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets
   - Flags: `--no-ctime`, `--no-xattr`, `-p`/`--password`
   - Restores permissions, mtime+atime via set_times(), birthtime via set_birthtime(), xattrs via restore_xattrs()
   - Deferred directory mtime restoration (deepest-first) to avoid clobbering by child writes
-  - Uses z7z_open_ex() with progress callback for decompression progress bar + stats summary
+  - Uses progrez library for progress display + z7z-specific extraction summary
   - Warnings: --no-ctime with no ctime in archive, --no-xattr with xattr data present
 - `cmd_list` — shows `<dir>`, `<symlink>` with target, `[+xattr]` marker for xattr data
-- `progress_state` / `progress_callback()` — progress bar with rate/ETA, isatty() gated, --no-progress flag
+- `progrez_adapter()` — bridges z7z FFI's (done, total, user_data) callback to progrez_update()
+- `elapsed_since()` / `format_size()` — timing and size formatting for archive-specific summary stats
 - `is_stdin_path()` / `is_stdout_path()` — check for `-` or `@stdin`/`@stdout` path aliases
 - `read_stdin()` — read all of stdin into dynamically growing buffer
 - `g_lang` — language selection: Z7Z_LANG env var, overridden by --lang flag (English default)
@@ -171,12 +172,14 @@ C CLI that dogfoods the FFI (list, extract, create commands).
 ## build.zig
 Build configuration. Static lib + C CLI + test step. ReleaseFast default.
 - libmagic linked as a static dependency via build.zig.zon on non-Windows targets
+- progrez linked as a static dependency via build.zig.zon on all platforms
 - `_GNU_SOURCE` macro added for Linux musl compatibility (statx, asprintf)
 - CLI compiled with `-std=gnu11` for POSIX extension support
 
 ## build.zig.zon
 Package manifest. Dependencies:
 - `libmagic` — pmarreck/libmagic (file-5.46 with Zig build system, static linkage)
+- `progrez` — pmarreck/progrez (progress bar library with truecolor gradient, render thread, C FFI)
 
 ## flake.nix
 Nix devShell: zig 0.15.x, 7zz (oracle), hyperfine, luajit, jq, file (for magic database).

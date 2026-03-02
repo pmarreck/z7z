@@ -50,6 +50,14 @@ pub fn build(b: *std.Build) void {
     cli.root_module.addIncludePath(b.path("include"));
     cli.linkLibrary(lib);
 
+    // progrez progress bar library (all platforms)
+    const progrez_dep = b.dependency("progrez", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    cli.root_module.addIncludePath(progrez_dep.path("include"));
+    cli.linkLibrary(progrez_dep.artifact("progrez"));
+
     // libmagic + POSIX extensions: non-Windows only
     const is_windows = target.result.os.tag == .windows;
     if (!is_windows) {
