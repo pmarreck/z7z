@@ -9,8 +9,8 @@
             .hash = "libmagic-5.46.0-RysxHD9fCACu5caBjXS-x3qQnQM3nRfosCyktdVRzv-R",
         },
         .progrez = .{
-            .url = "https://github.com/pmarreck/progrez/archive/f338840d063e05cb6f886e365a8ddb1ade4a2bcd.tar.gz",
-            .hash = "progrez-0.1.0-0YJXrt4AAgAa3oScbj1pXFwos1rhFzR50M6sQSJBmZHg",
+            .url = "https://github.com/pmarreck/progrez/archive/377256d88ef8e664177b88a66a361a46be4e4c83.tar.gz",
+            .hash = "progrez-0.1.0-0YJXrl0CAgCI-gvYCSEWEnW2rsWMTPbehyOnOveB4EJp",
         },
     },
     .paths = .{
