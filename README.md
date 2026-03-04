@@ -11,7 +11,8 @@ A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives t
 - **AES-256-CBC encryption** — password-protected archives with `-p`/`--password`
 - **BCJ x86 filter** — executable pre-processing for better compression
 - **MIME-grouped solid blocks** — content-based file type detection via libmagic (`--solid`/`--no-solid` overrides)
-- **Full metadata** — mtime, birthtime, atime, POSIX permissions, extended attributes (custom property 0x7A)
+- **Full metadata** — mtime, birthtime (fixes [7zz's long-standing bug](https://sourceforge.net/p/sevenzip/bugs/) of storing ctime instead), atime, POSIX permissions
+- **Extended attributes** — xattrs preserved on macOS and Linux, including `com.apple.ResourceFork` (resource forks); stored as custom property 0x7A, invisible to 7zz (`7zz t` validates clean). Ephemeral xattrs (`com.apple.quarantine`, etc.) are excluded. Use `--no-xattr` to skip
 - **Symlink support** — with path-traversal security
 - **Progress reporting** — rate/ETA on interactive terminals
 - **stdin/stdout** — pipe support via `-`/`@stdin`/`@stdout`
