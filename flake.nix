@@ -10,36 +10,62 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        isDarwin = pkgs.stdenv.isDarwin;
 
-        # Pre-fetch libmagic Zig wrapper tarball (runs during Nix fetch phase, has network)
-        libmagic-tarball = pkgs.fetchurl {
-          url = "https://github.com/pmarreck/libmagic/archive/refs/tags/zig-0.15.0.tar.gz";
-          hash = "sha256-lEySLP0ththmbc/zRhbGlKcPk5H0jvGzDMohOYGmJqg=";
+        # Pre-fetched Zig dependencies (fixed-output derivation)
+        # Update this hash when build.zig.zon changes:
+        #   1. Set zigDepsHash = "";
+        #   2. Run `nix build` — it fails and prints the correct hash
+        #   3. Replace zigDepsHash with the printed hash
+        zigDepsHash = "sha256-gAStXNdjSeXASQc/z9Z8xwB8gts4Ww3P7NdUTbeNBO8=";
+
+        zigDeps = pkgs.stdenv.mkDerivation {
+          pname = "z7z-zig-deps";
+          version = "0.1.0";
+          src = self;
+
+          nativeBuildInputs = with pkgs; [ zig git cacert ];
+
+          outputHashMode = "recursive";
+          outputHashAlgo = "sha256";
+          outputHash = zigDepsHash;
+
+          buildPhase = ''
+            export HOME=$TMPDIR
+            export ZIG_GLOBAL_CACHE_DIR=$out
+            export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+            export GIT_SSL_CAINFO=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+            zig build --fetch=all
+          '';
+
+          dontInstall = true;
+          dontFixup = true;
         };
-
-        # Unpack into the directory structure Zig expects for --system
-        zigDeps = pkgs.runCommandLocal "zig-deps" {} ''
-          hash="libmagic-5.46.0-RysxHD9fCACu5caBjXS-x3qQnQM3nRfosCyktdVRzv-R"
-          mkdir -p "$out/$hash"
-          tar xzf ${libmagic-tarball} --strip-components=1 -C "$out/$hash"
-        '';
 
         z7z = pkgs.stdenv.mkDerivation {
           pname = "z7z";
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = [ pkgs.zig ];
+          nativeBuildInputs = [ pkgs.zig ]
+            ++ pkgs.lib.optionals isDarwin [
+              pkgs.darwin.cctools
+              pkgs.apple-sdk
+            ];
 
           dontConfigure = true;
 
           buildPhase = ''
             export HOME="$TMPDIR"
-            export ZIG_GLOBAL_CACHE_DIR=$(mktemp -d)
-            zig build --system ${zigDeps} --prefix $out -Doptimize=ReleaseFast
+            export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
+            mkdir -p $ZIG_GLOBAL_CACHE_DIR
+            cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
+            chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
+            zig build --prefix $out -Doptimize=ReleaseFast
           '';
 
           dontInstall = true;
+          dontFixup = true;
         };
       in {
         packages.default = z7z;
@@ -49,18 +75,29 @@
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = [ pkgs.zig ];
+          nativeBuildInputs = [ pkgs.zig ]
+            ++ pkgs.lib.optionals isDarwin [
+              pkgs.darwin.cctools
+              pkgs.apple-sdk
+            ];
 
           dontConfigure = true;
 
           buildPhase = ''
             export HOME="$TMPDIR"
-            export ZIG_GLOBAL_CACHE_DIR=$(mktemp -d)
-            zig build --system ${zigDeps} test
+            export ZIG_GLOBAL_CACHE_DIR=$TMPDIR/zig-cache
+            mkdir -p $ZIG_GLOBAL_CACHE_DIR
+            cp -r ${zigDeps}/* $ZIG_GLOBAL_CACHE_DIR/
+            chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
+            timeout 600 zig build test || {
+              echo "Tests timed out or failed after 10 minutes"
+              exit 1
+            }
           '';
 
           installPhase = ''
-            touch $out
+            mkdir -p $out
+            echo "tests passed" > $out/result
           '';
         };
 
