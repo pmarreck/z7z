@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const lib = b.addLibrary(.{
-        .name = "z7z",
+        .name = "libz7z",
         .linkage = .static,
         .root_module = lib_module,
     });
