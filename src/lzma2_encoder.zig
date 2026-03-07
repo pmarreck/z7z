@@ -158,11 +158,12 @@ const MatchFinder = struct {
     hash: []u32, // 4-byte hash table -> most recent pos+1 (0 = empty)
     hash2: []u32, // 2-byte hash table (perfect hash, 65536 entries)
     hash3: []u32, // 3-byte hash table (262144 entries)
-    bt_left: []u32, // left child array (pos -> pos+1 of left child)
-    bt_right: []u32, // right child array
+    bt_left: []u32, // left child array (circular, indexed by pos & bt_mask)
+    bt_right: []u32, // right child array (circular, indexed by pos & bt_mask)
     data: []const u8,
     dict_size: u32,
     nice_len: u32,
+    bt_mask: usize, // bt_size - 1, for fast modular indexing
 
     const BT_DEPTH: u32 = 32;
     const DEFAULT_NICE_LEN: u32 = 128;
@@ -174,9 +175,15 @@ const MatchFinder = struct {
         @memset(hash2, 0);
         const hash3 = try allocator.alloc(u32, HASH3_SIZE);
         @memset(hash3, 0);
-        const bt_left = try allocator.alloc(u32, data.len);
+        // Sliding window: bt arrays only need dict_size entries (not data.len).
+        // This reduces memory from O(data.len) to O(dict_size) — critical for
+        // large inputs where data.len >> dict_size (e.g. 1.5GB block with 8MB dict
+        // saves ~12GB per block). Round up to power of 2 for fast bitmask indexing.
+        const raw_bt_size: usize = @min(data.len, @as(usize, dict_size));
+        const bt_size: usize = if (raw_bt_size == 0) 1 else std.math.ceilPowerOfTwo(usize, raw_bt_size) catch raw_bt_size;
+        const bt_left = try allocator.alloc(u32, bt_size);
         @memset(bt_left, 0);
-        const bt_right = try allocator.alloc(u32, data.len);
+        const bt_right = try allocator.alloc(u32, bt_size);
         @memset(bt_right, 0);
         return .{
             .hash = hash,
@@ -187,6 +194,7 @@ const MatchFinder = struct {
             .data = data,
             .dict_size = dict_size,
             .nice_len = nice_len_param,
+            .bt_mask = bt_size - 1,
         };
     }
 
@@ -306,8 +314,8 @@ const MatchFinder = struct {
             const cur = self.hash[h];
             self.hash[h] = @intCast(pos + 1);
             // Graft the existing chain onto this node (minimal tree maintenance)
-            self.bt_left[pos] = cur;
-            self.bt_right[pos] = 0;
+            self.bt_left[pos & self.bt_mask] = cur;
+            self.bt_right[pos & self.bt_mask] = 0;
             return candidates;
         }
 
@@ -320,8 +328,8 @@ const MatchFinder = struct {
         var cur = self.hash[h];
         self.hash[h] = @intCast(pos + 1);
 
-        var left_ptr = &self.bt_left[pos];
-        var right_ptr = &self.bt_right[pos];
+        var left_ptr = &self.bt_left[pos & self.bt_mask];
+        var right_ptr = &self.bt_right[pos & self.bt_mask];
         var best_left_len: u32 = 0;
         var best_right_len: u32 = 0;
         var depth: u32 = 0;
@@ -340,21 +348,21 @@ const MatchFinder = struct {
                 best_len = common;
                 // Early exit: max_len reached OR match is "nice enough"
                 if (common >= max_len or common >= self.nice_len) {
-                    left_ptr.* = self.bt_left[match_pos];
-                    right_ptr.* = self.bt_right[match_pos];
+                    left_ptr.* = self.bt_left[match_pos & self.bt_mask];
+                    right_ptr.* = self.bt_right[match_pos & self.bt_mask];
                     return candidates;
                 }
             }
 
             if (common < max_len and self.data[pos + common] < self.data[match_pos + common]) {
                 right_ptr.* = cur;
-                right_ptr = &self.bt_left[match_pos];
-                cur = self.bt_left[match_pos];
+                right_ptr = &self.bt_left[match_pos & self.bt_mask];
+                cur = self.bt_left[match_pos & self.bt_mask];
                 best_right_len = common;
             } else {
                 left_ptr.* = cur;
-                left_ptr = &self.bt_right[match_pos];
-                cur = self.bt_right[match_pos];
+                left_ptr = &self.bt_right[match_pos & self.bt_mask];
+                cur = self.bt_right[match_pos & self.bt_mask];
                 best_left_len = common;
             }
         }
