@@ -42,11 +42,15 @@ const RangeEncoder = struct {
         const low32 = @as(u32, @truncate(self.low));
         const carry: u8 = @intCast(self.low >> 32);
         if (low32 < 0xFF00_0000 or carry != 0) {
-            var temp = self.cache;
-            var cs = self.cache_size;
-            while (cs > 0) : (cs -= 1) {
-                try self.output.append(allocator, temp +% carry);
-                temp = 0xFF;
+            const cs = self.cache_size;
+            // Pre-allocate capacity for all bytes we're about to emit,
+            // avoiding per-byte capacity checks in the hot loop.
+            try self.output.ensureUnusedCapacity(allocator, cs);
+            self.output.appendAssumeCapacity(self.cache +% carry);
+            var remaining = cs - 1;
+            const fill: u8 = 0xFF +% carry;
+            while (remaining > 0) : (remaining -= 1) {
+                self.output.appendAssumeCapacity(fill);
             }
             self.cache = @intCast((self.low >> 24) & 0xFF);
             self.cache_size = 0;
@@ -68,6 +72,7 @@ const RangeEncoder = struct {
             prob.* -= @intCast(prob.* >> 5);
         }
         if (self.range < 0x0100_0000) {
+            @branchHint(.unlikely);
             self.range <<= 8;
             try self.shiftLow(allocator);
         }
@@ -80,6 +85,7 @@ const RangeEncoder = struct {
             self.low += self.range;
         }
         if (self.range < 0x0100_0000) {
+            @branchHint(.unlikely);
             self.range <<= 8;
             try self.shiftLow(allocator);
         }
@@ -229,22 +235,19 @@ const MatchFinder = struct {
     }
 
     fn hash2val(data: []const u8, pos: usize) u32 {
-        return @as(u32, data[pos]) | (@as(u32, data[pos + 1]) << 8);
+        return std.mem.readInt(u16, @as(*const [2]u8, @ptrCast(data.ptr + pos)), .little);
     }
 
     fn hash3val(data: []const u8, pos: usize) u32 {
-        const v = @as(u32, data[pos]) |
-            (@as(u32, data[pos + 1]) << 8) |
-            (@as(u32, data[pos + 2]) << 16);
-        return (v *% 0x56A3B17D) >> (32 - HASH3_BITS);
+        // Load 2 bytes + 1 byte: use a u16 read + separate byte to avoid unaligned u32
+        const lo: u32 = std.mem.readInt(u16, @as(*const [2]u8, @ptrCast(data.ptr + pos)), .little);
+        const hi: u32 = data[pos + 2];
+        return ((hi << 16) | lo) *% 0x56A3B17D >> (32 - HASH3_BITS);
     }
 
     fn hash4(data: []const u8, pos: usize) u32 {
         if (pos + 3 >= data.len) return 0;
-        const v = @as(u32, data[pos]) |
-            (@as(u32, data[pos + 1]) << 8) |
-            (@as(u32, data[pos + 2]) << 16) |
-            (@as(u32, data[pos + 3]) << 24);
+        const v = std.mem.readInt(u32, @as(*const [4]u8, @ptrCast(data.ptr + pos)), .little);
         return (v *% 0x9E3779B1) >> (32 - HASH_BITS);
     }
 
@@ -328,8 +331,18 @@ const MatchFinder = struct {
         var cur = self.hash[h];
         self.hash[h] = @intCast(pos + 1);
 
-        var left_ptr = &self.bt_left[pos & self.bt_mask];
-        var right_ptr = &self.bt_right[pos & self.bt_mask];
+        // Hoist struct fields into locals to help LLVM avoid aliasing concerns
+        // (writes through left_ptr/right_ptr could otherwise alias self's fields)
+        const data = self.data;
+        const dict_size = self.dict_size;
+        const nice_len = self.nice_len;
+        const mask = self.bt_mask;
+        const bt_l = self.bt_left;
+        const bt_r = self.bt_right;
+        const max_len = @min(MAX_MATCH, @as(u32, @intCast(data.len - pos)));
+
+        var left_ptr = &bt_l[pos & mask];
+        var right_ptr = &bt_r[pos & mask];
         var best_left_len: u32 = 0;
         var best_right_len: u32 = 0;
         var depth: u32 = 0;
@@ -338,31 +351,30 @@ const MatchFinder = struct {
             const match_pos = cur - 1;
             if (pos <= match_pos) break;
             const dist = @as(u32, @intCast(pos - match_pos));
-            if (dist > self.dict_size) break;
+            if (dist > dict_size) break;
 
-            const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
-            const common = extendMatch(self.data, pos, match_pos, @min(best_left_len, best_right_len), max_len);
+            const common = extendMatch(data, pos, match_pos, @min(best_left_len, best_right_len), max_len);
 
             if (common > best_len) {
                 candidates.add(.{ .distance = dist - 1, .length = common });
                 best_len = common;
                 // Early exit: max_len reached OR match is "nice enough"
-                if (common >= max_len or common >= self.nice_len) {
-                    left_ptr.* = self.bt_left[match_pos & self.bt_mask];
-                    right_ptr.* = self.bt_right[match_pos & self.bt_mask];
+                if (common >= max_len or common >= nice_len) {
+                    left_ptr.* = bt_l[match_pos & mask];
+                    right_ptr.* = bt_r[match_pos & mask];
                     return candidates;
                 }
             }
 
-            if (common < max_len and self.data[pos + common] < self.data[match_pos + common]) {
+            if (common < max_len and data[pos + common] < data[match_pos + common]) {
                 right_ptr.* = cur;
-                right_ptr = &self.bt_left[match_pos & self.bt_mask];
-                cur = self.bt_left[match_pos & self.bt_mask];
+                right_ptr = &bt_l[match_pos & mask];
+                cur = bt_l[match_pos & mask];
                 best_right_len = common;
             } else {
                 left_ptr.* = cur;
-                left_ptr = &self.bt_right[match_pos & self.bt_mask];
-                cur = self.bt_right[match_pos & self.bt_mask];
+                left_ptr = &bt_r[match_pos & mask];
+                cur = bt_r[match_pos & mask];
                 best_left_len = common;
             }
         }
