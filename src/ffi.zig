@@ -520,6 +520,97 @@ export fn z7z_create_ex_pw(
 	return Z7Z_OK;
 }
 
+/// Create a .7z archive with full options: password, level, thread count, header encryption, progress.
+/// thread_count: 0 = auto-detect, 1 = single-threaded, N = use N threads.
+/// encrypt_header: 1 = encrypt header (-mhe=on), 0 = plaintext header.
+export fn z7z_create_ex2(
+    files: ?[*]const Z7zFileEntry,
+    count: usize,
+    password: ?[*:0]const u8,
+    level: u8,
+    thread_count: u32,
+    encrypt_header: c_int,
+    progress_cb: ?z7z_progress_fn,
+    user_data: ?*anyopaque,
+    out_data: ?*?[*]u8,
+    out_len: ?*usize,
+) c_int {
+    const out_d = out_data orelse return Z7Z_ERR_INVALID_ARG;
+    const out_l = out_len orelse return Z7Z_ERR_INVALID_ARG;
+    const files_ptr = files orelse {
+        if (count == 0) {
+            out_d.* = null;
+            out_l.* = 0;
+            return Z7Z_OK;
+        }
+        return Z7Z_ERR_INVALID_ARG;
+    };
+
+    const allocator = ffiAllocator();
+
+    const zig_files = allocator.alloc(archive.FileEntry, count) catch return Z7Z_ERR_OUT_OF_MEMORY;
+    defer allocator.free(zig_files);
+
+    for (0..count) |i| {
+        const cf = files_ptr[i];
+        const name_len = std.mem.len(cf.name);
+        const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
+        const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
+        const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
+        const mtime: ?u64 = if (cf.mtime > 0)
+            (@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+        else
+            null;
+        const ctime: ?u64 = if (cf.ctime > 0)
+            (@as(u64, @intCast(cf.ctime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+        else
+            null;
+        const atime: ?u64 = if (cf.atime > 0)
+            (@as(u64, @intCast(cf.atime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+        else
+            null;
+        const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
+        const xattr_data: ?[]const u8 = if (cf.xattrs) |xp|
+            xp[0..cf.xattrs_len]
+        else
+            null;
+        zig_files[i] = .{
+            .name = cf.name[0..name_len],
+            .data = data_slice,
+            .is_dir = is_dir,
+            .is_symlink = is_symlink,
+            .mtime = mtime,
+            .ctime = ctime,
+            .atime = atime,
+            .win_attrib = attrib,
+            .xattrs = xattr_data,
+            .group_index = cf.group_index,
+        };
+    }
+
+    const pw: ?[]const u8 = if (password) |p| std.mem.span(p) else null;
+
+    const progress = archive.ProgressContext{
+        .callback = progress_cb,
+        .user_data = user_data,
+    };
+
+    const clamped_level: u4 = @intCast(@min(level, 9));
+    const opts = archive.CreateOptions{
+        .method = if (pw != null) .lzma2_aes else .lzma2,
+        .password = pw,
+        .level = clamped_level,
+        .thread_count = thread_count,
+        .encrypt_header = encrypt_header != 0,
+        .progress = progress,
+    };
+
+    const result = archive.createWithOptions(zig_files, opts, allocator) catch |e| return mapCreateError(e);
+    out_d.* = result.ptr;
+    out_l.* = result.len;
+    return Z7Z_OK;
+}
+
 /// Free memory allocated by z7z_create.
 export fn z7z_free(data: ?[*]u8, len: usize) void {
 	const ptr = data orelse return;
@@ -920,4 +1011,85 @@ test "ffi: encrypted roundtrip via create_ex_pw + open_ex_pw" {
 	try std.testing.expectEqual(file_content.len, z7z_file_size(handle, 0));
 	const data = z7z_file_data(handle, 0).?;
 	try std.testing.expectEqualStrings(file_content, data[0..file_content.len]);
+}
+
+test "ffi: create_ex2 with thread_count and header encryption" {
+	const password = "ex2_test";
+	const file_content = "create_ex2 roundtrip test";
+
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "ex2.txt",
+			.data = file_content,
+			.data_len = file_content.len,
+			.flags = 0,
+			.mtime = 0,
+			.win_attrib = 0,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = null,
+			.xattrs_len = 0,
+			.group_index = 0,
+		},
+	};
+
+	// Create with thread_count=1, header encryption on
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	const rc = z7z_create_ex2(&entries, 1, password, 3, 1, 1, null, null, &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	// Without password — should fail (header is encrypted, so even parsing fails)
+	var handle_bad: ?*ArchiveHandle = null;
+	const rc_bad = z7z_open(out_data.?, out_len, &handle_bad);
+	try std.testing.expect(rc_bad != Z7Z_OK);
+
+	// With password — should succeed
+	var handle: ?*ArchiveHandle = null;
+	const rc2 = z7z_open_ex_pw(out_data.?, out_len, password, null, null, &handle);
+	try std.testing.expectEqual(Z7Z_OK, rc2);
+	defer z7z_close(handle);
+
+	try std.testing.expectEqual(@as(usize, 1), z7z_file_count(handle));
+	try std.testing.expectEqualStrings("ex2.txt", std.mem.span(z7z_file_name(handle, 0).?));
+	try std.testing.expectEqual(file_content.len, z7z_file_size(handle, 0));
+	const data = z7z_file_data(handle, 0).?;
+	try std.testing.expectEqualStrings(file_content, data[0..file_content.len]);
+}
+
+test "ffi: create_ex2 without password uses plain LZMA2" {
+	const file_content = "plain lzma2 via create_ex2";
+
+	var entries = [_]Z7zFileEntry{
+		.{
+			.name = "plain.txt",
+			.data = file_content,
+			.data_len = file_content.len,
+			.flags = 0,
+			.mtime = 0,
+			.win_attrib = 0,
+			.ctime = 0,
+			.atime = 0,
+			.xattrs = null,
+			.xattrs_len = 0,
+			.group_index = 0,
+		},
+	};
+
+	var out_data: ?[*]u8 = null;
+	var out_len: usize = 0;
+	// No password, thread_count=1, no header encryption
+	const rc = z7z_create_ex2(&entries, 1, null, 5, 1, 0, null, null, &out_data, &out_len);
+	try std.testing.expectEqual(Z7Z_OK, rc);
+	defer z7z_free(out_data, out_len);
+
+	var handle: ?*ArchiveHandle = null;
+	const rc2 = z7z_open(out_data.?, out_len, &handle);
+	try std.testing.expectEqual(Z7Z_OK, rc2);
+	defer z7z_close(handle);
+
+	try std.testing.expectEqual(@as(usize, 1), z7z_file_count(handle));
+	try std.testing.expectEqualStrings("plain.txt", std.mem.span(z7z_file_name(handle, 0).?));
+	try std.testing.expectEqualStrings(file_content, z7z_file_data(handle, 0).?[0..file_content.len]);
 }

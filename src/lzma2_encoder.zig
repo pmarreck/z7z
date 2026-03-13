@@ -952,6 +952,12 @@ pub const LevelParams = struct {
 };
 
 pub fn compress(data: []const u8, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+    return compressWithThreads(data, dict_size, nice_len, 0, progress, allocator);
+}
+
+/// Compress data to LZMA2 format with explicit thread count control.
+/// thread_count: 0 = auto-detect, 1 = single-threaded, N = use N threads.
+pub fn compressWithThreads(data: []const u8, dict_size: u32, nice_len: u32, thread_count: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     if (data.len == 0) {
         // Empty data: just end marker
         const result = try allocator.alloc(u8, 1);
@@ -967,9 +973,10 @@ pub fn compress(data: []const u8, dict_size: u32, nice_len: u32, progress: Progr
     const clamped_dict_size: u32 = @min(dict_size, @as(u32, @intCast(@min(data.len, 0xFFFFFFFF))));
 
     // Parallel compression for large inputs on multi-core machines
+    // thread_count: 0 = auto, 1 = force single, N = use N threads
     const MIN_PARALLEL_SIZE = 1 << 20; // 1MB
-    if (data.len >= MIN_PARALLEL_SIZE) {
-        const cpu_count = std.Thread.getCpuCount() catch 1;
+    if (thread_count != 1 and data.len >= MIN_PARALLEL_SIZE) {
+        const cpu_count: usize = if (thread_count > 0) @intCast(thread_count) else (std.Thread.getCpuCount() catch 1);
         if (cpu_count > 1) {
             const num_blocks = @min(cpu_count, data.len / MIN_PARALLEL_SIZE);
             if (num_blocks > 1) {

@@ -423,9 +423,15 @@ fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.All
 /// Compress data using LZMA2.
 /// Returns owned slice of LZMA2-compressed bytes.
 pub fn compressLzma2(data: []const u8, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
-	return lzma2_enc.compress(data, dict_size, nice_len, progress, allocator) catch |e| switch (e) {
+	return compressLzma2WithThreads(data, dict_size, nice_len, 0, progress, allocator);
+}
+
+/// Compress data using LZMA2 with explicit thread count control.
+/// thread_count: 0 = auto-detect, 1 = single-threaded, N = use N threads.
+pub fn compressLzma2WithThreads(data: []const u8, dict_size: u32, nice_len: u32, thread_count: u32, progress: ProgressContext, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
+	return lzma2_enc.compressWithThreads(data, dict_size, nice_len, thread_count, progress, allocator) catch |e| switch (e) {
 		error.OutOfMemory => return error.OutOfMemory,
-		else => unreachable, // encoder only allocates; no other runtime errors
+		else => unreachable,
 	};
 }
 

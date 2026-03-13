@@ -1550,10 +1550,12 @@ handle_file:;
 
 	uint8_t *out_data = NULL;
 	size_t out_len = 0;
-	int rc = z7z_create_ex_pw(list.entries, list.count,
-	                           g_password, (uint8_t)g_level,
-	                           prog ? progrez_adapter : NULL, prog,
-	                           &out_data, &out_len);
+	uint32_t mmt = (g_mmt < 0) ? 0 : (uint32_t)g_mmt;
+	int rc = z7z_create_ex2(list.entries, list.count,
+	                         g_password, (uint8_t)g_level,
+	                         mmt, g_header_encrypt,
+	                         prog ? progrez_adapter : NULL, prog,
+	                         &out_data, &out_len);
 	if (rc != Z7Z_OK) {
 		fprintf(stderr, "error: %s\n", z7z_error_string(rc));
 		if (prog) { progrez_finish(prog); progrez_destroy(prog); }

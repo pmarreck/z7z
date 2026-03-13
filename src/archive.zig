@@ -10,6 +10,9 @@ const meta = @import("metadata.zig");
 const encoder = @import("encoder.zig");
 const codec = @import("codec.zig");
 const aes_crypt = @import("aes_crypt.zig");
+const nid = @import("nid.zig");
+const varint = @import("varint.zig");
+const Writer = @import("writer.zig").Writer;
 pub const ProgressContext = @import("progress.zig").ProgressContext;
 
 // POSIX and Windows attribute constants for kWinAttrib encoding.
@@ -80,6 +83,46 @@ pub const ArchiveContents = struct {
 /// Re-export LevelParams for consumers.
 pub const LevelParams = codec.LevelParams;
 
+/// Options for archive creation with full control over threading and header encryption.
+pub const CreateOptions = struct {
+    method: Method = .lzma2,
+    password: ?[]const u8 = null,
+    level: u4 = LevelParams.DEFAULT_LEVEL,
+    thread_count: u32 = 0, // 0 = auto, 1 = single-threaded, N = N threads
+    encrypt_header: bool = false, // -mhe=on: encrypt the archive header too
+    progress: ProgressContext = .{},
+};
+
+/// Create a .7z archive in memory with full control over all options.
+pub fn createWithOptions(files: []const FileEntry, opts: CreateOptions, allocator: std.mem.Allocator) ![]u8 {
+    // Check if multi-folder is needed (mixed group_indices among data files)
+    const method = if (opts.password != null and opts.method == .lzma2) Method.lzma2_aes else opts.method;
+    if (method != .copy) {
+        var needs_multi = false;
+        var first_group: ?u32 = null;
+        for (files) |f| {
+            if (f.is_dir) continue;
+            if (first_group == null) {
+                first_group = f.group_index;
+            } else if (f.group_index != first_group.?) {
+                needs_multi = true;
+                break;
+            }
+        }
+        if (needs_multi) {
+            return createMultiFolder(files, method, opts.password, opts.level, opts.progress, allocator);
+        }
+    }
+
+    const lp = LevelParams.fromLevel(opts.level);
+    const archive_data = switch (method) {
+        .copy => try createCopy(files, allocator),
+        .lzma2 => try createLzma2WithThreads(files, lp.dict_size, lp.nice_len, opts.thread_count, opts.progress, allocator),
+        .lzma2_aes => try createLzma2AesWithOptions(files, opts.password orelse return error.OutOfMemory, lp.dict_size, lp.nice_len, opts.thread_count, opts.encrypt_header, opts.progress, allocator),
+    };
+    return archive_data;
+}
+
 /// Create a .7z archive in memory using LZMA2 at the default compression level.
 pub fn create(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     return createWithMethod(files, .lzma2, allocator);
@@ -131,6 +174,11 @@ pub fn createWithLevel(files: []const FileEntry, method: Method, password: ?[]co
 
 /// Create a .7z archive in memory using LZMA2 compression.
 fn createLzma2(files: []const FileEntry, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+    return createLzma2WithThreads(files, dict_size, nice_len, 0, progress, allocator);
+}
+
+/// Create a .7z archive in memory using LZMA2 compression with explicit thread count.
+fn createLzma2WithThreads(files: []const FileEntry, dict_size: u32, nice_len: u32, thread_count: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     // Concatenate all non-directory file data
     var total_unpack_size: u64 = 0;
     for (files) |f| {
@@ -150,7 +198,7 @@ fn createLzma2(files: []const FileEntry, dict_size: u32, nice_len: u32, progress
     }
 
     // Compress with LZMA2
-    const compressed = try codec.compressLzma2(raw_data, dict_size, nice_len, progress, allocator);
+    const compressed = try codec.compressLzma2WithThreads(raw_data, dict_size, nice_len, thread_count, progress, allocator);
     defer allocator.free(compressed);
 
     // Build metadata
@@ -272,6 +320,11 @@ fn createLzma2(files: []const FileEntry, dict_size: u32, nice_len: u32, progress
 
 /// Create a .7z archive with LZMA2 compression + AES-256-CBC encryption.
 fn createLzma2Aes(files: []const FileEntry, password: []const u8, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
+    return createLzma2AesWithOptions(files, password, dict_size, nice_len, 0, false, progress, allocator);
+}
+
+/// Create a .7z archive with LZMA2+AES, explicit thread count, and optional header encryption.
+fn createLzma2AesWithOptions(files: []const FileEntry, password: []const u8, dict_size: u32, nice_len: u32, thread_count: u32, encrypt_header: bool, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
     // Step 1: Concatenate all non-directory file data
     var total_unpack_size: u64 = 0;
     for (files) |f| {
@@ -290,7 +343,7 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, dict_size: u32
     }
 
     // Step 2: Compress with LZMA2
-    const compressed = try codec.compressLzma2(raw_data, dict_size, nice_len, progress, allocator);
+    const compressed = try codec.compressLzma2WithThreads(raw_data, dict_size, nice_len, thread_count, progress, allocator);
     defer allocator.free(compressed);
 
     // Step 3: Encrypt with AES-256-CBC
@@ -430,29 +483,60 @@ fn createLzma2Aes(files: []const FileEntry, password: []const u8, dict_size: u32
     };
     defer archive_meta.deinit();
 
-    // Encode next-header
+    // Encode next-header (kHeader)
     const next_header = try encoder.encodeNextHeader(archive_meta, allocator);
     defer allocator.free(next_header);
 
-    const next_header_crc = crc32.hash(next_header);
+    if (encrypt_header) {
+        // -mhe=on: wrap the kHeader as kEncodedHeader (compress + encrypt the header itself)
+        const enc_result = try encryptHeader(next_header, encrypted.len, password, allocator);
+        defer allocator.free(enc_result.header_pack_data);
+        defer allocator.free(enc_result.encoded_header_descriptor);
 
-    // Build signature header
-    const sig = sig_header.encode(.{
-        .major_version = 0,
-        .minor_version = 4,
-        .next_header_offset = encrypted.len,
-        .next_header_size = next_header.len,
-        .next_header_crc = next_header_crc,
-    });
+        const descriptor_crc = crc32.hash(enc_result.encoded_header_descriptor);
 
-    // Assemble final archive
-    const total_size = sig_header.HEADER_SIZE + encrypted.len + next_header.len;
-    const archive_out = try allocator.alloc(u8, total_size);
-    @memcpy(archive_out[0..sig_header.HEADER_SIZE], &sig);
-    @memcpy(archive_out[sig_header.HEADER_SIZE .. sig_header.HEADER_SIZE + encrypted.len], encrypted);
-    @memcpy(archive_out[sig_header.HEADER_SIZE + encrypted.len ..], next_header);
+        // Archive layout: [sig][content_pack][header_pack][encoded_header_descriptor]
+        const sig = sig_header.encode(.{
+            .major_version = 0,
+            .minor_version = 4,
+            .next_header_offset = encrypted.len + enc_result.header_pack_data.len,
+            .next_header_size = enc_result.encoded_header_descriptor.len,
+            .next_header_crc = descriptor_crc,
+        });
 
-    return archive_out;
+        const total_size = sig_header.HEADER_SIZE + encrypted.len + enc_result.header_pack_data.len + enc_result.encoded_header_descriptor.len;
+        const archive_out = try allocator.alloc(u8, total_size);
+        var off: usize = 0;
+        @memcpy(archive_out[off .. off + sig_header.HEADER_SIZE], &sig);
+        off += sig_header.HEADER_SIZE;
+        @memcpy(archive_out[off .. off + encrypted.len], encrypted);
+        off += encrypted.len;
+        @memcpy(archive_out[off .. off + enc_result.header_pack_data.len], enc_result.header_pack_data);
+        off += enc_result.header_pack_data.len;
+        @memcpy(archive_out[off..], enc_result.encoded_header_descriptor);
+
+        return archive_out;
+    } else {
+        const next_header_crc = crc32.hash(next_header);
+
+        // Build signature header
+        const sig = sig_header.encode(.{
+            .major_version = 0,
+            .minor_version = 4,
+            .next_header_offset = encrypted.len,
+            .next_header_size = next_header.len,
+            .next_header_crc = next_header_crc,
+        });
+
+        // Assemble final archive
+        const total_size = sig_header.HEADER_SIZE + encrypted.len + next_header.len;
+        const archive_out = try allocator.alloc(u8, total_size);
+        @memcpy(archive_out[0..sig_header.HEADER_SIZE], &sig);
+        @memcpy(archive_out[sig_header.HEADER_SIZE .. sig_header.HEADER_SIZE + encrypted.len], encrypted);
+        @memcpy(archive_out[sig_header.HEADER_SIZE + encrypted.len ..], next_header);
+
+        return archive_out;
+    }
 }
 
 /// Create a multi-folder .7z archive where files are grouped by group_index.
@@ -862,6 +946,116 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
     @memcpy(archive_out[sig_header.HEADER_SIZE + total_pack ..], next_header);
 
     return archive_out;
+}
+
+/// Result of encrypting a header for -mhe=on support.
+const EncryptedHeaderResult = struct {
+    header_pack_data: []u8, // encrypted+compressed header data (the pack stream)
+    encoded_header_descriptor: []u8, // kEncodedHeader descriptor bytes (what next_header points to)
+};
+
+/// Encrypt a kHeader into kEncodedHeader format for -mhe=on.
+/// content_pack_size is the total size of the content pack streams (used to compute pack_pos).
+fn encryptHeader(header_data: []const u8, content_pack_size: usize, password: []const u8, allocator: std.mem.Allocator) !EncryptedHeaderResult {
+    // Step 1: Compress the header with LZMA2
+    const lp = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+    const compressed_header = try codec.compressLzma2(header_data, lp.dict_size, lp.nice_len, .{}, allocator);
+    defer allocator.free(compressed_header);
+
+    // Step 2: Encrypt with AES-256-CBC
+    var salt: [8]u8 = undefined;
+    var iv: [16]u8 = undefined;
+    std.crypto.random.bytes(&salt);
+    std.crypto.random.bytes(&iv);
+
+    const aes_props = aes_crypt.AesProperties{
+        .num_cycles_power = 19,
+        .salt = salt ++ ([_]u8{0} ** 8),
+        .salt_size = 8,
+        .iv = iv,
+        .iv_size = 16,
+    };
+
+    const key = aes_crypt.deriveKey(password, aes_props);
+
+    const padded_len = (compressed_header.len + 15) & ~@as(usize, 15);
+    var enc_header = try allocator.alloc(u8, padded_len);
+    errdefer allocator.free(enc_header);
+    @memcpy(enc_header[0..compressed_header.len], compressed_header);
+    if (padded_len > compressed_header.len) {
+        @memset(enc_header[compressed_header.len..], 0);
+    }
+
+    aes_crypt.encryptCbc(enc_header, key, iv) catch |e| return switch (e) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => error.StructuralError,
+    };
+
+    // Step 3: Build the kEncodedHeader descriptor
+    // This is: kEncodedHeader + MainStreamsInfo (PackInfo + UnpackInfo) + kEnd
+    var w = Writer.init(allocator);
+    errdefer w.deinit();
+
+    try w.writeNid(.encoded_header);
+
+    // PackInfo: pack_pos = content_pack_size (header pack stream follows content pack streams)
+    try w.writeNid(.pack_info);
+    try w.writeUint64(@intCast(content_pack_size)); // pack_pos
+    try w.writeUint64(1); // num_pack_streams = 1
+    try w.writeNid(.size);
+    try w.writeUint64(@intCast(enc_header.len)); // packed size
+    try w.writeNid(.end); // end PackInfo
+
+    // UnpackInfo
+    try w.writeNid(.unpack_info);
+    try w.writeNid(.folder);
+    try w.writeUint64(1); // num_folders = 1
+    try w.writeByte(0); // External = 0 (inline)
+
+    // Folder record: 2 coders (LZMA2 + 7zAES), 1 bind pair
+    // NumCoders
+    try w.writeUint64(2);
+
+    // Coder 0: LZMA2 (method_id = 0x21, 1 property byte)
+    // Flags: (id_size & 0xF) | 0x20 (has properties)
+    try w.writeByte(0x21); // id_size=1 | properties_flag=0x20 => 1 | 0x20 = 0x21
+    try w.writeByte(0x21); // method_id = 0x21 (LZMA2)
+    try w.writeUint64(1); // properties_size
+    try w.writeByte(calcLzma2DictProp(@as(u32, @intCast(@min(header_data.len, 0xFFFFFFFF))))); // dict prop
+
+    // Coder 1: 7zAES (method_id = 06 F1 07 01, properties)
+    const encoded_aes_props = aes_crypt.encodeProperties(aes_props);
+    const aes_props_len = encoded_aes_props.len;
+    try w.writeByte(@as(u8, 4) | 0x20); // id_size=4 | properties_flag=0x20 = 0x24
+    try w.writeByte(0x06);
+    try w.writeByte(0xF1);
+    try w.writeByte(0x07);
+    try w.writeByte(0x01);
+    try w.writeUint64(aes_props_len); // properties_size
+    for (encoded_aes_props.data[0..aes_props_len]) |b| {
+        try w.writeByte(b);
+    }
+
+    // BindPair: AES output (stream 1) → LZMA2 input (stream 0)
+    try w.writeUint64(0); // in_index
+    try w.writeUint64(1); // out_index
+
+    // kCodersUnpackSize: 2 unpack sizes
+    try w.writeNid(.coders_unpack_size);
+    try w.writeUint64(header_data.len); // LZMA2 output = original header size
+    try w.writeUint64(compressed_header.len); // AES output = compressed size
+
+    try w.writeNid(.end); // end UnpackInfo
+
+    try w.writeNid(.end); // end kEncodedHeader
+
+    const descriptor = try w.toOwnedSlice();
+    errdefer allocator.free(descriptor);
+
+    return .{
+        .header_pack_data = enc_header,
+        .encoded_header_descriptor = descriptor,
+    };
 }
 
 /// Calculate LZMA2 dictionary size property byte for a given data length.
@@ -1929,4 +2123,89 @@ test "archive: createMultiFolder preserves symlinks across groups" {
     } else {
         return error.TestUnexpectedResult;
     }
+}
+
+test "archive: createWithOptions thread_count=1 roundtrip" {
+    const allocator = std.testing.allocator;
+    const content = "Single-threaded compression test data.\n" ** 10;
+    const files = [_]FileEntry{
+        .{ .name = "threaded.txt", .data = content },
+    };
+
+    const opts = CreateOptions{
+        .method = .lzma2,
+        .level = 3,
+        .thread_count = 1, // force single-threaded
+    };
+    const archive_data = try createWithOptions(&files, opts, allocator);
+    defer allocator.free(archive_data);
+
+    var contents = try read(archive_data, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
+    try std.testing.expectEqualStrings("threaded.txt", contents.metadata.files[0].name.?);
+    try std.testing.expectEqualStrings(content, contents.file_data[0]);
+}
+
+test "archive: createWithOptions encrypted with header encryption roundtrip" {
+    const allocator = std.testing.allocator;
+    const password = "header_encrypt_test";
+    const content = "Header encryption (-mhe=on) test content.\n";
+    const files = [_]FileEntry{
+        .{ .name = "secret_hdr.txt", .data = content },
+    };
+
+    const opts = CreateOptions{
+        .method = .lzma2_aes,
+        .password = password,
+        .level = 3,
+        .encrypt_header = true,
+    };
+    const archive_data = try createWithOptions(&files, opts, allocator);
+    defer allocator.free(archive_data);
+
+    // Opening without password should fail
+    const bad_result = read(archive_data, allocator);
+    try std.testing.expectError(ArchiveError.UnsupportedFeature, bad_result);
+
+    // Opening with correct password should succeed and decrypt the header + content
+    var contents = try readWithPassword(archive_data, password, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
+    try std.testing.expectEqualStrings("secret_hdr.txt", contents.metadata.files[0].name.?);
+    try std.testing.expectEqualStrings(content, contents.file_data[0]);
+}
+
+test "archive: createWithOptions encrypted without header encryption" {
+    const allocator = std.testing.allocator;
+    const password = "no_header_encrypt";
+    const content = "Encrypted content, plain header.\n";
+    const files = [_]FileEntry{
+        .{ .name = "enc_plain_hdr.txt", .data = content },
+    };
+
+    // Without header encryption, the header is still readable without password
+    const opts = CreateOptions{
+        .method = .lzma2_aes,
+        .password = password,
+        .level = 3,
+        .encrypt_header = false,
+    };
+    const archive_data = try createWithOptions(&files, opts, allocator);
+    defer allocator.free(archive_data);
+
+    // Without password, we can still parse the header (see file names)
+    // but decompression of content should fail
+    const bad_result = read(archive_data, allocator);
+    try std.testing.expectError(ArchiveError.UnsupportedFeature, bad_result);
+
+    // With password, full roundtrip works
+    var contents = try readWithPassword(archive_data, password, allocator);
+    defer contents.deinit();
+
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
+    try std.testing.expectEqualStrings("enc_plain_hdr.txt", contents.metadata.files[0].name.?);
+    try std.testing.expectEqualStrings(content, contents.file_data[0]);
 }
