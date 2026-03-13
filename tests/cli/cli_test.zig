@@ -408,3 +408,305 @@ test "cli: mixed files and directory" {
     defer allocator.free(got_i);
     try testing.expectEqualStrings("Inner content", got_i);
 }
+
+// ============================================================================
+// New feature tests: test command, flat extract, selective, -o, -y, -mmt, -mhe
+// ============================================================================
+
+test "cli: test command verifies archive integrity" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "verify.txt", "data to verify");
+
+    var f_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const file_path = tmpPath(&f_buf, "verify.txt");
+    const archive_path = tmpPath(&arc_buf, "test_verify.7z");
+
+    const cr = try runCli(allocator, &.{ "create", "--no-progress", archive_path, file_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+
+    // test command should succeed
+    const tr = try runCli(allocator, &.{ "test", "--no-progress", archive_path });
+    defer tr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), tr.exit_code);
+    try testing.expect(std.mem.indexOf(u8, tr.stderr, "Everything is Ok") != null);
+}
+
+test "cli: 't' alias for test command" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "talias.txt", "t alias data");
+
+    var f_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const file_path = tmpPath(&f_buf, "talias.txt");
+    const archive_path = tmpPath(&arc_buf, "test_talias.7z");
+
+    const cr = try runCli(allocator, &.{ "a", "--no-progress", archive_path, file_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+
+    const tr = try runCli(allocator, &.{ "t", "--no-progress", archive_path });
+    defer tr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), tr.exit_code);
+    try testing.expect(std.mem.indexOf(u8, tr.stderr, "Everything is Ok") != null);
+}
+
+test "cli: test on corrupt data fails" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "corrupt.7z", "this is not a 7z archive");
+
+    var arc_buf: [256]u8 = undefined;
+    const archive_path = tmpPath(&arc_buf, "corrupt.7z");
+
+    const tr = try runCli(allocator, &.{ "t", "--no-progress", archive_path });
+    defer tr.deinit(allocator);
+    try testing.expect(tr.exit_code != 0);
+    try testing.expect(std.mem.indexOf(u8, tr.stderr, "FAILED") != null or
+        std.mem.indexOf(u8, tr.stderr, "ERROR") != null or
+        std.mem.indexOf(u8, tr.stderr, "error") != null);
+}
+
+test "cli: flat extract (e) strips directory structure" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try dir.makePath("flatdir");
+    {
+        const f = try dir.createFile("flatdir/deep.txt", .{});
+        defer f.close();
+        try f.writeAll("deep file");
+    }
+
+    var d_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    var out_buf: [256]u8 = undefined;
+    const dir_path = tmpPath(&d_buf, "flatdir");
+    const archive_path = tmpPath(&arc_buf, "flat_test.7z");
+    const out_dir = tmpPath(&out_buf, "out_flat");
+
+    const cr = try runCli(allocator, &.{ "create", "--no-progress", archive_path, dir_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+
+    // Use 'e' for flat extract with -o
+    var o_buf: [256]u8 = undefined;
+    const o_prefix = "-o";
+    @memcpy(o_buf[0..o_prefix.len], o_prefix);
+    @memcpy(o_buf[o_prefix.len .. o_prefix.len + out_dir.len], out_dir);
+    const o_flag = o_buf[0 .. o_prefix.len + out_dir.len];
+
+    const er = try runCli(allocator, &.{ "e", "--no-progress", "-y", o_flag, archive_path });
+    defer er.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), er.exit_code);
+
+    // deep.txt should be in out_dir root, not in out_dir/flatdir/
+    var out_d = try std.fs.cwd().openDir(out_dir, .{});
+    defer out_d.close();
+    const got = try readTestFile(allocator, out_d, "deep.txt");
+    defer allocator.free(got);
+    try testing.expectEqualStrings("deep file", got);
+
+    // flatdir/ subdirectory should NOT exist (flat extract)
+    const sub_result = out_d.openDir("flatdir", .{});
+    try testing.expect(sub_result == error.FileNotFound);
+}
+
+test "cli: -o flag sets output directory" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "oflag.txt", "output dir test");
+
+    var f_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    var out_buf: [256]u8 = undefined;
+    const file_path = tmpPath(&f_buf, "oflag.txt");
+    const archive_path = tmpPath(&arc_buf, "oflag_test.7z");
+    const out_dir = tmpPath(&out_buf, "out_oflag");
+
+    const cr = try runCli(allocator, &.{ "create", "--no-progress", archive_path, file_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+
+    var o_buf: [256]u8 = undefined;
+    const o_prefix = "-o";
+    @memcpy(o_buf[0..o_prefix.len], o_prefix);
+    @memcpy(o_buf[o_prefix.len .. o_prefix.len + out_dir.len], out_dir);
+    const o_flag = o_buf[0 .. o_prefix.len + out_dir.len];
+
+    const er = try runCli(allocator, &.{ "x", "--no-progress", "-y", o_flag, archive_path });
+    defer er.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), er.exit_code);
+
+    var out_d = try std.fs.cwd().openDir(out_dir, .{});
+    defer out_d.close();
+    const got = try readTestFile(allocator, out_d, "oflag.txt");
+    defer allocator.free(got);
+    try testing.expectEqualStrings("output dir test", got);
+}
+
+test "cli: -y flag allows overwriting existing files" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "overwrite.txt", "original");
+
+    var f_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    var out_buf: [256]u8 = undefined;
+    const file_path = tmpPath(&f_buf, "overwrite.txt");
+    const archive_path = tmpPath(&arc_buf, "overwrite_test.7z");
+    const out_dir = tmpPath(&out_buf, "out_overwrite");
+
+    const cr = try runCli(allocator, &.{ "create", "--no-progress", archive_path, file_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+
+    // First extract
+    const er1 = try runCli(allocator, &.{ "x", "--no-progress", "-y", archive_path, out_dir });
+    defer er1.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), er1.exit_code);
+
+    // Second extract without -y should skip existing files (warning)
+    const er2 = try runCli(allocator, &.{ "x", "--no-progress", archive_path, out_dir });
+    defer er2.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), er2.exit_code);
+    try testing.expect(std.mem.indexOf(u8, er2.stderr, "skipping existing file") != null);
+
+    // Third extract with -y should succeed without skipping
+    const er3 = try runCli(allocator, &.{ "x", "--no-progress", "-y", archive_path, out_dir });
+    defer er3.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), er3.exit_code);
+    try testing.expect(std.mem.indexOf(u8, er3.stderr, "skipping") == null);
+}
+
+test "cli: selective extraction by filename" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "keep.txt", "keep me");
+    try writeTestFile(dir, "skip.txt", "skip me");
+
+    var f1_buf: [256]u8 = undefined;
+    var f2_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    var out_buf: [256]u8 = undefined;
+    const f1_path = tmpPath(&f1_buf, "keep.txt");
+    const f2_path = tmpPath(&f2_buf, "skip.txt");
+    const archive_path = tmpPath(&arc_buf, "selective_test.7z");
+    const out_dir = tmpPath(&out_buf, "out_selective");
+
+    const cr = try runCli(allocator, &.{ "create", "--no-progress", archive_path, f1_path, f2_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+
+    // Extract only keep.txt using -o and selective filter
+    var o_buf: [256]u8 = undefined;
+    const o_prefix = "-o";
+    @memcpy(o_buf[0..o_prefix.len], o_prefix);
+    @memcpy(o_buf[o_prefix.len .. o_prefix.len + out_dir.len], out_dir);
+    const o_flag = o_buf[0 .. o_prefix.len + out_dir.len];
+
+    const er = try runCli(allocator, &.{ "x", "--no-progress", "-y", o_flag, archive_path, "keep.txt" });
+    defer er.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), er.exit_code);
+
+    var out_d = try std.fs.cwd().openDir(out_dir, .{});
+    defer out_d.close();
+
+    // keep.txt should exist
+    const got = try readTestFile(allocator, out_d, "keep.txt");
+    defer allocator.free(got);
+    try testing.expectEqualStrings("keep me", got);
+
+    // skip.txt should NOT exist
+    const skip_result = out_d.openFile("skip.txt", .{});
+    try testing.expect(skip_result == error.FileNotFound);
+}
+
+test "cli: -mhe=on warns without password" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "mhe.txt", "header encrypt test");
+
+    var f_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const file_path = tmpPath(&f_buf, "mhe.txt");
+    const archive_path = tmpPath(&arc_buf, "mhe_test.7z");
+
+    const cr = try runCli(allocator, &.{ "create", "--no-progress", "-mhe=on", archive_path, file_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+    try testing.expect(std.mem.indexOf(u8, cr.stderr, "-mhe=on has no effect") != null);
+}
+
+test "cli: -mmt=1 single-threaded create" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "mmt.txt", "threading test data");
+
+    var f_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const file_path = tmpPath(&f_buf, "mmt.txt");
+    const archive_path = tmpPath(&arc_buf, "mmt_test.7z");
+
+    const cr = try runCli(allocator, &.{ "create", "--no-progress", "-mmt=1", archive_path, file_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+
+    // Verify the archive is valid
+    const tr = try runCli(allocator, &.{ "t", "--no-progress", archive_path });
+    defer tr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), tr.exit_code);
+    try testing.expect(std.mem.indexOf(u8, tr.stderr, "Everything is Ok") != null);
+}
+
+test "cli: test with verbose shows file names" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+
+    var dir = try makeTmpDir();
+    defer dir.close();
+    try writeTestFile(dir, "verbose_test.txt", "verbose check");
+
+    var f_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const file_path = tmpPath(&f_buf, "verbose_test.txt");
+    const archive_path = tmpPath(&arc_buf, "verbose_test.7z");
+
+    const cr = try runCli(allocator, &.{ "create", "--no-progress", archive_path, file_path });
+    defer cr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), cr.exit_code);
+
+    const tr = try runCli(allocator, &.{ "t", "--no-progress", "-v", archive_path });
+    defer tr.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), tr.exit_code);
+    try testing.expect(std.mem.indexOf(u8, tr.stdout, "verbose_test.txt") != null);
+}

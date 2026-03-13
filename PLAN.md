@@ -225,9 +225,21 @@
   - PROGRESS env var, NO_COLOR support, ASCII fallback handled by progrez internally
   - 172 CLI tests, all passing
 
+- [x] 7zip CLI parity features (~2026-03-13 EST)
+  - `test`/`t` command: verify archive integrity without extracting, reports "Everything is Ok"
+  - `e` command: flat extract (strip directory structure), files extracted to output dir root
+  - Selective extraction: specify filenames/patterns after archive path (e.g. `z7z x archive.7z file1.txt *.doc`)
+  - Wildcard matching: `*` (any chars) and `?` (single char) in file filters
+  - `-o<dir>` flag: set output directory for extraction (7zz-compatible, no space after -o)
+  - `-y` flag: assume Yes on overwrite prompts (without -y, skips existing files with warning)
+  - `-mmt=N` flag: thread count (0=auto, 1=single-threaded, -mmt=on, -mmt=off)
+  - `-mhe=on` flag: header encryption (warns if used without -p)
+  - 10 new CLI integration tests, all passing
+
 ## TODO
 - [x] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
 - [ ] Actual i18n translations (30 languages) once textual UI is stable
 - [ ] `--simple` flag (suppress emoji + ANSI)
 - [ ] `--no-ansi`/`--no-color` flags
 - [ ] JSON output option for structured output
+- [ ] LLVM IR hand-tuning for hot paths (match finder, DP parser)

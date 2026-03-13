@@ -139,17 +139,25 @@ C header for the FFI. Matches ffi.zig exports.
 - `z7z_file_is_symlink()` — query if archive entry is a symbolic link
 
 ## cli/main.c
-C CLI that dogfoods the FFI (list, extract, create commands).
+C CLI that dogfoods the FFI (list, extract, create, test commands).
 - `solid_mode_t` — enum: SOLID_AUTO (MIME-grouped), SOLID_ON (one block), SOLID_OFF (per-file blocks)
 - `init_magic()` — initialize libmagic handle (MAGIC_MIME_TYPE | MAGIC_SYMLINK); no-op on Windows
 - `detect_mime()` — detect MIME type for a filesystem path via libmagic; returns NULL on failure
 - `assign_mime_groups()` — cluster entry_list files by unique MIME type, assigning group_index per unique MIME
+- `wildcard_match()` — simple wildcard matching (supports `*` and `?`)
+- `matches_filter()` — check if archive entry matches selective extraction filters (exact, wildcard, basename, prefix)
+- `cmd_test` — verify archive integrity without extracting; reports "Everything is Ok" or error
+  - Flags: `--no-progress`, `-v` (show individual file names), `-p`/`--password`
 - `cmd_create` — accepts files, directories, and symlinks
-  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`, `-p`/`--password`, `--solid`, `--no-solid`, `-mx=N`, `-0`..`-9`, `--level N`
+  - Flags: `--dereference`/`-L`, `--no-ctime`, `--atime`, `--no-xattr`, `-p`/`--password`, `--solid`, `--no-solid`, `-mx=N`, `-0`..`-9`, `--level N`, `-mmt=N`, `-mhe=on`
   - Captures st_mtime, birthtime, atime, st_mode, xattrs from lstat()
   - Uses progrez library for progress display + z7z-specific archive summary (ratio, sizes, entries)
 - `cmd_extract` — creates directories, symlinks, and files; path traversal security for symlink targets
-  - Flags: `--no-ctime`, `--no-xattr`, `-p`/`--password`
+  - Supports flat extract via `e` command (strips directory structure, extracts basenames only)
+  - Supports selective extraction: remaining positional args are file filters (exact, wildcard, directory prefix)
+  - Flags: `--no-ctime`, `--no-xattr`, `-p`/`--password`, `-o<dir>`, `-y`
+  - `-o<dir>`: output directory (7zz-compatible, no space)
+  - `-y`: overwrite existing files without prompting (default: skip with warning)
   - Restores permissions, mtime+atime via set_times(), birthtime via set_birthtime(), xattrs via restore_xattrs()
   - Deferred directory mtime restoration (deepest-first) to avoid clobbering by child writes
   - Uses progrez library for progress display + z7z-specific extraction summary

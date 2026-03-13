@@ -62,6 +62,11 @@ static int g_no_progress = 0;
 static int g_level = Z7Z_DEFAULT_LEVEL;  /* compression level 0-9, default 5 */
 static const char *g_password = NULL;
 static const char *g_lang = "en";  /* default language; overridden by Z7Z_LANG or --lang */
+static int g_yes = 0;              /* -y: assume Yes on overwrite prompts */
+static int g_flat_extract = 0;     /* 1 when using 'e' command (flat extract) */
+static const char *g_out_dir = NULL; /* -o<dir> output directory override */
+static int g_mmt = -1;            /* -mmt=N: thread count (-1 = auto) */
+static int g_header_encrypt = 0;  /* -mhe=on: encrypt archive headers */
 
 /* Solid block grouping mode */
 typedef enum { SOLID_AUTO, SOLID_ON, SOLID_OFF } solid_mode_t;
@@ -139,13 +144,17 @@ static void usage(const char *prog) {
 	fprintf(stderr,
 		"Usage:\n"
 		"  %s list    <archive.7z>\n"
-		"  %s extract [options] <archive.7z> [output-dir]\n"
+		"  %s extract [options] <archive.7z> [file ...]\n"
+		"  %s e       [options] <archive.7z> [file ...]\n"
 		"  %s create  [options] <archive.7z> <file1|dir1> [file2|dir2 ...]\n"
+		"  %s test    <archive.7z>\n"
 		"\n"
 		"Commands:\n"
 		"  list, l       List archive contents\n"
-		"  extract, x    Extract archive to directory\n"
+		"  extract, x    Extract archive preserving directory structure\n"
+		"  e             Extract archive without directory structure (flat)\n"
 		"  create, a     Create archive from files/directories\n"
+		"  test, t       Test archive integrity\n"
 		"\n"
 		"General options:\n"
 		"  -h, --help            Show this help message\n"
@@ -153,12 +162,16 @@ static void usage(const char *prog) {
 		"  -v, --verbose         Show individual file names during extract/create\n"
 		"  --no-progress         Suppress progress indication\n"
 		"  -p, --password <pw>   Encrypt/decrypt archive with password\n"
+		"  -y                    Assume Yes on all prompts (overwrite existing files)\n"
+		"  -o<dir>               Set output directory for extraction\n"
 		"  --lang <code>         Set language (overrides Z7Z_LANG env var)\n"
 		"\n"
 		"Create options:\n"
 		"  -N                    Compression level 0-9 (e.g. -0, -5, -9)\n"
 		"  -mx=N                 Compression level 0-9 (7zz compatible)\n"
 		"  --level N             Compression level 0-9 (default: 5)\n"
+		"  -mmt=N                Thread count (0 = auto, 1 = single-threaded)\n"
+		"  -mhe=on               Encrypt archive headers (requires -p)\n"
 		"  -L, --dereference     Follow symbolic links\n"
 		"  --no-ctime            Don't store file creation/birth times\n"
 		"  --atime               Store file access times (off by default)\n"
@@ -168,8 +181,11 @@ static void usage(const char *prog) {
 		"\n"
 		"Extract options:\n"
 		"  --no-ctime            Don't restore file creation/birth times\n"
-		"  --no-xattr            Don't restore extended attributes\n",
-		prog, prog, prog);
+		"  --no-xattr            Don't restore extended attributes\n"
+		"\n"
+		"Selective extraction:\n"
+		"  %s extract archive.7z -o out/ file1.txt dir/  (extract only matching entries)\n",
+		prog, prog, prog, prog, prog, prog);
 }
 
 static void about(void) {
@@ -404,6 +420,64 @@ static int symlink_target_is_safe(const char *target) {
 		return 0;
 
 	return 1;
+}
+
+/* ========================================================================== */
+/* Wildcard / selective extraction                                            */
+/* ========================================================================== */
+
+/* Simple wildcard match: supports * (any chars) and ? (single char).
+ * Returns 1 if name matches pattern. */
+static int wildcard_match(const char *pattern, const char *name) {
+	while (*pattern && *name) {
+		if (*pattern == '*') {
+			pattern++;
+			if (*pattern == '\0') return 1; /* trailing * matches all */
+			while (*name) {
+				if (wildcard_match(pattern, name)) return 1;
+				name++;
+			}
+			return *pattern == '\0';
+		} else if (*pattern == '?' || *pattern == *name) {
+			pattern++;
+			name++;
+		} else {
+			return 0;
+		}
+	}
+	/* Skip trailing stars */
+	while (*pattern == '*') pattern++;
+	return *pattern == '\0' && *name == '\0';
+}
+
+/* Check if a file name matches any of the given filter patterns.
+ * Also matches if the name starts with a pattern that ends with '/'.
+ * Returns 1 if matched (or if no filters specified). */
+static int matches_filter(const char *name, int filter_count, char **filters) {
+	if (filter_count <= 0) return 1; /* no filter = match all */
+	for (int i = 0; i < filter_count; i++) {
+		/* Exact match or wildcard match */
+		if (wildcard_match(filters[i], name)) return 1;
+		/* Basename match: if filter has no path separator, try matching just the basename */
+		if (!strchr(filters[i], '/') && !strchr(filters[i], '\\')) {
+			const char *base = name;
+			const char *p = name;
+			while (*p) {
+				if (*p == '/' || *p == '\\') base = p + 1;
+				p++;
+			}
+			if (wildcard_match(filters[i], base)) return 1;
+		}
+		/* Prefix match for directories: "dir/" matches "dir/file.txt" */
+		size_t flen = strlen(filters[i]);
+		if (flen > 0 && filters[i][flen - 1] == '/') {
+			if (strncmp(name, filters[i], flen) == 0) return 1;
+		}
+		/* Also match if filter is a prefix without trailing slash */
+		if (strncmp(name, filters[i], flen) == 0 &&
+		    (name[flen] == '/' || name[flen] == '\\')) return 1;
+	}
+	return 0;
 }
 
 /* ========================================================================== */
@@ -988,6 +1062,55 @@ static int walk_directory(entry_list *list, const char *fs_path,
 /* Commands                                                                   */
 /* ========================================================================== */
 
+static int cmd_test(const char *archive_path) {
+	size_t data_len = 0;
+	uint8_t *data = read_file(archive_path, &data_len);
+	if (!data) return 1;
+
+	struct timespec t_start;
+	clock_gettime(CLOCK_MONOTONIC, &t_start);
+
+	progrez_ctx *prog = NULL;
+	if (!g_no_progress) {
+		prog = progrez_create("Testing");
+		progrez_set_identity(prog, "z7z", archive_path);
+		progrez_set_determinate(prog, 0, (uint64_t)data_len);
+	}
+
+	z7z_archive *ar = NULL;
+	int rc = z7z_open_ex_pw(data, data_len, g_password,
+	                         prog ? progrez_adapter : NULL, prog, &ar);
+	free(data);
+
+	if (prog) { progrez_finish(prog); progrez_destroy(prog); }
+
+	if (rc != Z7Z_OK) {
+		fprintf(stderr, "ERROR: %s\n", z7z_error_string(rc));
+		fprintf(stderr, "\nTest FAILED: %s\n", archive_path);
+		return 1;
+	}
+
+	size_t count = z7z_file_count(ar);
+	size_t total_size = 0;
+	for (size_t i = 0; i < count; i++) {
+		total_size += z7z_file_size(ar, i);
+		if (g_verbose) {
+			const char *name = z7z_file_name(ar, i);
+			printf("  OK: %s\n", name ? name : "(unnamed)");
+		}
+	}
+
+	double elapsed = elapsed_since(&t_start);
+	char sz_str[32];
+	format_size((double)total_size, sz_str, sizeof(sz_str));
+	fprintf(stderr, "Everything is Ok\n\nFiles: %zu, Size: %s, Compressed: ", count, sz_str);
+	format_size((double)data_len, sz_str, sizeof(sz_str));
+	fprintf(stderr, "%s  %.1fs\n", sz_str, elapsed);
+
+	z7z_close(ar);
+	return 0;
+}
+
 static int cmd_list(const char *archive_path) {
 	size_t data_len = 0;
 	uint8_t *data = read_file(archive_path, &data_len);
@@ -1035,7 +1158,8 @@ static int cmd_list(const char *archive_path) {
 	return 0;
 }
 
-static int cmd_extract(const char *archive_path, const char *out_dir) {
+static int cmd_extract(const char *archive_path, const char *out_dir,
+                       int filter_count, char **filters) {
 	size_t data_len = 0;
 	uint8_t *data = read_file(archive_path, &data_len);
 	if (!data) return 1;
@@ -1091,16 +1215,30 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 			continue;
 		}
 
+		/* Selective extraction: skip entries that don't match filters */
+		if (!matches_filter(name, filter_count, filters)) continue;
+
 		/* Build output path */
 		char out_path[4096];
-		if (out_dir) {
-			snprintf(out_path, sizeof(out_path), "%s/%s", out_dir, name);
+		if (g_flat_extract) {
+			/* Flat extract: use only the basename, no directory structure */
+			const char *base = basename_of(name);
+			if (out_dir) {
+				snprintf(out_path, sizeof(out_path), "%s/%s", out_dir, base);
+			} else {
+				snprintf(out_path, sizeof(out_path), "%s", base);
+			}
 		} else {
-			snprintf(out_path, sizeof(out_path), "%s", name);
+			if (out_dir) {
+				snprintf(out_path, sizeof(out_path), "%s/%s", out_dir, name);
+			} else {
+				snprintf(out_path, sizeof(out_path), "%s", name);
+			}
 		}
 
 		if (z7z_file_is_dir(ar, i)) {
-			/* Directory entry — create it */
+			/* Directory entry — create it (skip for flat extract) */
+			if (g_flat_extract) continue;
 			if (ensure_dir_recursive(out_path) != 0) {
 				errors++;
 			} else {
@@ -1166,9 +1304,25 @@ static int cmd_extract(const char *archive_path, const char *out_dir) {
 			}
 		} else {
 			/* File entry — ensure parent exists, then write */
-			if (ensure_parent_dir(out_path) != 0) {
+			if (g_flat_extract) {
+				/* Flat extract: ensure output dir exists, not parent of archive path */
+				if (out_dir && ensure_dir(out_dir) != 0) {
+					errors++;
+					continue;
+				}
+			} else if (ensure_parent_dir(out_path) != 0) {
 				errors++;
-			} else {
+				continue;
+			}
+			/* Check for existing file (unless -y) */
+			if (!g_yes && !is_stdout_path(out_path)) {
+				struct stat st_check;
+				if (lstat(out_path, &st_check) == 0) {
+					fprintf(stderr, "warning: skipping existing file '%s' (use -y to overwrite)\n", out_path);
+					continue;
+				}
+			}
+			{
 				const uint8_t *file_data = z7z_file_data(ar, i);
 				size_t file_size = z7z_file_size(ar, i);
 				if (write_file(out_path, file_data, file_size) != 0) {
@@ -1435,8 +1589,14 @@ static int parse_flag(const char *arg) {
 	if (strcmp(arg, "--dereference") == 0 || strcmp(arg, "-L") == 0) { g_dereference = 1; return 1; }
 	if (strcmp(arg, "-v") == 0 || strcmp(arg, "--verbose") == 0) { g_verbose = 1; return 1; }
 	if (strcmp(arg, "--no-progress") == 0) { g_no_progress = 1; return 1; }
+	if (strcmp(arg, "-y") == 0) { g_yes = 1; return 1; }
 	if (strcmp(arg, "--solid") == 0) { g_solid_mode = SOLID_ON; return 1; }
 	if (strcmp(arg, "--no-solid") == 0) { g_solid_mode = SOLID_OFF; return 1; }
+	/* Output directory: -o<dir> (7zz compatible, no space) */
+	if (strncmp(arg, "-o", 2) == 0 && arg[2] != '\0') {
+		g_out_dir = arg + 2;
+		return 1;
+	}
 	/* Compression level: -mx=N (7zz compatible) */
 	if (strncmp(arg, "-mx=", 4) == 0) {
 		int lvl = atoi(arg + 4);
@@ -1444,6 +1604,18 @@ static int parse_flag(const char *arg) {
 		fprintf(stderr, "warning: invalid compression level '%s', using default %d\n", arg + 4, Z7Z_DEFAULT_LEVEL);
 		return 1;
 	}
+	/* Thread count: -mmt=N (7zz compatible) */
+	if (strncmp(arg, "-mmt=", 5) == 0) {
+		if (strcmp(arg + 5, "on") == 0) { g_mmt = 0; return 1; }
+		if (strcmp(arg + 5, "off") == 0) { g_mmt = 1; return 1; }
+		int n = atoi(arg + 5);
+		if (n >= 0) { g_mmt = n; return 1; }
+		fprintf(stderr, "warning: invalid thread count '%s'\n", arg + 5);
+		return 1;
+	}
+	/* Header encryption: -mhe=on / -mhe=off (7zz compatible) */
+	if (strcmp(arg, "-mhe=on") == 0) { g_header_encrypt = 1; return 1; }
+	if (strcmp(arg, "-mhe=off") == 0) { g_header_encrypt = 0; return 1; }
 	/* Compression level: -0 through -9 (Unix shorthand) */
 	if (arg[0] == '-' && arg[1] >= '0' && arg[1] <= '9' && arg[2] == '\0') {
 		g_level = arg[1] - '0';
@@ -1545,17 +1717,50 @@ int main(int argc, char **argv) {
 			return 1;
 		}
 		return cmd_list(argv[arg_start]);
-	} else if (strcmp(cmd, "extract") == 0 || strcmp(cmd, "x") == 0) {
+	} else if (strcmp(cmd, "test") == 0 || strcmp(cmd, "t") == 0) {
+		if (arg_start >= argc) {
+			fprintf(stderr, "error: test requires archive path\n");
+			return 1;
+		}
+		return cmd_test(argv[arg_start]);
+	} else if (strcmp(cmd, "extract") == 0 || strcmp(cmd, "x") == 0 ||
+	           strcmp(cmd, "e") == 0) {
 		if (arg_start >= argc) {
 			fprintf(stderr, "error: extract requires archive path\n");
 			return 1;
 		}
-		const char *out_dir = (arg_start + 1 < argc) ? argv[arg_start + 1] : NULL;
-		return cmd_extract(argv[arg_start], out_dir);
+		/* 'e' command = flat extract (strip directory structure) */
+		if (strcmp(cmd, "e") == 0) g_flat_extract = 1;
+		/* Determine output directory: -o<dir> takes precedence, then positional arg */
+		const char *out_dir = g_out_dir;
+		int filter_start = arg_start + 1;
+		if (!out_dir && filter_start < argc && argv[filter_start][0] != '-') {
+			/* Legacy positional: second arg is output dir IF no -o was given
+			 * and we're using 'extract'/'x' (not 'e') and it looks like a dir path */
+			/* But with selective extraction, remaining args are file filters.
+			 * For backwards compat: if no -o flag, no selective filters expected
+			 * from legacy usage. New style: always use -o for output dir. */
+		}
+		/* Remaining positional args after archive path are file filters */
+		int filter_count = argc - filter_start;
+		char **filters = filter_count > 0 ? argv + filter_start : NULL;
+		/* If only one extra arg and no -o flag and no wildcards, treat as
+		 * output dir for backwards compatibility (legacy behavior) */
+		if (!out_dir && filter_count == 1 && !strchr(filters[0], '*') &&
+		    !strchr(filters[0], '?')) {
+			out_dir = filters[0];
+			filter_count = 0;
+			filters = NULL;
+		}
+		return cmd_extract(argv[arg_start], out_dir, filter_count, filters);
 	} else if (strcmp(cmd, "create") == 0 || strcmp(cmd, "a") == 0) {
 		if (arg_start >= argc || arg_start + 1 >= argc) {
 			fprintf(stderr, "error: create requires archive path and at least one input file or directory\n");
 			return 1;
+		}
+		/* Warn if -mhe=on without password */
+		if (g_header_encrypt && !g_password) {
+			fprintf(stderr, "warning: -mhe=on has no effect without -p/--password\n");
 		}
 		return cmd_create(argv[arg_start], argc - arg_start - 1, argv + arg_start + 1);
 	} else {
