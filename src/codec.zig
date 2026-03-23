@@ -20,15 +20,18 @@ const METHOD_COPY: u8 = 0x00;
 const METHOD_LZMA2: u8 = 0x21;
 const METHOD_LZMA: [3]u8 = .{ 0x03, 0x01, 0x01 };
 const METHOD_BCJ_X86: [4]u8 = .{ 0x03, 0x03, 0x01, 0x03 };
+const METHOD_BCJ2: [4]u8 = .{ 0x03, 0x03, 0x01, 0x1B };
 const METHOD_7ZAES: [4]u8 = .{ 0x06, 0xF1, 0x07, 0x01 };
 
 /// Decompress packed data for a folder's coder pipeline.
-/// Supports single-coder and multi-coder (filter + compressor, AES + compressor) folders.
+/// Supports single-coder and multi-coder (filter + compressor, AES + compressor, BCJ2) folders.
+/// pack_sizes: per-stream sizes within packed_data (needed for multi-stream codecs like BCJ2).
 /// Pass password for encrypted archives, null otherwise.
 /// Returns owned slice of decompressed bytes.
 pub fn decompressFolder(
 	folder: anytype,
 	packed_data: []const u8,
+	pack_sizes: []const u64,
 	unpack_size: u64,
 	password: ?[]const u8,
 	allocator: std.mem.Allocator,
@@ -43,7 +46,7 @@ pub fn decompressFolder(
 		}
 		return decompressSingleCoder(coder, packed_data, unpack_size, allocator);
 	} else if (folder.coders.len >= 2) {
-		return decompressMultiCoderPipeline(folder, packed_data, unpack_size, password, allocator);
+		return decompressMultiCoderPipeline(folder, packed_data, pack_sizes, unpack_size, password, allocator);
 	}
 	return CodecError.UnsupportedMethod;
 }
@@ -66,6 +69,7 @@ fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u
 fn decompressMultiCoderPipeline(
 	folder: anytype,
 	packed_data: []const u8,
+	pack_sizes: []const u64,
 	unpack_size: u64,
 	password: ?[]const u8,
 	allocator: std.mem.Allocator,
@@ -74,16 +78,24 @@ fn decompressMultiCoderPipeline(
 	var aes_idx: ?usize = null;
 	var compressor_idx: ?usize = null;
 	var filter_idx: ?usize = null;
+	var bcj2_idx: ?usize = null;
 
 	for (folder.coders, 0..) |coder, i| {
 		const mid = coder.method_id;
 		if (is7zAesMethod(mid)) {
 			aes_idx = i;
+		} else if (isBcj2Method(mid)) {
+			bcj2_idx = i;
 		} else if (isCompressorMethod(mid)) {
 			compressor_idx = i;
 		} else if (isFilterMethod(mid)) {
 			filter_idx = i;
 		}
+	}
+
+	// BCJ2 pipeline: multi-stream DAG (separate code path)
+	if (bcj2_idx != null) {
+		return decompressBcj2Pipeline(folder, packed_data, pack_sizes, unpack_size, allocator);
 	}
 
 	const comp_idx = compressor_idx orelse return CodecError.UnsupportedMethod;
@@ -133,6 +145,171 @@ fn decompressMultiCoderPipeline(
 	return decompressed;
 }
 
+/// Decompress a BCJ2 multi-stream pipeline.
+/// BCJ2 folders have N compressor coders feeding into 1 BCJ2 coder (4 in, 1 out).
+/// Each pack stream is decompressed independently, then BCJ2 recombines 4 sub-streams.
+fn decompressBcj2Pipeline(
+	folder: anytype,
+	packed_data: []const u8,
+	pack_sizes: []const u64,
+	unpack_size: u64,
+	allocator: std.mem.Allocator,
+) CodecError![]u8 {
+	// Find the BCJ2 coder and compute its global input stream range
+	var bcj2_coder_idx: ?usize = null;
+	var bcj2_first_in: usize = 0;
+	{
+		var in_offset: usize = 0;
+		for (folder.coders, 0..) |coder, i| {
+			if (isBcj2Method(coder.method_id)) {
+				bcj2_coder_idx = i;
+				bcj2_first_in = in_offset;
+			}
+			in_offset += @intCast(coder.num_in_streams);
+		}
+	}
+	const bcj2_idx = bcj2_coder_idx orelse return CodecError.UnsupportedMethod;
+	_ = bcj2_idx;
+
+	// BCJ2 has 4 inputs. For each, resolve: is it bound to a coder output, or a raw pack stream?
+	// Decompressed sub-streams: [main, call, jump, rc]
+	var sub_streams: [4]?[]u8 = .{ null, null, null, null };
+	defer for (&sub_streams) |*s| if (s.*) |buf| allocator.free(buf);
+
+	// Split packed_data into per-stream slices using pack_sizes
+	// Build pack stream offset table
+	const max_pack = 16;
+	var pack_offsets: [max_pack]usize = undefined;
+	var pack_off: usize = 0;
+	for (0..@min(pack_sizes.len, max_pack)) |i| {
+		pack_offsets[i] = pack_off;
+		pack_off += @intCast(pack_sizes[i]);
+	}
+
+	// For each of BCJ2's 4 inputs, resolve the data source
+	for (0..4) |bcj2_in_local| {
+		const bcj2_global_in: usize = bcj2_first_in + bcj2_in_local;
+
+		// Check if this input is bound to another coder's output
+		var source_coder_out: ?usize = null;
+		for (folder.bind_pairs) |bp| {
+			if (bp.in_index == bcj2_global_in) {
+				source_coder_out = @intCast(bp.out_index);
+				break;
+			}
+		}
+
+		if (source_coder_out) |src_out| {
+			// Find which coder produces this output stream, and which pack stream feeds it
+			var out_offset: usize = 0;
+			var src_coder_idx: ?usize = null;
+			for (folder.coders, 0..) |coder, ci| {
+				if (src_out >= out_offset and src_out < out_offset + @as(usize, @intCast(coder.num_out_streams))) {
+					src_coder_idx = ci;
+					break;
+				}
+				out_offset += @intCast(coder.num_out_streams);
+			}
+			const sci = src_coder_idx orelse return CodecError.DecompressFailed;
+
+			// Find which pack stream feeds this coder's input
+			// The coder's global input is computed by summing in_streams of coders before it
+			var coder_global_in: usize = 0;
+			for (0..sci) |ci| {
+				coder_global_in += @intCast(folder.coders[ci].num_in_streams);
+			}
+
+			// Find this input's pack stream index (which unbound input is it?)
+			const pack_idx = findPackStreamIndex(folder, coder_global_in, pack_sizes.len) orelse return CodecError.DecompressFailed;
+			if (pack_idx >= pack_sizes.len) return CodecError.DecompressFailed;
+
+			const ps_off = pack_offsets[pack_idx];
+			const ps_size: usize = @intCast(pack_sizes[pack_idx]);
+			if (ps_off + ps_size > packed_data.len) return CodecError.DecompressFailed;
+			const stream_packed = packed_data[ps_off .. ps_off + ps_size];
+
+			// Get unpack size for this coder from folder.unpack_sizes
+			const coder_unpack: u64 = if (sci < folder.unpack_sizes.len)
+				folder.unpack_sizes[sci]
+			else
+				0;
+
+			// Decompress this coder
+			sub_streams[bcj2_in_local] = try decompressSingleCoder(
+				folder.coders[sci],
+				stream_packed,
+				coder_unpack,
+				allocator,
+			);
+		} else {
+			// Unbound input — raw pack stream (typically the RC stream)
+			const pack_idx = findPackStreamIndex(folder, bcj2_global_in, pack_sizes.len) orelse return CodecError.DecompressFailed;
+			if (pack_idx >= pack_sizes.len) return CodecError.DecompressFailed;
+
+			const ps_off = pack_offsets[pack_idx];
+			const ps_size: usize = @intCast(pack_sizes[pack_idx]);
+			if (ps_off + ps_size > packed_data.len) return CodecError.DecompressFailed;
+
+			// Copy raw data as the sub-stream
+			sub_streams[bcj2_in_local] = allocator.dupe(u8, packed_data[ps_off .. ps_off + ps_size]) catch
+				return CodecError.OutOfMemory;
+		}
+	}
+
+	// All 4 sub-streams resolved; run BCJ2 decode
+	const main_data = sub_streams[0] orelse return CodecError.DecompressFailed;
+	const call_data = sub_streams[1] orelse return CodecError.DecompressFailed;
+	const jump_data = sub_streams[2] orelse return CodecError.DecompressFailed;
+	const rc_data = sub_streams[3] orelse return CodecError.DecompressFailed;
+
+	const out_buf = allocator.alloc(u8, @intCast(unpack_size)) catch return CodecError.OutOfMemory;
+	errdefer allocator.free(out_buf);
+
+	const n = bcj2Decode(main_data, call_data, jump_data, rc_data, out_buf) catch
+		return CodecError.DecompressFailed;
+
+	if (n != @as(usize, @intCast(unpack_size))) {
+		allocator.free(out_buf);
+		return CodecError.DecompressFailed;
+	}
+
+	return out_buf;
+}
+
+/// Find the pack stream index for a given global input stream.
+/// Pack streams are inputs not consumed by any bind pair. Returns their ordinal index
+/// among all unbound inputs, which maps to pack_sizes[].
+fn findPackStreamIndex(folder: anytype, global_in: usize, max_pack: usize) ?usize {
+	_ = max_pack;
+	// If folder has explicit packed_indices, use them
+	if (folder.packed_indices.len > 0) {
+		for (folder.packed_indices, 0..) |pi, idx| {
+			if (pi == global_in) return idx;
+		}
+		return null;
+	}
+	// Otherwise, enumerate unbound inputs in order
+	var total_in: usize = 0;
+	for (folder.coders) |coder| {
+		total_in += @intCast(coder.num_in_streams);
+	}
+	var pack_idx: usize = 0;
+	for (0..total_in) |gin| {
+		var is_bound = false;
+		for (folder.bind_pairs) |bp| {
+			if (bp.in_index == gin) {
+				is_bound = true;
+				break;
+			}
+		}
+		if (!is_bound) {
+			if (gin == global_in) return pack_idx;
+			pack_idx += 1;
+		}
+	}
+	return null;
+}
+
 fn isCompressorMethod(mid: []const u8) bool {
 	if (mid.len == 1 and mid[0] == METHOD_LZMA2) return true;
 	if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) return true;
@@ -142,6 +319,10 @@ fn isCompressorMethod(mid: []const u8) bool {
 
 fn isFilterMethod(mid: []const u8) bool {
 	return isBcjX86Method(mid);
+}
+
+fn isBcj2Method(mid: []const u8) bool {
+	return mid.len == 4 and std.mem.eql(u8, mid, &METHOD_BCJ2);
 }
 
 fn isBcjX86Method(mid: []const u8) bool {
@@ -373,7 +554,7 @@ test "codec: copy passthrough" {
 		}},
 	};
 
-	const output = try decompressFolder(folder, input, 11, null, allocator);
+	const output = try decompressFolder(folder, input, &.{11}, 11, null, allocator);
 	defer allocator.free(output);
 	try std.testing.expectEqualStrings("hello world", output);
 }
@@ -398,7 +579,7 @@ test "codec: lzma2 decompress" {
 		}},
 	};
 
-	const output = try decompressFolder(folder, compressed, 13, null, allocator);
+	const output = try decompressFolder(folder, compressed, &.{compressed.len}, 13, null, allocator);
 	defer allocator.free(output);
 	try std.testing.expectEqualStrings(expected, output);
 }
@@ -478,9 +659,276 @@ test "codec: multi-coder folder (BCJ+LZMA2)" {
 		.unpack_sizes = &.{ 64, 64 },
 	};
 
-	const output = try decompressFolder(folder, lzma2_data, 64, null, allocator);
+	const output = try decompressFolder(folder, lzma2_data, &.{lzma2_data.len}, 64, null, allocator);
 	defer allocator.free(output);
 	try std.testing.expectEqualSlices(u8, &input, output);
+}
+
+// ============================================================================
+// BCJ2 filter (Branch/Call/Jump filter version 2)
+// ============================================================================
+//
+// BCJ2 splits x86 code into 4 sub-streams for better compression:
+//   Stream 0 (main): all bytes except addresses of detected branches
+//   Stream 1 (call): 4-byte absolute addresses from E8 (CALL) instructions
+//   Stream 2 (jump): 4-byte absolute addresses from E9 (JMP) and 0F 8x (Jcc) instructions
+//   Stream 3 (rc):   range-coded bitstream indicating which E8/E9/0F8x are real branches
+//
+// The decoder recombines these streams: reads main byte-by-byte, and when it
+// encounters E8/E9/0F8x, consults the range coder to decide whether to splice
+// in a 4-byte address from the call/jump stream (converting absolute→relative).
+
+const BCJ2_NUM_PROBS = 258; // 256 for E8 (indexed by prev byte) + 1 for E9 + 1 for Jcc
+const BCJ2_BIT_MODEL_TOTAL: u16 = 1 << 11; // 2048
+const BCJ2_NUM_MOVE_BITS: u5 = 5;
+const BCJ2_RC_INIT_BYTES = 5;
+const BCJ2_TOP: u32 = 1 << 24;
+
+/// Decode BCJ2-encoded data from 4 sub-streams into a single output buffer.
+/// Returns the number of bytes written to out_buf.
+fn bcj2Decode(
+	main_stream: []const u8,
+	call_stream: []const u8,
+	jump_stream: []const u8,
+	rc_stream: []const u8,
+	out_buf: []u8,
+) CodecError!usize {
+	if (rc_stream.len < BCJ2_RC_INIT_BYTES) return CodecError.DecompressFailed;
+
+	// Initialize probability contexts
+	var probs: [BCJ2_NUM_PROBS]u16 = undefined;
+	for (&probs) |*p| p.* = BCJ2_BIT_MODEL_TOTAL / 2;
+
+	// Initialize range coder: first byte is discarded, next 4 form the code
+	var rc_pos: usize = BCJ2_RC_INIT_BYTES;
+	var range: u32 = 0xFFFFFFFF;
+	var code: u32 = (@as(u32, rc_stream[1]) << 24) |
+		(@as(u32, rc_stream[2]) << 16) |
+		(@as(u32, rc_stream[3]) << 8) |
+		@as(u32, rc_stream[4]);
+
+	var main_pos: usize = 0;
+	var call_pos: usize = 0;
+	var jump_pos: usize = 0;
+	var out_pos: usize = 0;
+	var prev_byte: u8 = 0;
+
+	while (main_pos < main_stream.len) {
+		const b = main_stream[main_pos];
+		main_pos += 1;
+		if (out_pos >= out_buf.len) return CodecError.DecompressFailed;
+		out_buf[out_pos] = b;
+		out_pos += 1;
+
+		// Determine if this byte starts a branch instruction
+		var prob_idx: ?usize = null;
+		var use_call_stream = false;
+
+		if (b == 0xE8) {
+			prob_idx = prev_byte; // 0..255
+			use_call_stream = true;
+		} else if (b == 0xE9) {
+			prob_idx = 256;
+		} else if (b >= 0x80 and b <= 0x8F and prev_byte == 0x0F) {
+			prob_idx = 257;
+		}
+
+		if (prob_idx) |pidx| {
+			// Range-decode a bit to determine if this is a real branch
+			const bit = bcj2RangeDecode(&probs[pidx], &range, &code, rc_stream, &rc_pos);
+			if (bit == 1) {
+				// Read 4-byte absolute address from call or jump stream
+				var addr: u32 = undefined;
+				if (use_call_stream) {
+					if (call_pos + 4 > call_stream.len) return CodecError.DecompressFailed;
+					addr = std.mem.readInt(u32, call_stream[call_pos..][0..4], .little);
+					call_pos += 4;
+				} else {
+					if (jump_pos + 4 > jump_stream.len) return CodecError.DecompressFailed;
+					addr = std.mem.readInt(u32, jump_stream[jump_pos..][0..4], .little);
+					jump_pos += 4;
+				}
+				// Convert absolute to relative: subtract current output position
+				addr -%= @as(u32, @intCast(out_pos));
+				// Write 4 address bytes to output
+				if (out_pos + 4 > out_buf.len) return CodecError.DecompressFailed;
+				out_buf[out_pos] = @truncate(addr);
+				out_buf[out_pos + 1] = @truncate(addr >> 8);
+				out_buf[out_pos + 2] = @truncate(addr >> 16);
+				out_buf[out_pos + 3] = @truncate(addr >> 24);
+				prev_byte = out_buf[out_pos + 3];
+				out_pos += 4;
+				continue;
+			}
+		}
+		prev_byte = b;
+	}
+
+	return out_pos;
+}
+
+/// Binary arithmetic range decoder for BCJ2 probability contexts.
+fn bcj2RangeDecode(prob: *u16, range: *u32, code: *u32, stream: []const u8, pos: *usize) u1 {
+	const bound: u32 = (range.* >> 11) *% @as(u32, prob.*);
+	if (code.* < bound) {
+		range.* = bound;
+		prob.* +%= @intCast((@as(u32, BCJ2_BIT_MODEL_TOTAL) - prob.*) >> BCJ2_NUM_MOVE_BITS);
+		if (range.* < BCJ2_TOP) {
+			range.* <<= 8;
+			const next_byte: u32 = if (pos.* < stream.len) stream[pos.*] else 0;
+			code.* = (code.* << 8) | next_byte;
+			pos.* += 1;
+		}
+		return 0;
+	} else {
+		range.* -= bound;
+		code.* -= bound;
+		prob.* -= @intCast(prob.* >> BCJ2_NUM_MOVE_BITS);
+		if (range.* < BCJ2_TOP) {
+			range.* <<= 8;
+			const next_byte: u32 = if (pos.* < stream.len) stream[pos.*] else 0;
+			code.* = (code.* << 8) | next_byte;
+			pos.* += 1;
+		}
+		return 1;
+	}
+}
+
+test "codec: bcj2 decode no-branch passthrough" {
+	// Data with no E8/E9/0F8x — should pass through unchanged
+	const input = "hello world!";
+	const rc = [_]u8{ 0, 0, 0, 0, 0 }; // range coder never consulted
+	var out: [12]u8 = undefined;
+	const n = try bcj2Decode(input, &.{}, &.{}, &rc, &out);
+	try std.testing.expectEqual(@as(usize, 12), n);
+	try std.testing.expectEqualStrings("hello world!", out[0..n]);
+}
+
+test "codec: bcj2 decode single E8 branch" {
+	// Input (32 bytes): NOP*10, E8, rel_addr(0x55,0,0,0), NOP*17
+	// BCJ2 encoding: main stream has E8 but address bytes removed (28 bytes),
+	// call stream has absolute address, range coder encodes "1" (real branch).
+	//
+	// Absolute addr = relative + output_pos_after_opcode = 0x55 + 11 = 0x60
+	// Range coder: prob[0x90]=1024, code=0xFFFFFFFF >= bound=0x7FFFFC00 → bit=1
+
+	// Main stream: 10 NOPs + E8 + 17 NOPs = 28 bytes
+	var main_buf: [28]u8 = undefined;
+	for (main_buf[0..10]) |*b| b.* = 0x90;
+	main_buf[10] = 0xE8;
+	for (main_buf[11..28]) |*b| b.* = 0x90;
+
+	const call_buf = [_]u8{ 0x60, 0x00, 0x00, 0x00 }; // absolute address LE
+	const rc_buf = [_]u8{ 0x00, 0xFF, 0xFF, 0xFF, 0xFF }; // decodes bit=1
+
+	var out: [32]u8 = undefined;
+	const n = try bcj2Decode(&main_buf, &call_buf, &.{}, &rc_buf, &out);
+	try std.testing.expectEqual(@as(usize, 32), n);
+
+	// Expected: NOP*10, E8, 0x55, 0x00, 0x00, 0x00, NOP*17
+	var expected: [32]u8 = undefined;
+	for (expected[0..10]) |*b| b.* = 0x90;
+	expected[10] = 0xE8;
+	expected[11] = 0x55;
+	expected[12] = 0x00;
+	expected[13] = 0x00;
+	expected[14] = 0x00;
+	for (expected[15..32]) |*b| b.* = 0x90;
+
+	try std.testing.expectEqualSlices(u8, &expected, out[0..n]);
+}
+
+test "codec: bcj2 multi-coder pipeline (BCJ2 + LZMA2)" {
+	const allocator = std.testing.allocator;
+
+	// BCJ2 encoded sub-streams (same as the "single E8 branch" test):
+	// Main stream: NOP*10, E8, NOP*17 = 28 bytes
+	var main_raw: [28]u8 = undefined;
+	for (main_raw[0..10]) |*b| b.* = 0x90;
+	main_raw[10] = 0xE8;
+	for (main_raw[11..28]) |*b| b.* = 0x90;
+
+	const call_raw = [_]u8{ 0x60, 0x00, 0x00, 0x00 }; // absolute address LE
+	const rc_raw = [_]u8{ 0x00, 0xFF, 0xFF, 0xFF, 0xFF }; // range coder stream
+
+	// LZMA2-compress the main, call, and jump streams; RC stream stays raw
+	const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+	const main_comp = try compressLzma2(&main_raw, p.dict_size, p.nice_len, .{}, allocator);
+	defer allocator.free(main_comp);
+	const call_comp = try compressLzma2(&call_raw, p.dict_size, p.nice_len, .{}, allocator);
+	defer allocator.free(call_comp);
+
+	// Jump stream is empty — use Copy (0-byte LZMA2 would be the empty marker 0x00)
+	const jump_comp = [_]u8{0x00}; // LZMA2 end marker = empty stream
+
+	// Concatenate all 4 pack streams: main_comp | call_comp | jump_comp | rc_raw
+	const total_packed = main_comp.len + call_comp.len + jump_comp.len + rc_raw.len;
+	const pack_buf = try allocator.alloc(u8, total_packed);
+	defer allocator.free(pack_buf);
+	var off: usize = 0;
+	@memcpy(pack_buf[off .. off + main_comp.len], main_comp);
+	off += main_comp.len;
+	@memcpy(pack_buf[off .. off + call_comp.len], call_comp);
+	off += call_comp.len;
+	@memcpy(pack_buf[off .. off + jump_comp.len], &jump_comp);
+	off += jump_comp.len;
+	@memcpy(pack_buf[off .. off + rc_raw.len], &rc_raw);
+
+	// Pack sizes for each stream
+	const ps = [_]u64{
+		@intCast(main_comp.len),
+		@intCast(call_comp.len),
+		@intCast(jump_comp.len),
+		@intCast(rc_raw.len),
+	};
+
+	// BCJ2 folder topology:
+	// Coder 0: LZMA2 (1 in → 1 out)  — decompresses main stream
+	// Coder 1: LZMA2 (1 in → 1 out)  — decompresses call stream
+	// Coder 2: LZMA2 (1 in → 1 out)  — decompresses jump stream
+	// Coder 3: BCJ2  (4 in → 1 out)  — recombines sub-streams
+	//
+	// Global input streams: 0(LZMA2-main), 1(LZMA2-call), 2(LZMA2-jump), 3,4,5,6(BCJ2)
+	// Global output streams: 0(LZMA2-main), 1(LZMA2-call), 2(LZMA2-jump), 3(BCJ2)
+	//
+	// Bind pairs: LZMA2 outputs → BCJ2 inputs
+	//   {in:3, out:0}  BCJ2 input 0 ← LZMA2[0] output (main)
+	//   {in:4, out:1}  BCJ2 input 1 ← LZMA2[1] output (call)
+	//   {in:5, out:2}  BCJ2 input 2 ← LZMA2[2] output (jump)
+	//
+	// BCJ2 input 6 is unbound → packed stream (RC data, stored raw)
+	// Pack streams: inputs 0, 1, 2, 6
+
+	const folder = TestFolder{
+		.coders = &.{
+			.{ .method_id = &.{0x21}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 }, // LZMA2 (main)
+			.{ .method_id = &.{0x21}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 }, // LZMA2 (call)
+			.{ .method_id = &.{0x21}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 }, // LZMA2 (jump)
+			.{ .method_id = &METHOD_BCJ2, .properties = &.{}, .num_in_streams = 4, .num_out_streams = 1 }, // BCJ2
+		},
+		.bind_pairs = &.{
+			.{ .in_index = 3, .out_index = 0 }, // BCJ2 in[0] ← LZMA2[0]
+			.{ .in_index = 4, .out_index = 1 }, // BCJ2 in[1] ← LZMA2[1]
+			.{ .in_index = 5, .out_index = 2 }, // BCJ2 in[2] ← LZMA2[2]
+		},
+		.packed_indices = &.{ 0, 1, 2, 6 },
+		.unpack_sizes = &.{ 28, 4, 0, 32 }, // LZMA2 main, call, jump unpack sizes + BCJ2 final output
+	};
+
+	const output = try decompressFolder(folder, pack_buf, &ps, 32, null, allocator);
+	defer allocator.free(output);
+
+	// Expected: NOP*10, E8, rel_addr(0x55,0,0,0), NOP*17 = 32 bytes
+	var expected: [32]u8 = undefined;
+	for (expected[0..10]) |*b| b.* = 0x90;
+	expected[10] = 0xE8;
+	expected[11] = 0x55;
+	expected[12] = 0x00;
+	expected[13] = 0x00;
+	expected[14] = 0x00;
+	for (expected[15..32]) |*b| b.* = 0x90;
+
+	try std.testing.expectEqualSlices(u8, &expected, output);
 }
 
 test "codec: unsupported method" {
@@ -494,5 +942,5 @@ test "codec: unsupported method" {
 		}},
 	};
 
-	try std.testing.expectError(CodecError.UnsupportedMethod, decompressFolder(folder, &.{}, 0, null, allocator));
+	try std.testing.expectError(CodecError.UnsupportedMethod, decompressFolder(folder, &.{}, &.{0}, 0, null, allocator));
 }

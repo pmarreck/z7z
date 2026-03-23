@@ -37,6 +37,7 @@
 - [x] LZMA2 encode (cleanroom implementation: range encoder + LZ77 match finder + LZMA state machine)
 - [x] BCJ x86 filter (cleanroom from LZMA SDK public domain algorithm)
 - [x] Coder graph pipeline (two-coder folders: filter + compressor)
+- [x] BCJ2 filter decode (4-stream range-coded x86 branch filter, DAG pipeline) (~2026-03-23 EST)
 
 ## Phase 6: Encryption (Complete)
 - [x] 7zAES decode (SHA-256 iterative KDF, AES-256-CBC decrypt)

@@ -208,7 +208,7 @@ fn decodeEncodedHeader(r: *Reader, full_archive: ?[]const u8, password: ?[]const
         0;
 
     // Decompress using codec dispatch
-    const decoded = codec.decompressFolder(folder, packed_data, unpack_size, password, allocator) catch |e| switch (e) {
+    const decoded = codec.decompressFolder(folder, packed_data, &.{packed_data.len}, unpack_size, password, allocator) catch |e| switch (e) {
         error.UnsupportedMethod => return ParseError.UnsupportedFeature,
         error.DecompressFailed => return ParseError.StructuralError,
         error.OutOfMemory => return ParseError.OutOfMemory,

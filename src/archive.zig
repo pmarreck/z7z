@@ -1125,6 +1125,12 @@ pub fn readWithProgress(archive_data: []const u8, password: ?[]const u8, progres
                 }
                 const pack_start = sig_header.HEADER_SIZE + pack_offset;
 
+                // Slice of per-stream pack sizes for this folder
+                const folder_pack_sizes = if (pack_stream_idx + num_pack_streams <= pi.pack_sizes.len)
+                    pi.pack_sizes[pack_stream_idx .. pack_stream_idx + num_pack_streams]
+                else
+                    pi.pack_sizes[pack_stream_idx..];
+
                 pack_stream_idx += num_pack_streams;
 
                 // Get folder unpack size (unbound output stream)
@@ -1136,7 +1142,7 @@ pub fn readWithProgress(archive_data: []const u8, password: ?[]const u8, progres
                 const packed_data = archive_data[pack_start .. pack_start + folder_pack_size];
 
                 // Decompress this folder
-                const unpacked = codec.decompressFolder(folder, packed_data, unpack_size, password, allocator) catch |e| switch (e) {
+                const unpacked = codec.decompressFolder(folder, packed_data, folder_pack_sizes, unpack_size, password, allocator) catch |e| switch (e) {
                     error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
                     error.DecompressFailed => return ArchiveError.StructuralError,
                     error.OutOfMemory => return ArchiveError.OutOfMemory,

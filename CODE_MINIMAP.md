@@ -94,6 +94,10 @@ Archive-level create and read operations.
 Codec dispatch: decompress packed data for a folder's coder pipeline.
 - `decompressFolder()` — handles single-coder and multi-coder pipelines
 - `decompressMultiCoderPipeline()` — BCJ+LZMA2, AES+LZMA2, AES+BCJ+LZMA2
+- `decompressBcj2Pipeline()` — BCJ2 multi-stream DAG (4 sub-streams: main/call/jump/rc)
+- `bcj2Decode()` — BCJ2 filter decode: range-coded E8/E9/0F8x branch recombination
+- `bcj2RangeDecode()` — binary arithmetic range decoder for BCJ2 probability contexts
+- `findPackStreamIndex()` — resolve global input stream to pack stream ordinal
 - `decodeLzma()` — LZMA1 decompression with Zig stdlib dictionary wrap bug workaround
 - `decodeLzma2()` — LZMA2 decompression via std.compress.lzma2
 - `bcjX86Decode()` / `bcjX86Encode()` — x86 BCJ filter (jump/call address translation)
