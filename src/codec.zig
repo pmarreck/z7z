@@ -210,7 +210,9 @@ fn decompressBcj2Pipeline(
 				}
 				out_offset += @intCast(coder.num_out_streams);
 			}
-			const sci = src_coder_idx orelse return CodecError.DecompressFailed;
+			const sci = src_coder_idx orelse {
+				return CodecError.DecompressFailed;
+			};
 
 			// Find which pack stream feeds this coder's input
 			// The coder's global input is computed by summing in_streams of coders before it
@@ -220,7 +222,9 @@ fn decompressBcj2Pipeline(
 			}
 
 			// Find this input's pack stream index (which unbound input is it?)
-			const pack_idx = findPackStreamIndex(folder, coder_global_in, pack_sizes.len) orelse return CodecError.DecompressFailed;
+			const pack_idx = findPackStreamIndex(folder, coder_global_in, pack_sizes.len) orelse {
+				return CodecError.DecompressFailed;
+			};
 			if (pack_idx >= pack_sizes.len) return CodecError.DecompressFailed;
 
 			const ps_off = pack_offsets[pack_idx];
@@ -235,15 +239,19 @@ fn decompressBcj2Pipeline(
 				0;
 
 			// Decompress this coder
-			sub_streams[bcj2_in_local] = try decompressSingleCoder(
+			sub_streams[bcj2_in_local] = decompressSingleCoder(
 				folder.coders[sci],
 				stream_packed,
 				coder_unpack,
 				allocator,
-			);
+			) catch |e| {
+				return e;
+			};
 		} else {
 			// Unbound input — raw pack stream (typically the RC stream)
-			const pack_idx = findPackStreamIndex(folder, bcj2_global_in, pack_sizes.len) orelse return CodecError.DecompressFailed;
+			const pack_idx = findPackStreamIndex(folder, bcj2_global_in, pack_sizes.len) orelse {
+				return CodecError.DecompressFailed;
+			};
 			if (pack_idx >= pack_sizes.len) return CodecError.DecompressFailed;
 
 			const ps_off = pack_offsets[pack_idx];
@@ -265,8 +273,9 @@ fn decompressBcj2Pipeline(
 	const out_buf = allocator.alloc(u8, @intCast(unpack_size)) catch return CodecError.OutOfMemory;
 	errdefer allocator.free(out_buf);
 
-	const n = bcj2Decode(main_data, call_data, jump_data, rc_data, out_buf) catch
-		return CodecError.DecompressFailed;
+	const n = bcj2Decode(main_data, call_data, jump_data, rc_data, out_buf) catch |e| {
+		return e;
+	};
 
 	if (n != @as(usize, @intCast(unpack_size))) {
 		allocator.free(out_buf);
@@ -716,7 +725,9 @@ fn bcj2Decode(
 	while (main_pos < main_stream.len) {
 		const b = main_stream[main_pos];
 		main_pos += 1;
-		if (out_pos >= out_buf.len) return CodecError.DecompressFailed;
+		if (out_pos >= out_buf.len) {
+			return CodecError.DecompressFailed;
+		}
 		out_buf[out_pos] = b;
 		out_pos += 1;
 
@@ -734,24 +745,31 @@ fn bcj2Decode(
 		}
 
 		if (prob_idx) |pidx| {
-			// Range-decode a bit to determine if this is a real branch
 			const bit = bcj2RangeDecode(&probs[pidx], &range, &code, rc_stream, &rc_pos);
 			if (bit == 1) {
-				// Read 4-byte absolute address from call or jump stream
+				// Read 4-byte absolute address from call or jump stream (BIG ENDIAN)
 				var addr: u32 = undefined;
 				if (use_call_stream) {
-					if (call_pos + 4 > call_stream.len) return CodecError.DecompressFailed;
-					addr = std.mem.readInt(u32, call_stream[call_pos..][0..4], .little);
+					if (call_pos + 4 > call_stream.len) {
+						return CodecError.DecompressFailed;
+					}
+					addr = std.mem.readInt(u32, call_stream[call_pos..][0..4], .big);
 					call_pos += 4;
 				} else {
-					if (jump_pos + 4 > jump_stream.len) return CodecError.DecompressFailed;
-					addr = std.mem.readInt(u32, jump_stream[jump_pos..][0..4], .little);
+					if (jump_pos + 4 > jump_stream.len) {
+						return CodecError.DecompressFailed;
+					}
+					addr = std.mem.readInt(u32, jump_stream[jump_pos..][0..4], .big);
 					jump_pos += 4;
 				}
-				// Convert absolute to relative: subtract current output position
-				addr -%= @as(u32, @intCast(out_pos));
+				// Convert absolute to relative: subtract (opcode_pos + 5)
+				// BCJ2 stores: absolute = relative + (opcode_pos + 5)
+				// out_pos is already opcode_pos + 1, so: addr -= (out_pos + 4)
+				addr -%= @as(u32, @intCast(out_pos + 4));
 				// Write 4 address bytes to output
-				if (out_pos + 4 > out_buf.len) return CodecError.DecompressFailed;
+				if (out_pos + 4 > out_buf.len) {
+					return CodecError.DecompressFailed;
+				}
 				out_buf[out_pos] = @truncate(addr);
 				out_buf[out_pos + 1] = @truncate(addr >> 8);
 				out_buf[out_pos + 2] = @truncate(addr >> 16);
@@ -809,7 +827,8 @@ test "codec: bcj2 decode single E8 branch" {
 	// BCJ2 encoding: main stream has E8 but address bytes removed (28 bytes),
 	// call stream has absolute address, range coder encodes "1" (real branch).
 	//
-	// Absolute addr = relative + output_pos_after_opcode = 0x55 + 11 = 0x60
+	// BCJ2 stores absolute = relative + (opcode_pos + 5) = 0x55 + 15 = 0x64
+	// Addresses in BIG ENDIAN.
 	// Range coder: prob[0x90]=1024, code=0xFFFFFFFF >= bound=0x7FFFFC00 → bit=1
 
 	// Main stream: 10 NOPs + E8 + 17 NOPs = 28 bytes
@@ -818,7 +837,7 @@ test "codec: bcj2 decode single E8 branch" {
 	main_buf[10] = 0xE8;
 	for (main_buf[11..28]) |*b| b.* = 0x90;
 
-	const call_buf = [_]u8{ 0x60, 0x00, 0x00, 0x00 }; // absolute address LE
+	const call_buf = [_]u8{ 0x00, 0x00, 0x00, 0x64 }; // absolute address BE: 0x64
 	const rc_buf = [_]u8{ 0x00, 0xFF, 0xFF, 0xFF, 0xFF }; // decodes bit=1
 
 	var out: [32]u8 = undefined;
@@ -848,7 +867,7 @@ test "codec: bcj2 multi-coder pipeline (BCJ2 + LZMA2)" {
 	main_raw[10] = 0xE8;
 	for (main_raw[11..28]) |*b| b.* = 0x90;
 
-	const call_raw = [_]u8{ 0x60, 0x00, 0x00, 0x00 }; // absolute address LE
+	const call_raw = [_]u8{ 0x00, 0x00, 0x00, 0x64 }; // absolute address BE: 0x55 + (10 + 5) = 0x64
 	const rc_raw = [_]u8{ 0x00, 0xFF, 0xFF, 0xFF, 0xFF }; // range coder stream
 
 	// LZMA2-compress the main, call, and jump streams; RC stream stays raw
