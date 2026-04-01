@@ -72,12 +72,10 @@ const RangeEncoder = struct {
             prob.* -= @intCast(prob.* >> 5);
         }
         if (self.range < 0x0100_0000) {
-            @branchHint(.unlikely);
             self.range <<= 8;
             try self.shiftLow(allocator);
         }
     }
-
     /// Encode a fixed (equiprobable) bit.
     fn encodeDirect(self: *RangeEncoder, bit: u1, allocator: std.mem.Allocator) !void {
         self.range >>= 1;
@@ -85,12 +83,10 @@ const RangeEncoder = struct {
             self.low += self.range;
         }
         if (self.range < 0x0100_0000) {
-            @branchHint(.unlikely);
             self.range <<= 8;
             try self.shiftLow(allocator);
         }
     }
-
     /// Encode multiple direct bits MSB-first.
     fn encodeDirectBits(self: *RangeEncoder, value: u32, count: u5, allocator: std.mem.Allocator) !void {
         var i: u5 = count;
@@ -331,18 +327,8 @@ const MatchFinder = struct {
         var cur = self.hash[h];
         self.hash[h] = @intCast(pos + 1);
 
-        // Hoist struct fields into locals to help LLVM avoid aliasing concerns
-        // (writes through left_ptr/right_ptr could otherwise alias self's fields)
-        const data = self.data;
-        const dict_size = self.dict_size;
-        const nice_len = self.nice_len;
-        const mask = self.bt_mask;
-        const bt_l = self.bt_left;
-        const bt_r = self.bt_right;
-        const max_len = @min(MAX_MATCH, @as(u32, @intCast(data.len - pos)));
-
-        var left_ptr = &bt_l[pos & mask];
-        var right_ptr = &bt_r[pos & mask];
+        var left_ptr = &self.bt_left[pos & self.bt_mask];
+        var right_ptr = &self.bt_right[pos & self.bt_mask];
         var best_left_len: u32 = 0;
         var best_right_len: u32 = 0;
         var depth: u32 = 0;
@@ -351,30 +337,31 @@ const MatchFinder = struct {
             const match_pos = cur - 1;
             if (pos <= match_pos) break;
             const dist = @as(u32, @intCast(pos - match_pos));
-            if (dist > dict_size) break;
+            if (dist > self.dict_size) break;
 
-            const common = extendMatch(data, pos, match_pos, @min(best_left_len, best_right_len), max_len);
+            const max_len = @min(MAX_MATCH, @as(u32, @intCast(self.data.len - pos)));
+            const common = extendMatch(self.data, pos, match_pos, @min(best_left_len, best_right_len), max_len);
 
             if (common > best_len) {
                 candidates.add(.{ .distance = dist - 1, .length = common });
                 best_len = common;
                 // Early exit: max_len reached OR match is "nice enough"
-                if (common >= max_len or common >= nice_len) {
-                    left_ptr.* = bt_l[match_pos & mask];
-                    right_ptr.* = bt_r[match_pos & mask];
+                if (common >= max_len or common >= self.nice_len) {
+                    left_ptr.* = self.bt_left[match_pos & self.bt_mask];
+                    right_ptr.* = self.bt_right[match_pos & self.bt_mask];
                     return candidates;
                 }
             }
 
-            if (common < max_len and data[pos + common] < data[match_pos + common]) {
+            if (common < max_len and self.data[pos + common] < self.data[match_pos + common]) {
                 right_ptr.* = cur;
-                right_ptr = &bt_l[match_pos & mask];
-                cur = bt_l[match_pos & mask];
+                right_ptr = &self.bt_left[match_pos & self.bt_mask];
+                cur = self.bt_left[match_pos & self.bt_mask];
                 best_right_len = common;
             } else {
                 left_ptr.* = cur;
-                left_ptr = &bt_r[match_pos & mask];
-                cur = bt_r[match_pos & mask];
+                left_ptr = &self.bt_right[match_pos & self.bt_mask];
+                cur = self.bt_right[match_pos & self.bt_mask];
                 best_left_len = common;
             }
         }
@@ -384,8 +371,7 @@ const MatchFinder = struct {
         return candidates;
     }
 
-    /// Lightweight skip: update only HC2+HC3 hash tables, leave BT4 tree
-    /// completely untouched. Skipped positions are findable via short-match
+    /// Lightweight skip: update only HC2+HC3 hash tables, leave BT4 tree    /// completely untouched. Skipped positions are findable via short-match
     /// hashes but don't disrupt the binary tree structure at all.
     fn skip(self: *MatchFinder, pos: usize) void {
         if (pos + 1 >= self.data.len) return;
