@@ -34,9 +34,9 @@ Compared against `7zz` at `-mx=5` on macOS/ARM64 (Apple M4):
 
 | Workload | z7z | 7zz -mmt=1 | z7z vs 7zz-st |
 |----------|-----|------------|---------------|
-| 1.16MB text | 12.3ms | 23.1ms | **1.88x faster** |
-| 4MB text | 19.5ms | 73.2ms | **3.76x faster** |
-| 1MB random | 8.5ms | 54.3ms | **6.43x faster** |
+| 1.16MB text | 10.5ms | 20.6ms | **1.97x faster** |
+| 4MB text | 18.8ms | 67.7ms | **3.61x faster** |
+| 1MB random | 8.1ms | 50.1ms | **6.17x faster** |
 
 Compression ratios within 1-2% of 7zz at `-mx=5`. Full bidirectional interop verified.
 
