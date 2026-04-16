@@ -100,6 +100,7 @@ Codec dispatch: decompress packed data for a folder's coder pipeline.
 - `findPackStreamIndex()` — resolve global input stream to pack stream ordinal
 - `decodeLzma()` — LZMA1 decompression with Zig stdlib dictionary wrap bug workaround
 - `decodeLzma2()` — LZMA2 decompression via std.compress.lzma2
+- `decodeZstd()` — Zstandard decompression via std.compress.zstd (7z method ID 04.F7.11.01)
 - `bcjX86Decode()` / `bcjX86Encode()` — x86 BCJ filter (jump/call address translation)
 - `LevelParams` — re-export from lzma2_encoder (compression level config)
 - `compressLzma2()` — LZMA2 compression via lzma2_encoder (accepts dict_size, nice_len, ProgressContext)

@@ -22,6 +22,7 @@ const METHOD_LZMA: [3]u8 = .{ 0x03, 0x01, 0x01 };
 const METHOD_BCJ_X86: [4]u8 = .{ 0x03, 0x03, 0x01, 0x03 };
 const METHOD_BCJ2: [4]u8 = .{ 0x03, 0x03, 0x01, 0x1B };
 const METHOD_7ZAES: [4]u8 = .{ 0x06, 0xF1, 0x07, 0x01 };
+const METHOD_ZSTD: [4]u8 = .{ 0x04, 0xF7, 0x11, 0x01 };
 
 /// Decompress packed data for a folder's coder pipeline.
 /// Supports single-coder and multi-coder (filter + compressor, AES + compressor, BCJ2) folders.
@@ -51,7 +52,7 @@ pub fn decompressFolder(
 	return CodecError.UnsupportedMethod;
 }
 
-/// Decompress with a single coder (Copy, LZMA2, or LZMA).
+/// Decompress with a single coder (Copy, LZMA2, LZMA, or ZSTD).
 fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u64, allocator: std.mem.Allocator) CodecError![]u8 {
 	const mid = coder.method_id;
 	if (mid.len == 1 and mid[0] == METHOD_COPY) {
@@ -60,6 +61,8 @@ fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u
 		return decodeLzma2(packed_data, unpack_size, allocator);
 	} else if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) {
 		return decodeLzma(packed_data, unpack_size, coder.properties, allocator);
+	} else if (mid.len == 4 and std.mem.eql(u8, mid, &METHOD_ZSTD)) {
+		return decodeZstd(packed_data, unpack_size, allocator);
 	}
 	return CodecError.UnsupportedMethod;
 }
@@ -323,6 +326,7 @@ fn isCompressorMethod(mid: []const u8) bool {
 	if (mid.len == 1 and mid[0] == METHOD_LZMA2) return true;
 	if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) return true;
 	if (mid.len == 1 and mid[0] == METHOD_COPY) return true;
+	if (mid.len == 4 and std.mem.eql(u8, mid, &METHOD_ZSTD)) return true;
 	return false;
 }
 
@@ -420,6 +424,25 @@ fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.All
 	return out_buf;
 }
 
+/// Decompress Zstandard-compressed data using Zig's std.compress.zstd.
+/// 7z method ID 04.F7.11.01, added to the 7z format in 7-Zip 21.01 (2021).
+fn decodeZstd(packed_data: []const u8, unpack_size: u64, allocator: std.mem.Allocator) CodecError![]u8 {
+	const out_buf = allocator.alloc(u8, @intCast(unpack_size)) catch return CodecError.OutOfMemory;
+	errdefer allocator.free(out_buf);
+
+	var in: std.Io.Reader = .fixed(packed_data);
+	var out: std.Io.Writer = .fixed(out_buf);
+	var zstd_stream = std.compress.zstd.Decompress.init(&in, &.{}, .{});
+	_ = zstd_stream.reader.streamRemaining(&out) catch {
+		return CodecError.DecompressFailed;
+	};
+
+	if (out.end != @as(usize, @intCast(unpack_size))) {
+		return CodecError.DecompressFailed;
+	}
+
+	return out_buf;
+}
 /// Compress data using LZMA2.
 /// Returns owned slice of LZMA2-compressed bytes.
 pub fn compressLzma2(data: []const u8, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) error{OutOfMemory}![]u8 {
@@ -588,6 +611,32 @@ test "codec: lzma2 decompress" {
 	const folder = TestFolder{
 		.coders = &.{.{
 			.method_id = &.{METHOD_LZMA2},
+			.properties = &.{},
+			.num_in_streams = 1,
+			.num_out_streams = 1,
+		}},
+	};
+
+	const output = try decompressFolder(folder, compressed, &.{compressed.len}, 13, null, allocator);
+	defer allocator.free(output);
+	try std.testing.expectEqualStrings(expected, output);
+}
+
+test "codec: zstd decompress" {
+	const allocator = std.testing.allocator;
+
+	// ZSTD-compressed "Hello\nWorld!\n" (zstd -3)
+	const compressed = &[_]u8{
+		0x28, 0xB5, 0x2F, 0xFD, 0x04, 0x58, 0x69, 0x00,
+		0x00, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x57,
+		0x6F, 0x72, 0x6C, 0x64, 0x21, 0x0A, 0x91, 0xE2,
+		0xB3, 0x20,
+	};
+	const expected = "Hello\nWorld!\n";
+
+	const folder = TestFolder{
+		.coders = &.{.{
+			.method_id = &METHOD_ZSTD,
 			.properties = &.{},
 			.num_in_streams = 1,
 			.num_out_streams = 1,
