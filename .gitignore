@@ -6,3 +6,4 @@ CLAUDE.md
 .DS_Store
 result
 zig-pkg/
+.direnv/
