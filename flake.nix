@@ -4,12 +4,17 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    zig-overlay = {
+      url = "github:mitchellh/zig-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, zig-overlay }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        zig = zig-overlay.packages.${system}."0.16.0";
         isDarwin = pkgs.stdenv.isDarwin;
 
         # Pre-fetched Zig dependencies (fixed-output derivation)
@@ -47,7 +52,7 @@
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = [ pkgs.zig ]
+          nativeBuildInputs = [ zig ]
             ++ pkgs.lib.optionals isDarwin [
               pkgs.darwin.cctools
               pkgs.apple-sdk
@@ -78,7 +83,7 @@
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = [ pkgs.zig ]
+          nativeBuildInputs = [ zig ]
             ++ pkgs.lib.optionals isDarwin [
               pkgs.darwin.cctools
               pkgs.apple-sdk
@@ -109,7 +114,7 @@
 
         devShells.default = pkgs.mkShell {
           buildInputs = [
-            pkgs.zig
+            zig
             pkgs._7zz
             pkgs.hyperfine
             pkgs.luajit
