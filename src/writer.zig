@@ -10,7 +10,7 @@ pub const Writer = struct {
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Writer {
-        return .{ .buf = .{}, .allocator = allocator };
+        return .{ .buf = .empty, .allocator = allocator };
     }
 
     pub fn deinit(self: *Writer) void {

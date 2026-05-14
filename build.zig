@@ -48,7 +48,7 @@ pub fn build(b: *std.Build) void {
         .flags = &.{ "-std=gnu11", "-Wall", "-Wextra", "-Wpedantic" },
     });
     cli.root_module.addIncludePath(b.path("include"));
-    cli.linkLibrary(lib);
+    cli.root_module.linkLibrary(lib);
 
     // progrez progress bar library (all platforms)
     const progrez_dep = b.dependency("progrez", .{
@@ -56,7 +56,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     cli.root_module.addIncludePath(progrez_dep.path("include"));
-    cli.linkLibrary(progrez_dep.artifact("progrez"));
+    cli.root_module.linkLibrary(progrez_dep.artifact("progrez"));
 
     // libmagic + POSIX extensions: non-Windows only
     const is_windows = target.result.os.tag == .windows;
@@ -70,7 +70,7 @@ pub fn build(b: *std.Build) void {
         });
         const magic_lib = magic_dep.artifact("magic");
         cli.root_module.addIncludePath(magic_lib.getEmittedIncludeTree());
-        cli.linkLibrary(magic_lib);
+        cli.root_module.linkLibrary(magic_lib);
     }
 
     b.installArtifact(cli);

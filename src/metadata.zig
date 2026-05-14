@@ -443,10 +443,10 @@ fn parseSubStreamsInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.
     defer allocator.free(num_unpack_streams);
     @memset(num_unpack_streams, 1);
 
-    var all_sizes = std.ArrayListUnmanaged(u64){};
+    var all_sizes = std.ArrayListUnmanaged(u64).empty;
     defer all_sizes.deinit(allocator);
 
-    var all_digests = std.ArrayListUnmanaged(?u32){};
+    var all_digests = std.ArrayListUnmanaged(?u32).empty;
     defer all_digests.deinit(allocator);
 
     while (true) {
@@ -641,7 +641,7 @@ fn parseFileNames(r: *Reader, files: []FileInfo, allocator: std.mem.Allocator) P
 
     for (files) |*file| {
         // Read UTF-16LE chars until NUL
-        var utf16_buf = std.ArrayListUnmanaged(u16){};
+        var utf16_buf = std.ArrayListUnmanaged(u16).empty;
         defer utf16_buf.deinit(allocator);
 
         while (true) {
@@ -653,7 +653,7 @@ fn parseFileNames(r: *Reader, files: []FileInfo, allocator: std.mem.Allocator) P
         }
 
         // Convert UTF-16LE to UTF-8
-        var utf8_buf = std.ArrayListUnmanaged(u8){};
+        var utf8_buf = std.ArrayListUnmanaged(u8).empty;
         errdefer utf8_buf.deinit(allocator);
 
         for (utf16_buf.items) |cu| {

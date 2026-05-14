@@ -15,6 +15,15 @@ const varint = @import("varint.zig");
 const Writer = @import("writer.zig").Writer;
 pub const ProgressContext = @import("progress.zig").ProgressContext;
 
+/// Zig 0.16: std.crypto.random was removed. Use io.randomSecure() with a
+/// process-wide single-threaded Io (safe per the bzip2z firsthand note in
+/// the migration doc — only Io.concurrent is unsupported on that handle).
+/// Falls back to non-secure pseudo-random if entropy source unavailable.
+fn fillRandomBytes(buf: []u8) void {
+    const io = std.Io.Threaded.global_single_threaded.io();
+    io.randomSecure(buf) catch io.random(buf);
+}
+
 // POSIX and Windows attribute constants for kWinAttrib encoding.
 // See SPEC_7Z_CLEANROOM.md section 2.6.
 const S_IFLNK: u32 = 0xA000; // POSIX symlink file type
@@ -350,8 +359,8 @@ fn createLzma2AesWithOptions(files: []const FileEntry, password: []const u8, dic
     // Generate random salt and IV
     var salt: [8]u8 = undefined;
     var iv: [16]u8 = undefined;
-    std.crypto.random.bytes(&salt);
-    std.crypto.random.bytes(&iv);
+    fillRandomBytes(&salt);
+    fillRandomBytes(&iv);
 
     const aes_props = aes_crypt.AesProperties{
         .num_cycles_power = 19, // 2^19 = 524288 iterations (7zz default)
@@ -580,9 +589,9 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
     }
 
     // Collect unique group indices in order
-    var group_ids = std.ArrayListUnmanaged(u32){};
+    var group_ids = std.ArrayListUnmanaged(u32).empty;
     defer group_ids.deinit(allocator);
-    var files_per_group = std.ArrayListUnmanaged(usize){};
+    var files_per_group = std.ArrayListUnmanaged(usize).empty;
     defer files_per_group.deinit(allocator);
 
     {
@@ -667,8 +676,8 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
                 // Generate random salt and IV per group
                 var salt: [8]u8 = undefined;
                 var iv: [16]u8 = undefined;
-                std.crypto.random.bytes(&salt);
-                std.crypto.random.bytes(&iv);
+                fillRandomBytes(&salt);
+                fillRandomBytes(&iv);
 
                 const aes_props = aes_crypt.AesProperties{
                     .num_cycles_power = 19, // 2^19 = 524288 iterations (7zz default)
@@ -965,8 +974,8 @@ fn encryptHeader(header_data: []const u8, content_pack_size: usize, password: []
     // Step 2: Encrypt with AES-256-CBC
     var salt: [8]u8 = undefined;
     var iv: [16]u8 = undefined;
-    std.crypto.random.bytes(&salt);
-    std.crypto.random.bytes(&iv);
+    fillRandomBytes(&salt);
+    fillRandomBytes(&iv);
 
     const aes_props = aes_crypt.AesProperties{
         .num_cycles_power = 19,

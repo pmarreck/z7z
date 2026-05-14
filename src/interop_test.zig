@@ -7,15 +7,16 @@
 
 const std = @import("std");
 const archive = @import("archive.zig");
-const Child = std.process.Child;
 
 /// Run 7zz with arguments, returning stdout, stderr, and exit code.
 /// Returns null if 7zz is not available.
-fn run7zz(argv: []const []const u8, allocator: std.mem.Allocator) ?Child.RunResult {
-	return Child.run(.{
-		.allocator = allocator,
+/// Zig 0.16: std.process.Child.run replaced by std.process.run(alloc, io, opts);
+/// max_output_bytes split into stdout_limit / stderr_limit Io.Limit values.
+fn run7zz(argv: []const []const u8, allocator: std.mem.Allocator) ?std.process.RunResult {
+	return std.process.run(allocator, std.testing.io, .{
 		.argv = argv,
-		.max_output_bytes = 256 * 1024,
+		.stdout_limit = .limited(256 * 1024),
+		.stderr_limit = .limited(256 * 1024),
 	}) catch return null;
 }
 
@@ -34,11 +35,11 @@ test "interop: z7z archive accepted by 7zz (list)" {
 	var tmp_dir = std.testing.tmpDir(.{});
 	defer tmp_dir.cleanup();
 
-	const file = try tmp_dir.dir.createFile("test.7z", .{});
-	try file.writeAll(archive_data);
-	file.close();
+	const file = try tmp_dir.dir.createFile(std.testing.io, "test.7z", .{});
+	try file.writeStreamingAll(std.testing.io, archive_data);
+	file.close(std.testing.io);
 
-	const path = try tmp_dir.dir.realpathAlloc(allocator, "test.7z");
+	const path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "test.7z", allocator);
 	defer allocator.free(path);
 
 	// Run 7zz l (list)
@@ -48,7 +49,7 @@ test "interop: z7z archive accepted by 7zz (list)" {
 
 	// 7zz should exit successfully
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) {
 				std.debug.print("7zz l failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
 			}
@@ -77,11 +78,11 @@ test "interop: z7z archive passes 7zz integrity test" {
 	var tmp_dir = std.testing.tmpDir(.{});
 	defer tmp_dir.cleanup();
 
-	const file = try tmp_dir.dir.createFile("test.7z", .{});
-	try file.writeAll(archive_data);
-	file.close();
+	const file = try tmp_dir.dir.createFile(std.testing.io, "test.7z", .{});
+	try file.writeStreamingAll(std.testing.io, archive_data);
+	file.close(std.testing.io);
 
-	const path = try tmp_dir.dir.realpathAlloc(allocator, "test.7z");
+	const path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "test.7z", allocator);
 	defer allocator.free(path);
 
 	// Run 7zz t (test integrity)
@@ -90,7 +91,7 @@ test "interop: z7z archive passes 7zz integrity test" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) {
 				std.debug.print("7zz t failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
 			}
@@ -117,15 +118,15 @@ test "interop: z7z archive extraction matches original data via 7zz" {
 	var tmp_dir = std.testing.tmpDir(.{});
 	defer tmp_dir.cleanup();
 
-	const archive_file = try tmp_dir.dir.createFile("test.7z", .{});
-	try archive_file.writeAll(archive_data);
-	archive_file.close();
+	const archive_file = try tmp_dir.dir.createFile(std.testing.io, "test.7z", .{});
+	try archive_file.writeStreamingAll(std.testing.io, archive_data);
+	archive_file.close(std.testing.io);
 
-	const archive_path = try tmp_dir.dir.realpathAlloc(allocator, "test.7z");
+	const archive_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "test.7z", allocator);
 	defer allocator.free(archive_path);
 
 	// Extract with 7zz to the same temp dir
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
 	const output_arg = try std.fmt.allocPrint(allocator, "-o{s}", .{dir_path});
@@ -136,7 +137,7 @@ test "interop: z7z archive extraction matches original data via 7zz" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) {
 				std.debug.print("7zz x failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
 			}
@@ -146,7 +147,7 @@ test "interop: z7z archive extraction matches original data via 7zz" {
 	}
 
 	// Read the extracted file and compare
-	const extracted = try tmp_dir.dir.readFileAlloc(allocator, "fox.txt", 1024 * 1024);
+	const extracted = try tmp_dir.dir.readFileAlloc(std.testing.io, "fox.txt", allocator, .limited(1024 * 1024));
 	defer allocator.free(extracted);
 
 	try std.testing.expectEqualStrings(content, extracted);
@@ -160,14 +161,14 @@ test "interop: 7zz-created archive readable by z7z" {
 
 	// Create a source file
 	const content = "Created by 7zz for z7z interop test.\n";
-	const src_file = try tmp_dir.dir.createFile("oracle.txt", .{});
-	try src_file.writeAll(content);
-	src_file.close();
+	const src_file = try tmp_dir.dir.createFile(std.testing.io, "oracle.txt", .{});
+	try src_file.writeStreamingAll(std.testing.io, content);
+	src_file.close(std.testing.io);
 
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
-	const src_path = try tmp_dir.dir.realpathAlloc(allocator, "oracle.txt");
+	const src_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "oracle.txt", allocator);
 	defer allocator.free(src_path);
 
 	const archive_path = try std.fmt.allocPrint(allocator, "{s}/oracle.7z", .{dir_path});
@@ -179,7 +180,7 @@ test "interop: 7zz-created archive readable by z7z" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) {
 				std.debug.print("7zz a failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
 				return; // Skip if 7zz can't create
@@ -189,7 +190,7 @@ test "interop: 7zz-created archive readable by z7z" {
 	}
 
 	// Read the 7zz-created archive
-	const archive_data = try tmp_dir.dir.readFileAlloc(allocator, "oracle.7z", 1024 * 1024);
+	const archive_data = try tmp_dir.dir.readFileAlloc(std.testing.io, "oracle.7z", allocator, .limited(1024 * 1024));
 	defer allocator.free(archive_data);
 
 	// Parse with z7z
@@ -235,11 +236,11 @@ test "interop: multi-file roundtrip through z7z and 7zz" {
 	var tmp_dir = std.testing.tmpDir(.{});
 	defer tmp_dir.cleanup();
 
-	const file = try tmp_dir.dir.createFile("multi.7z", .{});
-	try file.writeAll(archive_data);
-	file.close();
+	const file = try tmp_dir.dir.createFile(std.testing.io, "multi.7z", .{});
+	try file.writeStreamingAll(std.testing.io, archive_data);
+	file.close(std.testing.io);
 
-	const path = try tmp_dir.dir.realpathAlloc(allocator, "multi.7z");
+	const path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "multi.7z", allocator);
 	defer allocator.free(path);
 
 	const result = run7zz(&.{ "7zz", "t", path }, allocator) orelse return;
@@ -247,7 +248,7 @@ test "interop: multi-file roundtrip through z7z and 7zz" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) {
 				std.debug.print("7zz t multi failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
 			}
@@ -273,11 +274,11 @@ test "interop: z7z LZMA2 archive accepted by 7zz" {
 	var tmp_dir = std.testing.tmpDir(.{});
 	defer tmp_dir.cleanup();
 
-	const file = try tmp_dir.dir.createFile("lzma2_z7z.7z", .{});
-	try file.writeAll(archive_data);
-	file.close();
+	const file = try tmp_dir.dir.createFile(std.testing.io, "lzma2_z7z.7z", .{});
+	try file.writeStreamingAll(std.testing.io, archive_data);
+	file.close(std.testing.io);
 
-	const path = try tmp_dir.dir.realpathAlloc(allocator, "lzma2_z7z.7z");
+	const path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "lzma2_z7z.7z", allocator);
 	defer allocator.free(path);
 
 	// Run 7zz t (test integrity)
@@ -286,7 +287,7 @@ test "interop: z7z LZMA2 archive accepted by 7zz" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) {
 				std.debug.print("7zz t LZMA2 failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
 			}
@@ -312,14 +313,14 @@ test "interop: z7z LZMA2 extraction matches via 7zz" {
 	var tmp_dir = std.testing.tmpDir(.{});
 	defer tmp_dir.cleanup();
 
-	const archive_file = try tmp_dir.dir.createFile("fox_lzma2.7z", .{});
-	try archive_file.writeAll(archive_data);
-	archive_file.close();
+	const archive_file = try tmp_dir.dir.createFile(std.testing.io, "fox_lzma2.7z", .{});
+	try archive_file.writeStreamingAll(std.testing.io, archive_data);
+	archive_file.close(std.testing.io);
 
-	const archive_path = try tmp_dir.dir.realpathAlloc(allocator, "fox_lzma2.7z");
+	const archive_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "fox_lzma2.7z", allocator);
 	defer allocator.free(archive_path);
 
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
 	const output_arg = try std.fmt.allocPrint(allocator, "-o{s}", .{dir_path});
@@ -330,7 +331,7 @@ test "interop: z7z LZMA2 extraction matches via 7zz" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) {
 				std.debug.print("7zz x LZMA2 failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
 			}
@@ -340,7 +341,7 @@ test "interop: z7z LZMA2 extraction matches via 7zz" {
 	}
 
 	// Read extracted file and compare
-	const extracted = try tmp_dir.dir.readFileAlloc(allocator, "fox_lzma2.txt", 1024 * 1024);
+	const extracted = try tmp_dir.dir.readFileAlloc(std.testing.io, "fox_lzma2.txt", allocator, .limited(1024 * 1024));
 	defer allocator.free(extracted);
 	try std.testing.expectEqualStrings(content, extracted);
 }
@@ -353,14 +354,14 @@ test "interop: 7zz LZMA2 archive readable by z7z" {
 
 	// Create a source file
 	const content = "LZMA2 interop test content from 7zz.\n";
-	const src_file = try tmp_dir.dir.createFile("lzma2.txt", .{});
-	try src_file.writeAll(content);
-	src_file.close();
+	const src_file = try tmp_dir.dir.createFile(std.testing.io, "lzma2.txt", .{});
+	try src_file.writeStreamingAll(std.testing.io, content);
+	src_file.close(std.testing.io);
 
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
-	const src_path = try tmp_dir.dir.realpathAlloc(allocator, "lzma2.txt");
+	const src_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "lzma2.txt", allocator);
 	defer allocator.free(src_path);
 
 	const archive_path = try std.fmt.allocPrint(allocator, "{s}/lzma2.7z", .{dir_path});
@@ -372,14 +373,14 @@ test "interop: 7zz LZMA2 archive readable by z7z" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) return; // Skip if 7zz can't create
 		},
 		else => return,
 	}
 
 	// Read the 7zz-created LZMA2 archive
-	const archive_data = try tmp_dir.dir.readFileAlloc(allocator, "lzma2.7z", 1024 * 1024);
+	const archive_data = try tmp_dir.dir.readFileAlloc(std.testing.io, "lzma2.7z", allocator, .limited(1024 * 1024));
 	defer allocator.free(archive_data);
 
 	// Parse with z7z — this should decompress LZMA2
@@ -410,14 +411,14 @@ test "interop: 7zz BCJ+LZMA2 archive readable by z7z" {
 	fake_exe[30] = 0xE8;
 	fake_exe[50] = 0xE8;
 
-	const src_file = try tmp_dir.dir.createFile("test.bin", .{});
-	try src_file.writeAll(&fake_exe);
-	src_file.close();
+	const src_file = try tmp_dir.dir.createFile(std.testing.io, "test.bin", .{});
+	try src_file.writeStreamingAll(std.testing.io, &fake_exe);
+	src_file.close(std.testing.io);
 
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
-	const src_path = try tmp_dir.dir.realpathAlloc(allocator, "test.bin");
+	const src_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "test.bin", allocator);
 	defer allocator.free(src_path);
 
 	const archive_path = try std.fmt.allocPrint(allocator, "{s}/bcj.7z", .{dir_path});
@@ -429,14 +430,14 @@ test "interop: 7zz BCJ+LZMA2 archive readable by z7z" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) return; // Skip if 7zz can't create
 		},
 		else => return,
 	}
 
 	// Read the 7zz-created BCJ+LZMA2 archive
-	const archive_data = try tmp_dir.dir.readFileAlloc(allocator, "bcj.7z", 1024 * 1024);
+	const archive_data = try tmp_dir.dir.readFileAlloc(std.testing.io, "bcj.7z", allocator, .limited(1024 * 1024));
 	defer allocator.free(archive_data);
 
 	// Parse with z7z — should handle multi-coder pipeline
@@ -460,7 +461,7 @@ test "interop: 7zz encoded header archive readable by z7z" {
 	const file_count = 26;
 	const contents_str = "Test content for encoded header interop.\n";
 
-	var src_paths = std.ArrayListUnmanaged([]u8){};
+	var src_paths = std.ArrayListUnmanaged([]u8).empty;
 	defer {
 		for (src_paths.items) |p| allocator.free(p);
 		src_paths.deinit(allocator);
@@ -470,22 +471,22 @@ test "interop: 7zz encoded header archive readable by z7z" {
 		const name = try std.fmt.allocPrint(allocator, "file_{c}.txt", .{@as(u8, @intCast('a' + i))});
 		defer allocator.free(name);
 
-		const f = try tmp_dir.dir.createFile(name, .{});
-		try f.writeAll(contents_str);
-		f.close();
+		const f = try tmp_dir.dir.createFile(std.testing.io, name, .{});
+		try f.writeStreamingAll(std.testing.io, contents_str);
+		f.close(std.testing.io);
 
-		const path = try tmp_dir.dir.realpathAlloc(allocator, name);
+		const path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, name, allocator);
 		try src_paths.append(allocator, path);
 	}
 
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
 	const archive_path = try std.fmt.allocPrint(allocator, "{s}/enchdr.7z", .{dir_path});
 	defer allocator.free(archive_path);
 
 	// Build argv: 7zz a -mhc=on archive_path file1 file2 ...
-	var argv = std.ArrayListUnmanaged([]const u8){};
+	var argv = std.ArrayListUnmanaged([]const u8).empty;
 	defer argv.deinit(allocator);
 	try argv.appendSlice(allocator, &.{ "7zz", "a", "-mhc=on", archive_path });
 	for (src_paths.items) |p| {
@@ -497,14 +498,14 @@ test "interop: 7zz encoded header archive readable by z7z" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) return;
 		},
 		else => return,
 	}
 
 	// Read the 7zz archive — should have kEncodedHeader
-	const archive_data = try tmp_dir.dir.readFileAlloc(allocator, "enchdr.7z", 2 * 1024 * 1024);
+	const archive_data = try tmp_dir.dir.readFileAlloc(std.testing.io, "enchdr.7z", allocator, .limited(2 * 1024 * 1024));
 	defer allocator.free(archive_data);
 
 	var contents = archive.read(archive_data, allocator) catch |e| {
@@ -529,14 +530,14 @@ test "interop: 7zz encrypted archive decryptable by z7z" {
 	const content = "Secret data for encryption interop test.\n";
 	const password = "testpass123";
 
-	const src_file = try tmp_dir.dir.createFile("secret.txt", .{});
-	try src_file.writeAll(content);
-	src_file.close();
+	const src_file = try tmp_dir.dir.createFile(std.testing.io, "secret.txt", .{});
+	try src_file.writeStreamingAll(std.testing.io, content);
+	src_file.close(std.testing.io);
 
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
-	const src_path = try tmp_dir.dir.realpathAlloc(allocator, "secret.txt");
+	const src_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "secret.txt", allocator);
 	defer allocator.free(src_path);
 
 	const archive_path = try std.fmt.allocPrint(allocator, "{s}/encrypted.7z", .{dir_path});
@@ -552,14 +553,14 @@ test "interop: 7zz encrypted archive decryptable by z7z" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) return; // Skip if 7zz can't create
 		},
 		else => return,
 	}
 
 	// Read the encrypted archive with z7z
-	const archive_data = try tmp_dir.dir.readFileAlloc(allocator, "encrypted.7z", 1024 * 1024);
+	const archive_data = try tmp_dir.dir.readFileAlloc(std.testing.io, "encrypted.7z", allocator, .limited(1024 * 1024));
 	defer allocator.free(archive_data);
 
 	var contents = archive.readWithPassword(archive_data, password, allocator) catch |e| {
@@ -581,14 +582,14 @@ test "interop: 7zz encrypted content (no header encryption) readable by z7z" {
 	const content = "Encrypted content, plain header.\n";
 	const password = "pass456";
 
-	const src_file = try tmp_dir.dir.createFile("enc_content.txt", .{});
-	try src_file.writeAll(content);
-	src_file.close();
+	const src_file = try tmp_dir.dir.createFile(std.testing.io, "enc_content.txt", .{});
+	try src_file.writeStreamingAll(std.testing.io, content);
+	src_file.close(std.testing.io);
 
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
-	const src_path = try tmp_dir.dir.realpathAlloc(allocator, "enc_content.txt");
+	const src_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "enc_content.txt", allocator);
 	defer allocator.free(src_path);
 
 	const archive_path = try std.fmt.allocPrint(allocator, "{s}/enc_content.7z", .{dir_path});
@@ -603,13 +604,13 @@ test "interop: 7zz encrypted content (no header encryption) readable by z7z" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) return;
 		},
 		else => return,
 	}
 
-	const archive_data = try tmp_dir.dir.readFileAlloc(allocator, "enc_content.7z", 1024 * 1024);
+	const archive_data = try tmp_dir.dir.readFileAlloc(std.testing.io, "enc_content.7z", allocator, .limited(1024 * 1024));
 	defer allocator.free(archive_data);
 
 	var contents = archive.readWithPassword(archive_data, password, allocator) catch |e| {
@@ -642,9 +643,9 @@ test "interop: z7z encrypted archive decryptable by 7zz" {
 	var tmp_dir = std.testing.tmpDir(.{});
 	defer tmp_dir.cleanup();
 
-	try tmp_dir.dir.writeFile(.{ .sub_path = "z7z_enc.7z", .data = archive_data });
+	try tmp_dir.dir.writeFile(std.testing.io, .{ .sub_path = "z7z_enc.7z", .data = archive_data });
 
-	const dir_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
 	defer allocator.free(dir_path);
 
 	const archive_path = try std.fmt.allocPrint(allocator, "{s}/z7z_enc.7z", .{dir_path});
@@ -662,7 +663,7 @@ test "interop: z7z encrypted archive decryptable by 7zz" {
 	defer allocator.free(result.stderr);
 
 	switch (result.term) {
-		.Exited => |code| {
+		.exited => |code| {
 			if (code != 0) {
 				std.debug.print("7zz extraction failed (exit code {d}):\n{s}\n{s}\n", .{ code, result.stdout, result.stderr });
 				return error.ExtractionFailed;
@@ -675,7 +676,7 @@ test "interop: z7z encrypted archive decryptable by 7zz" {
 	}
 
 	// Verify extracted content matches
-	const extracted = tmp_dir.dir.readFileAlloc(allocator, "out/z7z_enc.txt", 1024 * 1024) catch |e| {
+	const extracted = tmp_dir.dir.readFileAlloc(std.testing.io, "out/z7z_enc.txt", allocator, .limited(1024 * 1024)) catch |e| {
 		std.debug.print("Could not read extracted file: {}\n", .{e});
 		return e;
 	};

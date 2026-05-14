@@ -17,54 +17,53 @@ const CliResult = struct {
 };
 
 /// Run the z7z CLI with the given arguments and return stdout, stderr, and exit code.
+/// Zig 0.16: std.process.Child.init/spawn/collectOutput pattern replaced with
+/// std.process.run(alloc, io, opts) — gathers stdout/stderr in one call.
 fn runCli(allocator: std.mem.Allocator, args: []const []const u8) !CliResult {
-    var argv: std.ArrayList([]const u8) = .{};
+    var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
     try argv.append(allocator, exe_path);
     try argv.appendSlice(allocator, args);
 
-    var child = std.process.Child.init(argv.items, allocator);
-    child.stdout_behavior = .Pipe;
-    child.stderr_behavior = .Pipe;
+    const result = try std.process.run(allocator, testing.io, .{
+        .argv = argv.items,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
 
-    try child.spawn();
-
-    var stdout_buf: std.ArrayList(u8) = .{};
-    var stderr_buf: std.ArrayList(u8) = .{};
-    try child.collectOutput(allocator, &stdout_buf, &stderr_buf, 1024 * 1024);
-
-    const term = try child.wait();
-    const code: u8 = switch (term) {
-        .Exited => |c| c,
-        .Signal => 255,
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        .signal => 255,
         else => 254,
     };
 
     return .{
-        .stdout = try stdout_buf.toOwnedSlice(allocator),
-        .stderr = try stderr_buf.toOwnedSlice(allocator),
+        .stdout = result.stdout,
+        .stderr = result.stderr,
         .exit_code = code,
     };
 }
 
-fn makeTmpDir() !std.fs.Dir {
-    return std.fs.cwd().makeOpenPath(".zig-cache/cli-test-tmp", .{});
+fn makeTmpDir() !std.Io.Dir {
+    return std.Io.Dir.cwd().createDirPathOpen(testing.io, ".zig-cache/cli-test-tmp", .{});
 }
 
 fn cleanTmpDir() void {
-    std.fs.cwd().deleteTree(".zig-cache/cli-test-tmp") catch {};
+    std.Io.Dir.cwd().deleteTree(testing.io, ".zig-cache/cli-test-tmp") catch {};
 }
 
-fn writeTestFile(dir: std.fs.Dir, name: []const u8, content: []const u8) !void {
-    const file = try dir.createFile(name, .{});
-    defer file.close();
-    try file.writeAll(content);
+fn writeTestFile(dir: std.Io.Dir, name: []const u8, content: []const u8) !void {
+    const file = try dir.createFile(testing.io, name, .{});
+    defer file.close(testing.io);
+    try file.writeStreamingAll(testing.io, content);
 }
 
-fn readTestFile(allocator: std.mem.Allocator, dir: std.fs.Dir, name: []const u8) ![]const u8 {
-    const file = try dir.openFile(name, .{});
-    defer file.close();
-    return try file.readToEndAlloc(allocator, 10 * 1024 * 1024);
+fn readTestFile(allocator: std.mem.Allocator, dir: std.Io.Dir, name: []const u8) ![]const u8 {
+    const file = try dir.openFile(testing.io, name, .{});
+    defer file.close(testing.io);
+    var buf: [4096]u8 = undefined;
+    var r = file.reader(testing.io, &buf);
+    return try r.interface.allocRemaining(allocator, .limited(10 * 1024 * 1024));
 }
 
 fn tmpPath(buf: []u8, name: []const u8) []const u8 {
@@ -110,7 +109,7 @@ test "cli: create + list + extract single file roundtrip" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
 
     try writeTestFile(dir, "hello.txt", "Hello from CLI integration test!");
 
@@ -135,8 +134,8 @@ test "cli: create + list + extract single file roundtrip" {
     defer extract_result.deinit(allocator);
     try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
 
-    var out_d = try std.fs.cwd().openDir(out_dir, .{});
-    defer out_d.close();
+    var out_d = try std.Io.Dir.cwd().openDir(testing.io, out_dir, .{});
+    defer out_d.close(testing.io);
     const extracted = try readTestFile(allocator, out_d, "hello.txt");
     defer allocator.free(extracted);
     try testing.expectEqualStrings("Hello from CLI integration test!", extracted);
@@ -147,7 +146,7 @@ test "cli: create + extract multi-file roundtrip" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
 
     try writeTestFile(dir, "alpha.txt", "Alpha content");
     try writeTestFile(dir, "beta.txt", "Beta content here");
@@ -177,8 +176,8 @@ test "cli: create + extract multi-file roundtrip" {
     defer extract_result.deinit(allocator);
     try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
 
-    var out_d = try std.fs.cwd().openDir(out_dir, .{});
-    defer out_d.close();
+    var out_d = try std.Io.Dir.cwd().openDir(testing.io, out_dir, .{});
+    defer out_d.close(testing.io);
 
     const got_a = try readTestFile(allocator, out_d, "alpha.txt");
     defer allocator.free(got_a);
@@ -198,7 +197,7 @@ test "cli: rejects invalid archive" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "bad.7z", "this is not a 7z archive");
 
     var arc_buf: [256]u8 = undefined;
@@ -225,7 +224,7 @@ test "cli: extract to current dir (no output dir)" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
 
     try writeTestFile(dir, "nodir.txt", "extract without dir arg");
 
@@ -243,7 +242,7 @@ test "cli: extract to current dir (no output dir)" {
     try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
 
     // Clean up the extracted file from CWD
-    std.fs.cwd().deleteFile("nodir.txt") catch {};
+    std.Io.Dir.cwd().deleteFile(testing.io, "nodir.txt") catch {};
 }
 
 test "cli: path with spaces in filename" {
@@ -251,7 +250,7 @@ test "cli: path with spaces in filename" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
 
     try writeTestFile(dir, "file with spaces.txt", "spaces are tricky");
 
@@ -270,8 +269,8 @@ test "cli: path with spaces in filename" {
     defer extract_result.deinit(allocator);
     try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
 
-    var out_d = try std.fs.cwd().openDir(out_dir, .{});
-    defer out_d.close();
+    var out_d = try std.Io.Dir.cwd().openDir(testing.io, out_dir, .{});
+    defer out_d.close(testing.io);
     const extracted = try readTestFile(allocator, out_d, "file with spaces.txt");
     defer allocator.free(extracted);
     try testing.expectEqualStrings("spaces are tricky", extracted);
@@ -282,7 +281,7 @@ test "cli: command aliases (l, x, a)" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "alias.txt", "testing aliases");
 
     var in_buf: [256]u8 = undefined;
@@ -315,17 +314,17 @@ test "cli: create + list + extract directory" {
 
     // Create a directory structure
     var dir = try makeTmpDir();
-    defer dir.close();
-    try dir.makePath("mydir/sub");
+    defer dir.close(testing.io);
+    try dir.createDirPath(testing.io, "mydir/sub");
     {
-        const f = try dir.createFile("mydir/top.txt", .{});
-        defer f.close();
-        try f.writeAll("Top-level file");
+        const f = try dir.createFile(testing.io, "mydir/top.txt", .{});
+        defer f.close(testing.io);
+        try f.writeStreamingAll(testing.io, "Top-level file");
     }
     {
-        const f = try dir.createFile("mydir/sub/nested.txt", .{});
-        defer f.close();
-        try f.writeAll("Nested file");
+        const f = try dir.createFile(testing.io, "mydir/sub/nested.txt", .{});
+        defer f.close(testing.io);
+        try f.writeStreamingAll(testing.io, "Nested file");
     }
 
     var dir_buf: [256]u8 = undefined;
@@ -353,8 +352,8 @@ test "cli: create + list + extract directory" {
     defer extract_result.deinit(allocator);
     try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
 
-    var out_d = try std.fs.cwd().openDir(out_dir, .{});
-    defer out_d.close();
+    var out_d = try std.Io.Dir.cwd().openDir(testing.io, out_dir, .{});
+    defer out_d.close(testing.io);
 
     const got_top = try readTestFile(allocator, out_d, "mydir/top.txt");
     defer allocator.free(got_top);
@@ -370,14 +369,14 @@ test "cli: mixed files and directory" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
 
     try writeTestFile(dir, "standalone.txt", "Standalone content");
-    try dir.makePath("testdir");
+    try dir.createDirPath(testing.io, "testdir");
     {
-        const f = try dir.createFile("testdir/inner.txt", .{});
-        defer f.close();
-        try f.writeAll("Inner content");
+        const f = try dir.createFile(testing.io, "testdir/inner.txt", .{});
+        defer f.close(testing.io);
+        try f.writeStreamingAll(testing.io, "Inner content");
     }
 
     var s_buf: [256]u8 = undefined;
@@ -397,8 +396,8 @@ test "cli: mixed files and directory" {
     defer extract_result.deinit(allocator);
     try testing.expectEqual(@as(u8, 0), extract_result.exit_code);
 
-    var out_d = try std.fs.cwd().openDir(out_dir, .{});
-    defer out_d.close();
+    var out_d = try std.Io.Dir.cwd().openDir(testing.io, out_dir, .{});
+    defer out_d.close(testing.io);
 
     const got_s = try readTestFile(allocator, out_d, "standalone.txt");
     defer allocator.free(got_s);
@@ -418,7 +417,7 @@ test "cli: test command verifies archive integrity" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "verify.txt", "data to verify");
 
     var f_buf: [256]u8 = undefined;
@@ -442,7 +441,7 @@ test "cli: 't' alias for test command" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "talias.txt", "t alias data");
 
     var f_buf: [256]u8 = undefined;
@@ -465,7 +464,7 @@ test "cli: test on corrupt data fails" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "corrupt.7z", "this is not a 7z archive");
 
     var arc_buf: [256]u8 = undefined;
@@ -484,12 +483,12 @@ test "cli: flat extract (e) strips directory structure" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
-    try dir.makePath("flatdir");
+    defer dir.close(testing.io);
+    try dir.createDirPath(testing.io, "flatdir");
     {
-        const f = try dir.createFile("flatdir/deep.txt", .{});
-        defer f.close();
-        try f.writeAll("deep file");
+        const f = try dir.createFile(testing.io, "flatdir/deep.txt", .{});
+        defer f.close(testing.io);
+        try f.writeStreamingAll(testing.io, "deep file");
     }
 
     var d_buf: [256]u8 = undefined;
@@ -515,14 +514,14 @@ test "cli: flat extract (e) strips directory structure" {
     try testing.expectEqual(@as(u8, 0), er.exit_code);
 
     // deep.txt should be in out_dir root, not in out_dir/flatdir/
-    var out_d = try std.fs.cwd().openDir(out_dir, .{});
-    defer out_d.close();
+    var out_d = try std.Io.Dir.cwd().openDir(testing.io, out_dir, .{});
+    defer out_d.close(testing.io);
     const got = try readTestFile(allocator, out_d, "deep.txt");
     defer allocator.free(got);
     try testing.expectEqualStrings("deep file", got);
 
     // flatdir/ subdirectory should NOT exist (flat extract)
-    const sub_result = out_d.openDir("flatdir", .{});
+    const sub_result = out_d.openDir(testing.io, "flatdir", .{});
     try testing.expect(sub_result == error.FileNotFound);
 }
 
@@ -531,7 +530,7 @@ test "cli: -o flag sets output directory" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "oflag.txt", "output dir test");
 
     var f_buf: [256]u8 = undefined;
@@ -555,8 +554,8 @@ test "cli: -o flag sets output directory" {
     defer er.deinit(allocator);
     try testing.expectEqual(@as(u8, 0), er.exit_code);
 
-    var out_d = try std.fs.cwd().openDir(out_dir, .{});
-    defer out_d.close();
+    var out_d = try std.Io.Dir.cwd().openDir(testing.io, out_dir, .{});
+    defer out_d.close(testing.io);
     const got = try readTestFile(allocator, out_d, "oflag.txt");
     defer allocator.free(got);
     try testing.expectEqualStrings("output dir test", got);
@@ -567,7 +566,7 @@ test "cli: -y flag allows overwriting existing files" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "overwrite.txt", "original");
 
     var f_buf: [256]u8 = undefined;
@@ -604,7 +603,7 @@ test "cli: selective extraction by filename" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "keep.txt", "keep me");
     try writeTestFile(dir, "skip.txt", "skip me");
 
@@ -632,8 +631,8 @@ test "cli: selective extraction by filename" {
     defer er.deinit(allocator);
     try testing.expectEqual(@as(u8, 0), er.exit_code);
 
-    var out_d = try std.fs.cwd().openDir(out_dir, .{});
-    defer out_d.close();
+    var out_d = try std.Io.Dir.cwd().openDir(testing.io, out_dir, .{});
+    defer out_d.close(testing.io);
 
     // keep.txt should exist
     const got = try readTestFile(allocator, out_d, "keep.txt");
@@ -641,7 +640,7 @@ test "cli: selective extraction by filename" {
     try testing.expectEqualStrings("keep me", got);
 
     // skip.txt should NOT exist
-    const skip_result = out_d.openFile("skip.txt", .{});
+    const skip_result = out_d.openFile(testing.io, "skip.txt", .{});
     try testing.expect(skip_result == error.FileNotFound);
 }
 
@@ -650,7 +649,7 @@ test "cli: -mhe=on warns without password" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "mhe.txt", "header encrypt test");
 
     var f_buf: [256]u8 = undefined;
@@ -669,7 +668,7 @@ test "cli: -mmt=1 single-threaded create" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "mmt.txt", "threading test data");
 
     var f_buf: [256]u8 = undefined;
@@ -693,7 +692,7 @@ test "cli: test with verbose shows file names" {
     const allocator = testing.allocator;
 
     var dir = try makeTmpDir();
-    defer dir.close();
+    defer dir.close(testing.io);
     try writeTestFile(dir, "verbose_test.txt", "verbose check");
 
     var f_buf: [256]u8 = undefined;

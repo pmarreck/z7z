@@ -18,7 +18,7 @@ const RangeEncoder = struct {
     range: u32 = 0xFFFF_FFFF,
     cache_size: u32 = 1,
     cache: u8 = 0,
-    output: std.ArrayListUnmanaged(u8) = .{},
+    output: std.ArrayListUnmanaged(u8) = .empty,
 
     fn init() RangeEncoder {
         return .{};
@@ -994,7 +994,7 @@ pub fn compressWithThreads(data: []const u8, dict_size: u32, nice_len: u32, thre
     defer allocator.free(lzma_data);
 
     // Build LZMA2 output
-    var output = std.ArrayListUnmanaged(u8){};
+    var output = std.ArrayListUnmanaged(u8).empty;
     defer output.deinit(allocator);
 
     if (lzma_data.len >= data.len) {
@@ -1040,7 +1040,7 @@ pub fn compressWithThreads(data: []const u8, dict_size: u32, nice_len: u32, thre
 /// - Probability tables carry across chunks (better adaptation)
 /// - Only the range coder resets between chunks (as LZMA2 requires)
 fn compressChunked(data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32, nice_len: u32, progress: ProgressContext, allocator: std.mem.Allocator) ![]u8 {
-    var output = std.ArrayListUnmanaged(u8){};
+    var output = std.ArrayListUnmanaged(u8).empty;
     defer output.deinit(allocator);
 
     // Single match finder over the entire input
@@ -1266,7 +1266,7 @@ fn compressBlock(block_data: []const u8, lc: u3, lp: u2, pb: u2, dict_size: u32,
         const lzma_data = try compressLzma1(block_data, lc, lp, pb, dict_size, nice_len, allocator);
         defer allocator.free(lzma_data);
 
-        var output = std.ArrayListUnmanaged(u8){};
+        var output = std.ArrayListUnmanaged(u8).empty;
         defer output.deinit(allocator);
 
         if (lzma_data.len >= block_data.len) {
@@ -1329,55 +1329,89 @@ fn compressParallel(
     defer allocator.free(errors);
     @memset(errors, null);
 
-    // Thread pool + WaitGroup for coordinated completion
-    var pool: std.Thread.Pool = undefined;
-    try pool.init(.{
-        .allocator = allocator,
-        .n_jobs = actual_threads,
-    });
-    defer pool.deinit();
-
-    var wg: std.Thread.WaitGroup = .{};
-
-    // Shared atomic counter for cross-block progress reporting
+    // Zig 0.16: std.Thread.Pool and std.Thread.WaitGroup were removed.
+    // Per the mini_blar firsthand note in the migration doc, the simplest
+    // replacement for "N independent jobs, K workers" is a bounded raw-spawn
+    // pool driven by an atomic next-slot counter — no io plumbing required.
     var progress_done = std.atomic.Value(u64).init(0);
+    var next_slot = std.atomic.Value(usize).init(0);
 
-    // Spawn block compression tasks
-    for (0..num_blocks) |block_idx| {
-        const start = block_idx * block_size;
-        const end = if (block_idx == num_blocks - 1) data.len else start + block_size;
-        const block_data = data[start..end];
+    const WorkerCtx = struct {
+        data: []const u8,
+        block_size: usize,
+        num_blocks: usize,
+        lc: u3,
+        lp: u2,
+        pb: u2,
+        dict_size: u32,
+        nice_len: u32,
+        results: []?[]u8,
+        errors: []?anyerror,
+        next: *std.atomic.Value(usize),
+        progress_done: *std.atomic.Value(u64),
+        progress_total: u64,
+        progress: ProgressContext,
+        allocator: std.mem.Allocator,
+    };
 
-        pool.spawnWg(&wg, struct {
-            fn run(
-                b_data: []const u8,
-                b_lc: u3,
-                b_lp: u2,
-                b_pb: u2,
-                b_dict_size: u32,
-                b_nice_len: u32,
-                b_results: []?[]u8,
-                b_errors: []?anyerror,
-                b_idx: usize,
-                b_progress_done: *std.atomic.Value(u64),
-                b_progress_total: u64,
-                b_progress: ProgressContext,
-                b_allocator: std.mem.Allocator,
-            ) void {
-                const block_result = compressBlock(b_data, b_lc, b_lp, b_pb, b_dict_size, b_nice_len, b_allocator) catch |err| {
-                    b_errors[b_idx] = err;
-                    return;
+    const worker_fn = struct {
+        fn run(ctx: *const WorkerCtx) void {
+            while (true) {
+                const slot = ctx.next.fetchAdd(1, .acq_rel);
+                if (slot >= ctx.num_blocks) return;
+                const start = slot * ctx.block_size;
+                const end = if (slot == ctx.num_blocks - 1) ctx.data.len else start + ctx.block_size;
+                const block_data = ctx.data[start..end];
+                const block_result = compressBlock(
+                    block_data,
+                    ctx.lc,
+                    ctx.lp,
+                    ctx.pb,
+                    ctx.dict_size,
+                    ctx.nice_len,
+                    ctx.allocator,
+                ) catch |err| {
+                    ctx.errors[slot] = err;
+                    continue;
                 };
-                b_results[b_idx] = block_result;
-                // Report this block's completion atomically
-                const new_done = b_progress_done.fetchAdd(b_data.len, .monotonic) + b_data.len;
-                b_progress.report(new_done, b_progress_total);
+                ctx.results[slot] = block_result;
+                const new_done = ctx.progress_done.fetchAdd(block_data.len, .monotonic) + block_data.len;
+                ctx.progress.report(new_done, ctx.progress_total);
             }
-        }.run, .{ block_data, lc, lp, pb, dict_size, nice_len, results, errors, block_idx, &progress_done, @as(u64, data.len), progress, allocator });
-    }
+        }
+    }.run;
 
-    // Wait for all blocks to complete
-    wg.wait();
+    const ctx: WorkerCtx = .{
+        .data = data,
+        .block_size = block_size,
+        .num_blocks = num_blocks,
+        .lc = lc,
+        .lp = lp,
+        .pb = pb,
+        .dict_size = dict_size,
+        .nice_len = nice_len,
+        .results = results,
+        .errors = errors,
+        .next = &next_slot,
+        .progress_done = &progress_done,
+        .progress_total = @as(u64, data.len),
+        .progress = progress,
+        .allocator = allocator,
+    };
+
+    const workers = try allocator.alloc(std.Thread, actual_threads);
+    defer allocator.free(workers);
+    var spawned: usize = 0;
+    for (workers) |*t| {
+        t.* = std.Thread.spawn(.{}, worker_fn, .{&ctx}) catch {
+            // Drain the queue so already-spawned workers exit, then join + bail.
+            _ = next_slot.fetchAdd(num_blocks, .release);
+            for (workers[0..spawned]) |w| w.join();
+            return error.OutOfMemory;
+        };
+        spawned += 1;
+    }
+    for (workers) |t| t.join();
 
     // Check for errors — if any block failed, free all successful results and return the error
     var first_error: ?anyerror = null;
@@ -1893,6 +1927,66 @@ fn findRepMatch(enc: *const LzmaEncoder, data: []const u8, pos: usize) ?RepMatch
 // Tests
 // ============================================================================
 
+/// Zig 0.16 test helper: decompress an LZMA2 stream into an exact-size buffer.
+/// Replaces the 0.15 `std.compress.lzma2.decompress(alloc, fbs_reader, fbs_writer)`
+/// pattern which is gone — the new API is method-based on Decode and takes
+/// *Reader / *Writer.Allocating.
+fn testDecompressLzma2(compressed: []const u8, out: []u8, allocator: std.mem.Allocator) !void {
+    var in: std.Io.Reader = .fixed(compressed);
+    var aw: std.Io.Writer.Allocating = try .initCapacity(allocator, out.len);
+    defer aw.deinit();
+    var dec = try std.compress.lzma2.Decode.init(allocator);
+    defer dec.deinit(allocator);
+    _ = try dec.decompress(&in, &aw);
+    const written = aw.written();
+    if (written.len != out.len) return error.TestUnexpectedResult;
+    @memcpy(out, written);
+}
+
+/// Zig 0.16 test helper: decompress a full LZMA1 stream (13-byte header + payload).
+fn testDecompressLzma1(stream: []const u8, expected_out_len: usize, allocator: std.mem.Allocator) ![]u8 {
+    if (stream.len < 13) return error.TestUnexpectedResult;
+    var in: std.Io.Reader = .fixed(stream);
+    const props_byte = try in.takeByte();
+    if (props_byte >= 225) return error.TestUnexpectedResult;
+    const lc: u4 = @intCast(props_byte % 9);
+    const lp_pb = props_byte / 9;
+    const lp: u3 = @intCast(lp_pb % 5);
+    const pb: u3 = @intCast(lp_pb / 5);
+    const dict_size = try in.takeInt(u32, .little);
+    _ = try in.takeInt(u64, .little); // unpack size
+
+    var aw: std.Io.Writer.Allocating = try .initCapacity(allocator, expected_out_len);
+    errdefer aw.deinit();
+    var dec: std.compress.lzma.Decode = try .init(allocator, .{ .lc = lc, .lp = lp, .pb = pb });
+    defer dec.deinit(allocator);
+
+    var buffer = std.compress.lzma.Decode.CircularBuffer.init(@max(@as(usize, dict_size), expected_out_len), std.math.maxInt(usize));
+    defer buffer.deinit(allocator);
+
+    var n_read: u64 = 0;
+    var range_decoder: std.compress.lzma.RangeDecoder = try .initCounting(&in, &n_read);
+    while (buffer.len < expected_out_len) {
+        const status = try dec.process(&in, &aw, &buffer, &range_decoder, &n_read);
+        if (status == .finished) break;
+    }
+    try buffer.finish(&aw.writer);
+    return aw.toOwnedSlice();
+}
+
+/// Zig 0.16 test helper: monotonic timer using Io.Timestamp.now(.awake).
+const TestTimer = struct {
+    start_ns: i96,
+    fn start() TestTimer {
+        return .{ .start_ns = std.Io.Timestamp.now(std.Io.Threaded.global_single_threaded.io(), .awake).nanoseconds };
+    }
+    fn read(self: TestTimer) u64 {
+        const now_ns = std.Io.Timestamp.now(std.Io.Threaded.global_single_threaded.io(), .awake).nanoseconds;
+        const elapsed: i96 = now_ns - self.start_ns;
+        return if (elapsed < 0) 0 else @intCast(elapsed);
+    }
+};
+
 test "lzma1 raw: encode single byte roundtrip" {
     const allocator = std.testing.allocator;
     const input = "A";
@@ -1909,12 +2003,9 @@ test "lzma1 raw: encode single byte roundtrip" {
     std.mem.writeInt(u64, stream_buf[5..13], 1, .little);
     @memcpy(stream_buf[13 .. 13 + lzma_data.len], lzma_data);
 
-    var in_stream = std.io.fixedBufferStream(stream_buf[0 .. 13 + lzma_data.len]);
-    var decomp = try std.compress.lzma.decompress(allocator, in_stream.reader());
-    defer decomp.deinit();
-    var out_buf: [64]u8 = undefined;
-    const n = decomp.reader().readAll(&out_buf) catch return error.TestUnexpectedResult;
-    try std.testing.expectEqualStrings("A", out_buf[0..n]);
+    const result = try testDecompressLzma1(stream_buf[0 .. 13 + lzma_data.len], 1, allocator);
+    defer allocator.free(result);
+    try std.testing.expectEqualStrings("A", result);
 }
 
 test "lzma2 encoder: empty data" {
@@ -1934,11 +2025,9 @@ test "lzma2 encoder: roundtrip small data" {
     defer allocator.free(compressed);
 
     // Decompress using stdlib decoder
-    var in_stream = std.io.fixedBufferStream(compressed);
-    var out_buf: [1024]u8 = undefined;
-    var out_stream = std.io.fixedBufferStream(&out_buf);
-    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-    try std.testing.expectEqualStrings(input, out_stream.getWritten());
+    var out_buf: [11]u8 = undefined;
+    try testDecompressLzma2(compressed, &out_buf, allocator);
+    try std.testing.expectEqualStrings(input, &out_buf);
 }
 
 test "lzma2 encoder: roundtrip repetitive data" {
@@ -1952,11 +2041,9 @@ test "lzma2 encoder: roundtrip repetitive data" {
     try std.testing.expect(compressed.len < input.len);
 
     // Verify roundtrip
-    var in_stream = std.io.fixedBufferStream(compressed);
-    var out_buf: [1024]u8 = undefined;
-    var out_stream = std.io.fixedBufferStream(&out_buf);
-    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-    try std.testing.expectEqualStrings(input, out_stream.getWritten());
+    var out_buf: [500]u8 = undefined;
+    try testDecompressLzma2(compressed, out_buf[0..input.len], allocator);
+    try std.testing.expectEqualStrings(input, out_buf[0..input.len]);
 }
 
 test "lzma2 encoder: roundtrip varied text with matches" {
@@ -1968,11 +2055,9 @@ test "lzma2 encoder: roundtrip varied text with matches" {
     const compressed = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
 
-    var in_stream = std.io.fixedBufferStream(compressed);
     var out_buf: [256]u8 = undefined;
-    var out_stream = std.io.fixedBufferStream(&out_buf);
-    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-    try std.testing.expectEqualStrings(input, out_stream.getWritten());
+    try testDecompressLzma2(compressed, out_buf[0..input.len], allocator);
+    try std.testing.expectEqualStrings(input, out_buf[0..input.len]);
 }
 
 test "lzma2 encoder: roundtrip binary data" {
@@ -1985,11 +2070,9 @@ test "lzma2 encoder: roundtrip binary data" {
     const compressed = try compress(&input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
 
-    var in_stream = std.io.fixedBufferStream(compressed);
     var out_buf: [512]u8 = undefined;
-    var out_stream = std.io.fixedBufferStream(&out_buf);
-    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-    try std.testing.expectEqualSlices(u8, &input, out_stream.getWritten());
+    try testDecompressLzma2(compressed, out_buf[0..input.len], allocator);
+    try std.testing.expectEqualSlices(u8, &input, out_buf[0..input.len]);
 }
 
 test "lzma2 encoder: cross-chunk dictionary carry" {
@@ -2023,12 +2106,10 @@ test "lzma2 encoder: cross-chunk dictionary carry" {
     try std.testing.expect(compressed.len < input.len / 2);
 
     // Verify roundtrip decompression
-    var in_stream = std.io.fixedBufferStream(compressed);
     const decompressed = try allocator.alloc(u8, input.len);
     defer allocator.free(decompressed);
-    var out_stream = std.io.fixedBufferStream(decompressed);
-    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-    try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+    try testDecompressLzma2(compressed, decompressed, allocator);
+    try std.testing.expectEqualSlices(u8, input, decompressed);
 }
 
 test "compressBlock: standalone block roundtrip" {
@@ -2053,12 +2134,10 @@ test "compressBlock: standalone block roundtrip" {
     try std.testing.expectEqual(@as(u8, 0x00), block_lzma2[block_lzma2.len - 1]);
 
     // Roundtrip via stdlib decoder
-    var in_stream = std.io.fixedBufferStream(block_lzma2);
     const decompressed = try allocator.alloc(u8, block_size);
     defer allocator.free(decompressed);
-    var out_stream = std.io.fixedBufferStream(decompressed);
-    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-    try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+    try testDecompressLzma2(block_lzma2, decompressed, allocator);
+    try std.testing.expectEqualSlices(u8, input, decompressed);
 }
 
 test "compressParallel: 4MB roundtrip with explicit thread count" {
@@ -2086,12 +2165,10 @@ test "compressParallel: 4MB roundtrip with explicit thread count" {
     try std.testing.expectEqual(@as(u8, 0x00), compressed[compressed.len - 1]);
 
     // Roundtrip
-    var in_stream = std.io.fixedBufferStream(compressed);
     const decompressed = try allocator.alloc(u8, data_size);
     defer allocator.free(decompressed);
-    var out_stream = std.io.fixedBufferStream(decompressed);
-    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-    try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+    try testDecompressLzma2(compressed, decompressed, allocator);
+    try std.testing.expectEqualSlices(u8, input, decompressed);
 }
 
 test "compress: large data uses parallel path and roundtrips" {
@@ -2114,12 +2191,10 @@ test "compress: large data uses parallel path and roundtrips" {
     try std.testing.expect(compressed.len < input.len / 2);
 
     // Roundtrip
-    var in_stream = std.io.fixedBufferStream(compressed);
     const decompressed = try allocator.alloc(u8, data_size);
     defer allocator.free(decompressed);
-    var out_stream = std.io.fixedBufferStream(decompressed);
-    try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-    try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+    try testDecompressLzma2(compressed, decompressed, allocator);
+    try std.testing.expectEqualSlices(u8, input, decompressed);
 }
 
 test "pos_slot calculation" {
@@ -2213,7 +2288,7 @@ test "lzma2 encoder: phase profiling" {
         var mf_a = try MatchFinder.init(input, dict_size, MatchFinder.DEFAULT_NICE_LEN, allocator);
         defer mf_a.deinit(allocator);
 
-        var t_mf = try std.time.Timer.start();
+        var t_mf = TestTimer.start();
         var pos: usize = 0;
         var total_matches: usize = 0;
         while (pos < input.len) {
@@ -2229,7 +2304,7 @@ test "lzma2 encoder: phase profiling" {
     // ---------------------------------------------------------------
     // Measurement B: Full compression (match finding + DP + encoding)
     // ---------------------------------------------------------------
-    var t_full = try std.time.Timer.start();
+    var t_full = TestTimer.start();
     const compressed = try compress(input, dict_size, MatchFinder.DEFAULT_NICE_LEN, .{}, allocator);
     const full_ns = t_full.read();
     const full_ms = @as(f64, @floatFromInt(full_ns)) / 1_000_000.0;
@@ -2244,7 +2319,7 @@ test "lzma2 encoder: phase profiling" {
     {
         var mf_d = try MatchFinder.init(input, dict_size, MatchFinder.DEFAULT_NICE_LEN, allocator);
         defer mf_d.deinit(allocator);
-        var t_d = try std.time.Timer.start();
+        var t_d = TestTimer.start();
         var pos: usize = 0;
         while (pos < input.len) {
             _ = mf_d.findMatches(pos);
@@ -2286,7 +2361,7 @@ test "lzma2 encoder: compression speed regression guard" {
     allocator.free(warmup);
 
     // Timed run
-    var timer = try std.time.Timer.start();
+    var timer = TestTimer.start();
     const compressed = try compress(input, p.dict_size, p.nice_len, .{}, allocator);
     defer allocator.free(compressed);
     const elapsed_ns = timer.read();
@@ -2355,20 +2430,16 @@ test "compress: level 0 vs level 9 compression ratio" {
 
     // Both must roundtrip correctly
     {
-        var in_stream = std.io.fixedBufferStream(compressed_0);
         const decompressed = try allocator.alloc(u8, data_size);
         defer allocator.free(decompressed);
-        var out_stream = std.io.fixedBufferStream(decompressed);
-        try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-        try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+        try testDecompressLzma2(compressed_0, decompressed, allocator);
+        try std.testing.expectEqualSlices(u8, input, decompressed);
     }
     {
-        var in_stream = std.io.fixedBufferStream(compressed_9);
         const decompressed = try allocator.alloc(u8, data_size);
         defer allocator.free(decompressed);
-        var out_stream = std.io.fixedBufferStream(decompressed);
-        try std.compress.lzma2.decompress(allocator, in_stream.reader(), out_stream.writer());
-        try std.testing.expectEqualSlices(u8, input, out_stream.getWritten());
+        try testDecompressLzma2(compressed_9, decompressed, allocator);
+        try std.testing.expectEqualSlices(u8, input, decompressed);
     }
 
     // Level 9 should compress at least as well as level 0

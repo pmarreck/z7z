@@ -380,48 +380,77 @@ fn decodeLzma(packed_data: []const u8, unpack_size: u64, properties: []const u8,
 	// Copy packed data
 	@memcpy(synth[header_len..], packed_data);
 
-	// Decompress using stdlib LZMA
-	var input_stream = std.io.fixedBufferStream(synth);
-	var decomp = std.compress.lzma.decompress(allocator, input_stream.reader()) catch
-		return CodecError.DecompressFailed;
-	defer decomp.deinit();
+	// Zig 0.16: std.compress.lzma.decompress is gone. Use the low-level
+	// Decode primitives directly. Parse the 13-byte stream header we just
+	// constructed (props + dict_size + unpack_size), then drive the decoder
+	// against a fixed Reader until expected_size bytes have been produced.
+	var in: std.Io.Reader = .fixed(synth);
 
-	const out_buf = allocator.alloc(u8, @intCast(unpack_size)) catch return CodecError.OutOfMemory;
-	errdefer allocator.free(out_buf);
+	// Properties byte
+	const props_byte = in.takeByte() catch return CodecError.DecompressFailed;
+	if (props_byte >= 225) return CodecError.DecompressFailed;
+	const lc: u4 = @intCast(props_byte % 9);
+	const lp_pb = props_byte / 9;
+	const lp: u3 = @intCast(lp_pb % 5);
+	const pb: u3 = @intCast(lp_pb / 5);
+	if (@as(u8, lc) + @as(u8, lp) > 4) return CodecError.DecompressFailed;
 
-	const n = decomp.reader().readAll(out_buf) catch {
-		allocator.free(out_buf);
+	// Skip dict size (already factored into safe_dict_size local) and unpack size
+	_ = in.takeInt(u32, .little) catch return CodecError.DecompressFailed;
+	_ = in.takeInt(u64, .little) catch return CodecError.DecompressFailed;
+
+	var allocating: std.Io.Writer.Allocating = std.Io.Writer.Allocating.initCapacity(allocator, @intCast(unpack_size)) catch
+		return CodecError.OutOfMemory;
+	errdefer allocating.deinit();
+
+	var dec: std.compress.lzma.Decode = std.compress.lzma.Decode.init(allocator, .{ .lc = lc, .lp = lp, .pb = pb }) catch
+		return CodecError.OutOfMemory;
+	defer dec.deinit(allocator);
+
+	const mem_limit = std.math.maxInt(usize);
+	var buffer = std.compress.lzma.Decode.CircularBuffer.init(@as(usize, safe_dict_size), mem_limit);
+	defer buffer.deinit(allocator);
+
+	var n_read: u64 = 0;
+	var range_decoder = std.compress.lzma.RangeDecoder.initCounting(&in, &n_read) catch
 		return CodecError.DecompressFailed;
-	};
-	if (n != @as(usize, @intCast(unpack_size))) {
-		allocator.free(out_buf);
+
+	while (buffer.len < @as(usize, @intCast(unpack_size))) {
+		const status = dec.process(&in, &allocating, &buffer, &range_decoder, &n_read) catch
+			return CodecError.DecompressFailed;
+		if (status == .finished) break;
+	}
+
+	buffer.finish(&allocating.writer) catch return CodecError.DecompressFailed;
+
+	if (allocating.written().len != @as(usize, @intCast(unpack_size))) {
 		return CodecError.DecompressFailed;
 	}
 
-	return out_buf;
+	return allocating.toOwnedSlice() catch return CodecError.OutOfMemory;
 }
 
 fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.Allocator) CodecError![]u8 {
-	// Allocate output buffer
-	const out_buf = allocator.alloc(u8, @intCast(unpack_size)) catch return CodecError.OutOfMemory;
-	errdefer allocator.free(out_buf);
+	// Zig 0.16: std.compress.lzma2.decompress is now a method on Decode,
+	// taking a *Reader + *Writer.Allocating.
+	var in: std.Io.Reader = .fixed(packed_data);
+	var allocating: std.Io.Writer.Allocating = std.Io.Writer.Allocating.initCapacity(allocator, @intCast(unpack_size)) catch
+		return CodecError.OutOfMemory;
+	errdefer allocating.deinit();
 
-	// Use Zig's stdlib LZMA2 decompressor
-	var input_stream = std.io.fixedBufferStream(packed_data);
-	var output_stream = std.io.fixedBufferStream(out_buf);
+	var dec = std.compress.lzma2.Decode.init(allocator) catch return CodecError.OutOfMemory;
+	defer dec.deinit(allocator);
 
-	std.compress.lzma2.decompress(allocator, input_stream.reader(), output_stream.writer()) catch {
+	_ = dec.decompress(&in, &allocating) catch {
 		return CodecError.DecompressFailed;
 	};
 
-	// Verify we got exactly the expected amount
-	const written = output_stream.pos;
-	if (written != @as(usize, @intCast(unpack_size))) {
-		allocator.free(out_buf);
+	const written = allocating.written();
+	if (written.len != @as(usize, @intCast(unpack_size))) {
 		return CodecError.DecompressFailed;
 	}
 
-	return out_buf;
+	return allocating.toOwnedSlice() catch return CodecError.OutOfMemory;
 }
 
 /// Decompress Zstandard-compressed data using Zig's std.compress.zstd.

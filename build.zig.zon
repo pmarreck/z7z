@@ -2,15 +2,13 @@
     .name = .z7z,
     .version = "0.1.0",
     .fingerprint = 0x86f00c8217ae42ae,
-    .minimum_zig_version = "0.15.0",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .libmagic = .{
-            .url = "https://github.com/pmarreck/libmagic/archive/refs/tags/zig-0.15.0.tar.gz",
-            .hash = "libmagic-5.46.0-RysxHD9fCACu5caBjXS-x3qQnQM3nRfosCyktdVRzv-R",
+            .path = "vendor/libmagic",
         },
         .progrez = .{
-            .url = "https://github.com/pmarreck/progrez/archive/377256d88ef8e664177b88a66a361a46be4e4c83.tar.gz",
-            .hash = "progrez-0.1.0-0YJXrl0CAgCI-gvYCSEWEnW2rsWMTPbehyOnOveB4EJp",
+            .path = "vendor/progrez",
         },
     },
     .paths = .{
@@ -19,5 +17,6 @@
         "src",
         "include",
         "cli",
+        "vendor",
     },
 }
