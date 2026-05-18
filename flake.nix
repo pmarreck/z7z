@@ -87,7 +87,8 @@
             ++ pkgs.lib.optionals isDarwin [
               pkgs.darwin.cctools
               pkgs.apple-sdk
-            ];
+            ]
+            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.patchelf ];
 
           dontConfigure = true;
 
@@ -99,6 +100,22 @@
             chmod -R u+w $ZIG_GLOBAL_CACHE_DIR
             ${pkgs.lib.optionalString isDarwin ''
               export C_INCLUDE_PATH="${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include''${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
+            ''}
+            # On Linux, Zig with link_libc bakes the FHS dynamic-linker path
+            # into binaries, which does not exist in the Nix sandbox. Compile
+            # the test binaries first, patchelf them, then run the test step
+            # which reuses the cached (now patched) artifacts.
+            ${pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+            zig build test-compile
+            DL="$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)"
+            # Patch every executable under .zig-cache and zig-out; non-ELF
+            # files (scripts, json) silently fail patchelf which is fine.
+            for d in .zig-cache zig-out; do
+              [ -d "$d" ] || continue
+              for f in $(find "$d" -type f -perm -u+x); do
+                patchelf --set-interpreter "$DL" "$f" 2>/dev/null || true
+              done
+            done
             ''}
             timeout 600 zig build test || {
               echo "Tests timed out or failed after 10 minutes"

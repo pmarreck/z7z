@@ -86,6 +86,10 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);
+    const install_unit_tests = b.addInstallArtifact(unit_tests, .{
+        .dest_dir = .{ .override = .{ .custom = "test-bins" } },
+        .dest_sub_path = "unit_test",
+    });
 
     // --- CLI integration tests (cross-platform, spawns the CLI binary) ---
     const cli_tests = b.addTest(.{
@@ -98,8 +102,19 @@ pub fn build(b: *std.Build) void {
     const run_cli_tests = b.addRunArtifact(cli_tests);
     // CLI tests need the CLI binary to be installed first
     run_cli_tests.step.dependOn(&install_cli.step);
+    const install_cli_tests = b.addInstallArtifact(cli_tests, .{
+        .dest_dir = .{ .override = .{ .custom = "test-bins" } },
+        .dest_sub_path = "cli_test",
+    });
 
     const test_step = b.step("test", "Run unit tests and CLI integration tests");
     test_step.dependOn(&run_unit_tests.step);
     test_step.dependOn(&run_cli_tests.step);
+
+    // Build (but do not run) the test binaries; lets CI patchelf the FHS
+    // dynamic-linker path that Zig bakes into libc-linked executables.
+    const test_compile_step = b.step("test-compile", "Compile test binaries without running them");
+    test_compile_step.dependOn(&install_unit_tests.step);
+    test_compile_step.dependOn(&install_cli_tests.step);
+    test_compile_step.dependOn(&install_cli.step);
 }
