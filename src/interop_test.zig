@@ -12,6 +12,10 @@ const archive = @import("archive.zig");
 /// Returns null if 7zz is not available.
 /// Zig 0.16: std.process.Child.run replaced by std.process.run(alloc, io, opts);
 /// max_output_bytes split into stdout_limit / stderr_limit Io.Limit values.
+// Run the 7zz oracle. Returns null only when the process cannot be run at all
+// (e.g. 7zz absent from PATH -> error.FileNotFound); callers turn that into
+// error.SkipZigTest so the absence shows as a yellow "S" instead of a fake green
+// "OK". A 7zz that runs but reports failure surfaces via the post-run assertions.
 fn run7zz(argv: []const []const u8, allocator: std.mem.Allocator) ?std.process.RunResult {
 	return std.process.run(allocator, std.testing.io, .{
 		.argv = argv,
@@ -43,7 +47,7 @@ test "interop: z7z archive accepted by 7zz (list)" {
 	defer allocator.free(path);
 
 	// Run 7zz l (list)
-	const result = run7zz(&.{ "7zz", "l", path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "l", path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -86,7 +90,7 @@ test "interop: z7z archive passes 7zz integrity test" {
 	defer allocator.free(path);
 
 	// Run 7zz t (test integrity)
-	const result = run7zz(&.{ "7zz", "t", path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "t", path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -132,7 +136,7 @@ test "interop: z7z archive extraction matches original data via 7zz" {
 	const output_arg = try std.fmt.allocPrint(allocator, "-o{s}", .{dir_path});
 	defer allocator.free(output_arg);
 
-	const result = run7zz(&.{ "7zz", "x", "-y", archive_path, output_arg }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "x", "-y", archive_path, output_arg }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -175,7 +179,7 @@ test "interop: 7zz-created archive readable by z7z" {
 	defer allocator.free(archive_path);
 
 	// Create archive with 7zz using Copy method (-m0=Copy)
-	const result = run7zz(&.{ "7zz", "a", "-m0=Copy", archive_path, src_path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "a", "-m0=Copy", archive_path, src_path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -243,7 +247,7 @@ test "interop: multi-file roundtrip through z7z and 7zz" {
 	const path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "multi.7z", allocator);
 	defer allocator.free(path);
 
-	const result = run7zz(&.{ "7zz", "t", path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "t", path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -282,7 +286,7 @@ test "interop: z7z LZMA2 archive accepted by 7zz" {
 	defer allocator.free(path);
 
 	// Run 7zz t (test integrity)
-	const result = run7zz(&.{ "7zz", "t", path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "t", path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -326,7 +330,7 @@ test "interop: z7z LZMA2 extraction matches via 7zz" {
 	const output_arg = try std.fmt.allocPrint(allocator, "-o{s}", .{dir_path});
 	defer allocator.free(output_arg);
 
-	const result = run7zz(&.{ "7zz", "x", "-y", archive_path, output_arg }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "x", "-y", archive_path, output_arg }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -368,7 +372,7 @@ test "interop: 7zz LZMA2 archive readable by z7z" {
 	defer allocator.free(archive_path);
 
 	// Create archive with 7zz using LZMA2 (default method)
-	const result = run7zz(&.{ "7zz", "a", "-m0=LZMA2", archive_path, src_path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "a", "-m0=LZMA2", archive_path, src_path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -425,7 +429,7 @@ test "interop: 7zz BCJ+LZMA2 archive readable by z7z" {
 	defer allocator.free(archive_path);
 
 	// Force BCJ+LZMA2 pipeline
-	const result = run7zz(&.{ "7zz", "a", "-m0=BCJ", "-m1=LZMA2", archive_path, src_path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "a", "-m0=BCJ", "-m1=LZMA2", archive_path, src_path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -493,7 +497,7 @@ test "interop: 7zz encoded header archive readable by z7z" {
 		try argv.append(allocator, p);
 	}
 
-	const result = run7zz(argv.items, allocator) orelse return;
+	const result = run7zz(argv.items, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -548,7 +552,7 @@ test "interop: 7zz encrypted archive decryptable by z7z" {
 
 	// Create encrypted archive with 7zz
 	// -mhe=on encrypts the header too
-	const result = run7zz(&.{ "7zz", "a", "-m0=LZMA2", pw_arg, "-mhe=on", archive_path, src_path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "a", "-m0=LZMA2", pw_arg, "-mhe=on", archive_path, src_path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -599,7 +603,7 @@ test "interop: 7zz encrypted content (no header encryption) readable by z7z" {
 	defer allocator.free(pw_arg);
 
 	// -mhe=off: encrypt content only, not the header
-	const result = run7zz(&.{ "7zz", "a", "-m0=LZMA2", pw_arg, "-mhe=off", archive_path, src_path }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "a", "-m0=LZMA2", pw_arg, "-mhe=off", archive_path, src_path }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
@@ -658,7 +662,7 @@ test "interop: z7z encrypted archive decryptable by 7zz" {
 	defer allocator.free(pw_arg);
 
 	// Extract with 7zz
-	const result = run7zz(&.{ "7zz", "x", pw_arg, extract_dir, archive_path, "-y" }, allocator) orelse return;
+	const result = run7zz(&.{ "7zz", "x", pw_arg, extract_dir, archive_path, "-y" }, allocator) orelse return error.SkipZigTest;
 	defer allocator.free(result.stdout);
 	defer allocator.free(result.stderr);
 
