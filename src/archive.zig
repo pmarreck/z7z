@@ -51,6 +51,7 @@ pub const ArchiveError = error{
     UnsupportedFeature,
     EndOfStream,
     OutOfMemory,
+    PasswordRequired,
 };
 
 /// Compression method for archive creation.
@@ -127,7 +128,7 @@ pub fn createWithOptions(files: []const FileEntry, opts: CreateOptions, allocato
     const archive_data = switch (method) {
         .copy => try createCopy(files, allocator),
         .lzma2 => try createLzma2WithThreads(files, lp.dict_size, lp.nice_len, opts.thread_count, opts.progress, allocator),
-        .lzma2_aes => try createLzma2AesWithOptions(files, opts.password orelse return error.OutOfMemory, lp.dict_size, lp.nice_len, opts.thread_count, opts.encrypt_header, opts.progress, allocator),
+        .lzma2_aes => try createLzma2AesWithOptions(files, opts.password orelse return error.PasswordRequired, lp.dict_size, lp.nice_len, opts.thread_count, opts.encrypt_header, opts.progress, allocator),
     };
     return archive_data;
 }
@@ -177,7 +178,7 @@ pub fn createWithLevel(files: []const FileEntry, method: Method, password: ?[]co
     return switch (method) {
         .copy => createCopy(files, allocator),
         .lzma2 => createLzma2(files, lp.dict_size, lp.nice_len, progress, allocator),
-        .lzma2_aes => createLzma2Aes(files, password orelse return error.OutOfMemory, lp.dict_size, lp.nice_len, progress, allocator),
+        .lzma2_aes => createLzma2Aes(files, password orelse return error.PasswordRequired, lp.dict_size, lp.nice_len, progress, allocator),
     };
 }
 
@@ -671,7 +672,7 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
             // Encrypt if needed
             if (is_encrypted) {
                 defer allocator.free(lzma2_compressed); // free the intermediate compressed data
-                const pw = password orelse return error.OutOfMemory;
+                const pw = password orelse return error.PasswordRequired;
 
                 // Record pre-encryption compressed size
                 group_lzma2_sizes[gi] = lzma2_compressed.len;
@@ -2276,4 +2277,20 @@ test "archive: createMultiFolder leaks nothing and never double-frees under allo
             try std.testing.expectEqual(error.OutOfMemory, err);
         }
     }
+}
+
+test "archive: encrypted create without password reports PasswordRequired, not OutOfMemory" {
+    const files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "data" },
+    };
+    // Public path via method+password helper (null password).
+    try std.testing.expectError(
+        error.PasswordRequired,
+        createWithMethodAndPassword(&files, .lzma2_aes, null, std.testing.allocator),
+    );
+    // Public path via options struct (null password).
+    try std.testing.expectError(
+        error.PasswordRequired,
+        createWithOptions(&files, .{ .method = .lzma2_aes, .password = null }, std.testing.allocator),
+    );
 }
