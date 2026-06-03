@@ -198,7 +198,7 @@ pub fn decrypt7zAes(
 	// Trim to unpack_size
 	const out_size: usize = @intCast(unpack_size);
 	if (out_size > buf.len) {
-		allocator.free(buf);
+		// errdefer frees `buf`; do not free explicitly (would double-free).
 		return AesError.DecryptFailed;
 	}
 
@@ -208,7 +208,7 @@ pub fn decrypt7zAes(
 
 	// Shrink: copy to right-sized buffer
 	const result = allocator.alloc(u8, out_size) catch {
-		allocator.free(buf);
+		// errdefer frees `buf`; do not free explicitly (would double-free).
 		return AesError.OutOfMemory;
 	};
 	@memcpy(result, buf[0..out_size]);
@@ -380,4 +380,48 @@ test "aes_crypt: full encrypt/decrypt roundtrip" {
 	defer allocator.free(decrypted);
 
 	try std.testing.expectEqualStrings(plaintext, decrypted);
+}
+
+test "aes_crypt: decrypt7zAes does not double-free on oversized unpack_size" {
+	// Regression: the DecryptFailed error path explicitly freed `buf` AND had an
+	// errdefer for it, causing a double-free detected by the testing allocator.
+	const allocator = std.testing.allocator;
+	const password = "secret123";
+	var props = AesProperties{
+		.num_cycles_power = 1,
+		.salt = [_]u8{0} ** 16,
+		.salt_size = 8,
+		.iv = [_]u8{0} ** 16,
+		.iv_size = 16,
+	};
+	for (props.salt[0..8], 0..) |*b, i| b.* = @intCast(0x10 + i);
+	for (&props.iv, 0..) |*b, i| b.* = @intCast(0x20 + i);
+	const encoded = encodeProperties(props);
+	const ciphertext = [_]u8{0} ** 16;
+	// Declare an unpack_size larger than the (aligned) ciphertext -> DecryptFailed.
+	const result = decrypt7zAes(&ciphertext, encoded.data[0..encoded.len], password, 9999, allocator);
+	try std.testing.expectError(AesError.DecryptFailed, result);
+}
+
+test "aes_crypt: decrypt7zAes does not double-free when shrink alloc fails" {
+	// Regression: the OOM-on-shrink error path explicitly freed `buf` AND had an
+	// errdefer for it, causing a double-free. Fail the 2nd allocation (the shrink
+	// result buffer) to drive that path.
+	var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = 1 });
+	const allocator = failing.allocator();
+	const password = "secret123";
+	var props = AesProperties{
+		.num_cycles_power = 1,
+		.salt = [_]u8{0} ** 16,
+		.salt_size = 8,
+		.iv = [_]u8{0} ** 16,
+		.iv_size = 16,
+	};
+	for (props.salt[0..8], 0..) |*b, i| b.* = @intCast(0x10 + i);
+	for (&props.iv, 0..) |*b, i| b.* = @intCast(0x20 + i);
+	const encoded = encodeProperties(props);
+	const ciphertext = [_]u8{0} ** 16;
+	// unpack_size < aligned ciphertext length -> shrink path -> 2nd alloc fails.
+	const result = decrypt7zAes(&ciphertext, encoded.data[0..encoded.len], password, 8, allocator);
+	try std.testing.expectError(AesError.OutOfMemory, result);
 }

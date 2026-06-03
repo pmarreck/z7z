@@ -281,7 +281,7 @@ fn decompressBcj2Pipeline(
 	};
 
 	if (n != @as(usize, @intCast(unpack_size))) {
-		allocator.free(out_buf);
+		// errdefer frees `out_buf`; do not free explicitly (would double-free).
 		return CodecError.DecompressFailed;
 	}
 
@@ -1046,4 +1046,64 @@ test "codec: unsupported method" {
 	};
 
 	try std.testing.expectError(CodecError.UnsupportedMethod, decompressFolder(folder, &.{}, &.{0}, 0, null, allocator));
+}
+
+test "codec: BCJ2 decompressFolder does not double-free on unpack_size mismatch" {
+	// Regression: the BCJ2 branch of decompressFolder explicitly freed `out_buf`
+	// AND had an errdefer for it on the `n != unpack_size` path -> double-free.
+	// Drive that path by declaring the BCJ2 coder's unpack_size larger than what
+	// bcj2Decode actually produces (32 bytes), so n (32) != declared (33).
+	const allocator = std.testing.allocator;
+
+	var main_raw: [28]u8 = undefined;
+	for (main_raw[0..10]) |*b| b.* = 0x90;
+	main_raw[10] = 0xE8;
+	for (main_raw[11..28]) |*b| b.* = 0x90;
+
+	const call_raw = [_]u8{ 0x00, 0x00, 0x00, 0x64 };
+	const rc_raw = [_]u8{ 0x00, 0xFF, 0xFF, 0xFF, 0xFF };
+
+	const p = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+	const main_comp = try compressLzma2(&main_raw, p.dict_size, p.nice_len, .{}, allocator);
+	defer allocator.free(main_comp);
+	const call_comp = try compressLzma2(&call_raw, p.dict_size, p.nice_len, .{}, allocator);
+	defer allocator.free(call_comp);
+	const jump_comp = [_]u8{0x00};
+
+	const total_packed = main_comp.len + call_comp.len + jump_comp.len + rc_raw.len;
+	const pack_buf = try allocator.alloc(u8, total_packed);
+	defer allocator.free(pack_buf);
+	var off: usize = 0;
+	@memcpy(pack_buf[off .. off + main_comp.len], main_comp);
+	off += main_comp.len;
+	@memcpy(pack_buf[off .. off + call_comp.len], call_comp);
+	off += call_comp.len;
+	@memcpy(pack_buf[off .. off + jump_comp.len], &jump_comp);
+	off += jump_comp.len;
+	@memcpy(pack_buf[off .. off + rc_raw.len], &rc_raw);
+
+	const ps = [_]u64{
+		@intCast(main_comp.len),
+		@intCast(call_comp.len),
+		@intCast(jump_comp.len),
+		@intCast(rc_raw.len),
+	};
+
+	const folder = TestFolder{
+		.coders = &.{
+			.{ .method_id = &.{0x21}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 },
+			.{ .method_id = &.{0x21}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 },
+			.{ .method_id = &.{0x21}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 },
+			.{ .method_id = &METHOD_BCJ2, .properties = &.{}, .num_in_streams = 4, .num_out_streams = 1 },
+		},
+		.bind_pairs = &.{
+			.{ .in_index = 3, .out_index = 0 },
+			.{ .in_index = 4, .out_index = 1 },
+			.{ .in_index = 5, .out_index = 2 },
+		},
+		.packed_indices = &.{ 0, 1, 2, 6 },
+		.unpack_sizes = &.{ 28, 4, 0, 33 }, // BCJ2 final declared 33, but produces 32 -> mismatch
+	};
+
+	try std.testing.expectError(CodecError.DecompressFailed, decompressFolder(folder, pack_buf, &ps, 33, null, allocator));
 }
