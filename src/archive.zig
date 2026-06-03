@@ -210,49 +210,58 @@ fn createLzma2WithThreads(files: []const FileEntry, dict_size: u32, nice_len: u3
     const compressed = try codec.compressLzma2WithThreads(raw_data, dict_size, nice_len, thread_count, progress, allocator);
     defer allocator.free(compressed);
 
-    // Build metadata
-    var coders = try allocator.alloc(meta.Coder, 1);
-    errdefer allocator.free(coders);
-
-    // LZMA2 method: CodecId = 0x21, properties = 1 byte (dict size indicator)
-    const method_id = try allocator.alloc(u8, 1);
-    method_id[0] = 0x21;
-
-    // LZMA2 property byte: encodes the actual dict_size used by the encoder
-    // (clamped to data length inside codec.compressLzma2)
-    const props = try allocator.alloc(u8, 1);
-    const clamped_dict = @min(dict_size, @as(u32, @intCast(@min(total_unpack_size, 0xFFFFFFFF))));
-    props[0] = calcLzma2DictProp(clamped_dict);
-
-    coders[0] = .{
-        .method_id = method_id,
-        .properties = props,
-        .num_in_streams = 1,
-        .num_out_streams = 1,
-    };
-
-    const unpack_sizes = try allocator.alloc(u64, 1);
-    unpack_sizes[0] = total_unpack_size;
-
-    var folders = try allocator.alloc(meta.Folder, 1);
-    folders[0] = .{
-        .coders = coders,
-        .bind_pairs = &.{},
-        .packed_indices = &.{},
-        .unpack_sizes = unpack_sizes,
-        .unpack_crc = null,
-    };
-
-    var pack_sizes = try allocator.alloc(u64, 1);
-    pack_sizes[0] = compressed.len;
-
-    // Build substream info (only for non-directory files with data)
+    // Build metadata. Attach each allocation to archive_meta as soon as it exists
+    // so the single `defer archive_meta.deinit()` is the sole owner — this
+    // closes the prior leak gap (only `coders` had an errdefer) and removes the
+    // latent double-free where that lone errdefer coexisted with deinit().
     var data_file_count: usize = 0;
     for (files) |f| {
         if (!f.is_dir) data_file_count += 1;
     }
-    var sub_sizes = try allocator.alloc(u64, data_file_count);
-    var sub_digests = try allocator.alloc(?u32, data_file_count);
+    const clamped_dict = @min(dict_size, @as(u32, @intCast(@min(total_unpack_size, 0xFFFFFFFF))));
+
+    var archive_meta = meta.ArchiveMetadata{
+        .pack_info = .{ .pack_pos = 0, .pack_sizes = &.{}, .pack_crcs = null },
+        .folders = &.{},
+        .sub_streams = .{ .num_unpack_per_folder = &.{}, .unpack_sizes = &.{}, .digests = &.{} },
+        .files = &.{},
+        .allocator = allocator,
+    };
+    defer archive_meta.deinit();
+
+    // pack_info
+    const pack_sizes = try allocator.alloc(u64, 1);
+    pack_sizes[0] = compressed.len;
+    archive_meta.pack_info.?.pack_sizes = pack_sizes;
+
+    // folder + single LZMA2 coder (attach each link before allocating the next)
+    const folders = try allocator.alloc(meta.Folder, 1);
+    folders[0] = .{ .coders = &.{}, .bind_pairs = &.{}, .packed_indices = &.{}, .unpack_sizes = &.{}, .unpack_crc = null };
+    archive_meta.folders = folders;
+
+    const coders = try allocator.alloc(meta.Coder, 1);
+    // LZMA2 method: CodecId = 0x21, properties = 1 byte (dict size indicator)
+    coders[0] = .{ .method_id = &.{}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+    folders[0].coders = coders;
+
+    const method_id = try allocator.alloc(u8, 1);
+    method_id[0] = 0x21;
+    coders[0].method_id = method_id;
+
+    // LZMA2 property byte: encodes the actual dict_size used by the encoder.
+    const props = try allocator.alloc(u8, 1);
+    props[0] = calcLzma2DictProp(clamped_dict);
+    coders[0].properties = props;
+
+    const unpack_sizes = try allocator.alloc(u64, 1);
+    unpack_sizes[0] = total_unpack_size;
+    folders[0].unpack_sizes = unpack_sizes;
+
+    // Substream info (only for non-directory files with data)
+    const sub_sizes = try allocator.alloc(u64, data_file_count);
+    archive_meta.sub_streams.?.unpack_sizes = sub_sizes;
+    const sub_digests = try allocator.alloc(?u32, data_file_count);
+    archive_meta.sub_streams.?.digests = sub_digests;
     {
         var si: usize = 0;
         for (files) |f| {
@@ -264,43 +273,37 @@ fn createLzma2WithThreads(files: []const FileEntry, dict_size: u32, nice_len: u3
         }
     }
 
-    // Build file info (all entries: files, directories, AND symlinks)
-    var file_infos = try allocator.alloc(meta.FileInfo, files.len);
-    for (files, 0..) |f, i| {
-        const name_copy = try allocator.dupe(u8, f.name);
-        file_infos[i] = .{
-            .name = name_copy,
-            .is_empty_stream = f.is_dir, // only dirs are empty streams; symlinks carry data
-            .is_empty_file = false,
-            .is_anti = false,
-            .ctime = f.ctime,
-            .atime = f.atime,
-            .mtime = f.mtime,
-            .win_attrib = computeWinAttrib(f),
-            .start_pos = null,
-            .xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null,
-        };
-    }
-
-    var num_per_folder = try allocator.alloc(u64, 1);
+    const num_per_folder = try allocator.alloc(u64, 1);
     num_per_folder[0] = data_file_count;
+    archive_meta.sub_streams.?.num_unpack_per_folder = num_per_folder;
 
-    var archive_meta = meta.ArchiveMetadata{
-        .pack_info = .{
-            .pack_pos = 0,
-            .pack_sizes = pack_sizes,
-            .pack_crcs = null,
-        },
-        .folders = folders,
-        .sub_streams = .{
-            .num_unpack_per_folder = num_per_folder,
-            .unpack_sizes = sub_sizes,
-            .digests = sub_digests,
-        },
-        .files = file_infos,
-        .allocator = allocator,
+    // File info (all entries: files, directories, AND symlinks). Pre-initialize
+    // names/xattrs to null so deinit stays safe if a later dupe fails mid-loop.
+    const file_infos = try allocator.alloc(meta.FileInfo, files.len);
+    for (file_infos) |*fi| fi.* = .{
+        .name = null,
+        .is_empty_stream = false,
+        .is_empty_file = false,
+        .is_anti = false,
+        .ctime = null,
+        .atime = null,
+        .mtime = null,
+        .win_attrib = null,
+        .start_pos = null,
+        .xattrs = null,
     };
-    defer archive_meta.deinit();
+    archive_meta.files = file_infos;
+    for (files, 0..) |f, i| {
+        // dupe name first and store it before duping xattrs, so a failing xattr
+        // dupe doesn't strand an already-allocated name.
+        file_infos[i].name = try allocator.dupe(u8, f.name);
+        file_infos[i].is_empty_stream = f.is_dir; // only dirs are empty streams; symlinks carry data
+        file_infos[i].ctime = f.ctime;
+        file_infos[i].atime = f.atime;
+        file_infos[i].mtime = f.mtime;
+        file_infos[i].win_attrib = computeWinAttrib(f);
+        file_infos[i].xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null;
+    }
 
     // Encode next-header
     const next_header = try encoder.encodeNextHeader(archive_meta, allocator);
@@ -386,63 +389,72 @@ fn createLzma2AesWithOptions(files: []const FileEntry, password: []const u8, dic
         else => error.StructuralError,
     };
 
-    // Step 4: Build metadata with 2-coder folder (LZMA2 + 7zAES)
-    // Coder 0: LZMA2
-    const lzma2_mid = try allocator.alloc(u8, 1);
-    lzma2_mid[0] = 0x21;
-    const lzma2_props = try allocator.alloc(u8, 1);
-    const clamped_dict = @min(dict_size, @as(u32, @intCast(@min(total_unpack_size, 0xFFFFFFFF))));
-    lzma2_props[0] = calcLzma2DictProp(clamped_dict);
-
-    // Coder 1: 7zAES
-    const aes_mid = try allocator.alloc(u8, 4);
-    @memcpy(aes_mid, &[_]u8{ 0x06, 0xF1, 0x07, 0x01 });
-    const encoded_aes_props = aes_crypt.encodeProperties(aes_props);
-    const aes_prop_data = try allocator.alloc(u8, encoded_aes_props.len);
-    @memcpy(aes_prop_data, encoded_aes_props.data[0..encoded_aes_props.len]);
-
-    var coders = try allocator.alloc(meta.Coder, 2);
-    coders[0] = .{
-        .method_id = lzma2_mid,
-        .properties = lzma2_props,
-        .num_in_streams = 1,
-        .num_out_streams = 1,
-    };
-    coders[1] = .{
-        .method_id = aes_mid,
-        .properties = aes_prop_data,
-        .num_in_streams = 1,
-        .num_out_streams = 1,
-    };
-
-    // Bind pair: AES output (stream 1) → LZMA2 input (stream 0)
-    var bind_pairs = try allocator.alloc(meta.BindPair, 1);
-    bind_pairs[0] = .{ .in_index = 0, .out_index = 1 };
-
-    // Unpack sizes: [0]=LZMA2 output (final), [1]=AES output (intermediate=compressed len)
-    var unpack_sizes = try allocator.alloc(u64, 2);
-    unpack_sizes[0] = total_unpack_size;
-    unpack_sizes[1] = compressed.len;
-
-    var folders = try allocator.alloc(meta.Folder, 1);
-    folders[0] = .{
-        .coders = coders,
-        .bind_pairs = bind_pairs,
-        .packed_indices = &.{},
-        .unpack_sizes = unpack_sizes,
-        .unpack_crc = null,
-    };
-
-    var pack_sizes = try allocator.alloc(u64, 1);
-    pack_sizes[0] = encrypted.len;
-
-    // Build substream info (only for non-directory files with data)
+    // Step 4: Build metadata with a 2-coder folder (LZMA2 + 7zAES). Attach each
+    // allocation to archive_meta as it is created so the single
+    // `defer archive_meta.deinit()` is the sole owner — no leak gap, no double-free.
     var data_file_count2: usize = 0;
     for (files) |f| {
         if (!f.is_dir) data_file_count2 += 1;
     }
-    var sub_sizes = try allocator.alloc(u64, data_file_count2);
-    var sub_digests = try allocator.alloc(?u32, data_file_count2);
+    const clamped_dict = @min(dict_size, @as(u32, @intCast(@min(total_unpack_size, 0xFFFFFFFF))));
+    const encoded_aes_props = aes_crypt.encodeProperties(aes_props);
+
+    var archive_meta = meta.ArchiveMetadata{
+        .pack_info = .{ .pack_pos = 0, .pack_sizes = &.{}, .pack_crcs = null },
+        .folders = &.{},
+        .sub_streams = .{ .num_unpack_per_folder = &.{}, .unpack_sizes = &.{}, .digests = &.{} },
+        .files = &.{},
+        .allocator = allocator,
+    };
+    defer archive_meta.deinit();
+
+    // pack_info
+    const pack_sizes = try allocator.alloc(u64, 1);
+    pack_sizes[0] = encrypted.len;
+    archive_meta.pack_info.?.pack_sizes = pack_sizes;
+
+    // Folder with 2 coders; attach each link to its parent before the next alloc.
+    const folders = try allocator.alloc(meta.Folder, 1);
+    folders[0] = .{ .coders = &.{}, .bind_pairs = &.{}, .packed_indices = &.{}, .unpack_sizes = &.{}, .unpack_crc = null };
+    archive_meta.folders = folders;
+
+    const coders = try allocator.alloc(meta.Coder, 2);
+    coders[0] = .{ .method_id = &.{}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+    coders[1] = .{ .method_id = &.{}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+    folders[0].coders = coders;
+
+    // Coder 0: LZMA2
+    const lzma2_mid = try allocator.alloc(u8, 1);
+    lzma2_mid[0] = 0x21;
+    coders[0].method_id = lzma2_mid;
+    const lzma2_props = try allocator.alloc(u8, 1);
+    lzma2_props[0] = calcLzma2DictProp(clamped_dict);
+    coders[0].properties = lzma2_props;
+
+    // Coder 1: 7zAES
+    const aes_mid = try allocator.alloc(u8, 4);
+    @memcpy(aes_mid, &[_]u8{ 0x06, 0xF1, 0x07, 0x01 });
+    coders[1].method_id = aes_mid;
+    const aes_prop_data = try allocator.alloc(u8, encoded_aes_props.len);
+    @memcpy(aes_prop_data, encoded_aes_props.data[0..encoded_aes_props.len]);
+    coders[1].properties = aes_prop_data;
+
+    // Bind pair: AES output (stream 1) → LZMA2 input (stream 0)
+    const bind_pairs = try allocator.alloc(meta.BindPair, 1);
+    bind_pairs[0] = .{ .in_index = 0, .out_index = 1 };
+    folders[0].bind_pairs = bind_pairs;
+
+    // Unpack sizes: [0]=LZMA2 output (final), [1]=AES output (intermediate=compressed len)
+    const unpack_sizes = try allocator.alloc(u64, 2);
+    unpack_sizes[0] = total_unpack_size;
+    unpack_sizes[1] = compressed.len;
+    folders[0].unpack_sizes = unpack_sizes;
+
+    // Substream info (only for non-directory files with data)
+    const sub_sizes = try allocator.alloc(u64, data_file_count2);
+    archive_meta.sub_streams.?.unpack_sizes = sub_sizes;
+    const sub_digests = try allocator.alloc(?u32, data_file_count2);
+    archive_meta.sub_streams.?.digests = sub_digests;
     {
         var si: usize = 0;
         for (files) |f| {
@@ -454,43 +466,34 @@ fn createLzma2AesWithOptions(files: []const FileEntry, password: []const u8, dic
         }
     }
 
-    // Build file info (all entries: files, directories, AND symlinks)
-    var file_infos = try allocator.alloc(meta.FileInfo, files.len);
-    for (files, 0..) |f, i| {
-        const name_copy = try allocator.dupe(u8, f.name);
-        file_infos[i] = .{
-            .name = name_copy,
-            .is_empty_stream = f.is_dir,
-            .is_empty_file = false,
-            .is_anti = false,
-            .ctime = f.ctime,
-            .atime = f.atime,
-            .mtime = f.mtime,
-            .win_attrib = computeWinAttrib(f),
-            .start_pos = null,
-            .xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null,
-        };
-    }
-
-    var num_per_folder2 = try allocator.alloc(u64, 1);
+    const num_per_folder2 = try allocator.alloc(u64, 1);
     num_per_folder2[0] = data_file_count2;
+    archive_meta.sub_streams.?.num_unpack_per_folder = num_per_folder2;
 
-    var archive_meta = meta.ArchiveMetadata{
-        .pack_info = .{
-            .pack_pos = 0,
-            .pack_sizes = pack_sizes,
-            .pack_crcs = null,
-        },
-        .folders = folders,
-        .sub_streams = .{
-            .num_unpack_per_folder = num_per_folder2,
-            .unpack_sizes = sub_sizes,
-            .digests = sub_digests,
-        },
-        .files = file_infos,
-        .allocator = allocator,
+    // File info (all entries). Pre-initialize so deinit stays safe if a dupe fails.
+    const file_infos = try allocator.alloc(meta.FileInfo, files.len);
+    for (file_infos) |*fi| fi.* = .{
+        .name = null,
+        .is_empty_stream = false,
+        .is_empty_file = false,
+        .is_anti = false,
+        .ctime = null,
+        .atime = null,
+        .mtime = null,
+        .win_attrib = null,
+        .start_pos = null,
+        .xattrs = null,
     };
-    defer archive_meta.deinit();
+    archive_meta.files = file_infos;
+    for (files, 0..) |f, i| {
+        file_infos[i].name = try allocator.dupe(u8, f.name);
+        file_infos[i].is_empty_stream = f.is_dir;
+        file_infos[i].ctime = f.ctime;
+        file_infos[i].atime = f.atime;
+        file_infos[i].mtime = f.mtime;
+        file_infos[i].win_attrib = computeWinAttrib(f);
+        file_infos[i].xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null;
+    }
 
     // Encode next-header (kHeader)
     const next_header = try encoder.encodeNextHeader(archive_meta, allocator);
@@ -743,105 +746,97 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
         }
     }
     for (0..num_groups) |gi| {
+        // Attach each allocation to folders[gi] as it is created so the
+        // folders_owned errdefer (which frees every coder's method_id/properties
+        // plus the arrays) covers partially-built folders — no intra-loop leak.
         if (is_encrypted) {
             // 2-coder pipeline: LZMA2 + 7zAES (same structure as createLzma2Aes)
+            const coders = try allocator.alloc(meta.Coder, 2);
+            coders[0] = .{ .method_id = &.{}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+            coders[1] = .{ .method_id = &.{}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+            folders[gi].coders = coders;
 
             // Coder 0: LZMA2
             const lzma2_mid = try allocator.alloc(u8, 1);
             lzma2_mid[0] = 0x21;
+            coders[0].method_id = lzma2_mid;
             const lzma2_props = try allocator.alloc(u8, 1);
             const group_data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
             lzma2_props[0] = calcLzma2DictProp(@min(lp.dict_size, group_data_len));
+            coders[0].properties = lzma2_props;
 
             // Coder 1: 7zAES
             const aes_mid = try allocator.alloc(u8, 4);
             @memcpy(aes_mid, &[_]u8{ 0x06, 0xF1, 0x07, 0x01 });
+            coders[1].method_id = aes_mid;
             const encoded_aes_props = aes_crypt.encodeProperties(group_aes_props[gi]);
             const aes_prop_data = try allocator.alloc(u8, encoded_aes_props.len);
             @memcpy(aes_prop_data, encoded_aes_props.data[0..encoded_aes_props.len]);
-
-            var coders = try allocator.alloc(meta.Coder, 2);
-            coders[0] = .{
-                .method_id = lzma2_mid,
-                .properties = lzma2_props,
-                .num_in_streams = 1,
-                .num_out_streams = 1,
-            };
-            coders[1] = .{
-                .method_id = aes_mid,
-                .properties = aes_prop_data,
-                .num_in_streams = 1,
-                .num_out_streams = 1,
-            };
+            coders[1].properties = aes_prop_data;
 
             // Bind pair: AES output (stream 1) → LZMA2 input (stream 0)
-            var bind_pairs = try allocator.alloc(meta.BindPair, 1);
+            const bind_pairs = try allocator.alloc(meta.BindPair, 1);
             bind_pairs[0] = .{ .in_index = 0, .out_index = 1 };
+            folders[gi].bind_pairs = bind_pairs;
 
             // Unpack sizes: [0]=LZMA2 output (final), [1]=AES output (intermediate=compressed len)
-            var unpack_sizes = try allocator.alloc(u64, 2);
+            const unpack_sizes = try allocator.alloc(u64, 2);
             unpack_sizes[0] = group_unpack_sizes[gi];
             unpack_sizes[1] = group_lzma2_sizes[gi];
-
-            folders[gi] = .{
-                .coders = coders,
-                .bind_pairs = bind_pairs,
-                .packed_indices = &.{},
-                .unpack_sizes = unpack_sizes,
-                .unpack_crc = null,
-            };
+            folders[gi].unpack_sizes = unpack_sizes;
         } else {
             // Single-coder folder (LZMA2 or Copy)
-            var coders = try allocator.alloc(meta.Coder, 1);
-            const mid = try allocator.alloc(u8, 1);
-            const props = try allocator.alloc(u8, 1);
+            const coders = try allocator.alloc(meta.Coder, 1);
+            coders[0] = .{ .method_id = &.{}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+            folders[gi].coders = coders;
 
+            const mid = try allocator.alloc(u8, 1);
+            coders[0].method_id = mid;
             switch (method) {
                 .lzma2 => {
                     mid[0] = 0x21; // LZMA2
                     const group_data_len = @as(u32, @intCast(@min(group_unpack_sizes[gi], 0xFFFFFFFF)));
+                    const props = try allocator.alloc(u8, 1);
                     props[0] = calcLzma2DictProp(@min(lp.dict_size, group_data_len));
+                    coders[0].properties = props;
                 },
                 .copy => {
-                    mid[0] = 0x00;
-                    props[0] = 0;
+                    mid[0] = 0x00; // Copy has no properties; leave &.{}
                 },
                 .lzma2_aes => unreachable,
             }
 
-            coders[0] = .{
-                .method_id = mid,
-                .properties = if (method == .copy) blk: {
-                    allocator.free(props);
-                    break :blk &.{};
-                } else props,
-                .num_in_streams = 1,
-                .num_out_streams = 1,
-            };
-
             const unpack_sizes = try allocator.alloc(u64, 1);
             unpack_sizes[0] = group_unpack_sizes[gi];
-
-            folders[gi] = .{
-                .coders = coders,
-                .bind_pairs = &.{},
-                .packed_indices = &.{},
-                .unpack_sizes = unpack_sizes,
-                .unpack_crc = null,
-            };
+            folders[gi].unpack_sizes = unpack_sizes;
         }
     }
 
-    // PackInfo — one pack_size per folder
+    // PackInfo — one pack_size per folder. These standalone arrays are owned by
+    // archive_meta once it is built; until then a streams_owned-gated errdefer
+    // frees them so a mid-build allocation failure cannot leak them.
+    var streams_owned = true;
     var pack_sizes = try allocator.alloc(u64, num_groups);
+    errdefer {
+        if (streams_owned) allocator.free(pack_sizes);
+    }
     for (0..num_groups) |gi| {
         pack_sizes[gi] = compressed_blocks[gi].len;
     }
 
     // SubStreamInfo
     var sub_sizes = try allocator.alloc(u64, num_data_files);
+    errdefer {
+        if (streams_owned) allocator.free(sub_sizes);
+    }
     var sub_digests = try allocator.alloc(?u32, num_data_files);
+    errdefer {
+        if (streams_owned) allocator.free(sub_digests);
+    }
     var num_per_folder = try allocator.alloc(u64, num_groups);
+    errdefer {
+        if (streams_owned) allocator.free(num_per_folder);
+    }
     {
         var si: usize = 0;
         var data_idx: usize = 0;
@@ -887,18 +882,15 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
     }
     for (sorted_indices, 0..) |si, out_i| {
         const f = files[si];
-        file_infos[out_i] = .{
-            .name = try allocator.dupe(u8, f.name),
-            .is_empty_stream = f.is_dir,
-            .is_empty_file = false,
-            .is_anti = false,
-            .ctime = f.ctime,
-            .atime = f.atime,
-            .mtime = f.mtime,
-            .win_attrib = computeWinAttrib(f),
-            .start_pos = null,
-            .xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null,
-        };
+        // dupe name first and store it before duping xattrs, so a failing xattr
+        // dupe doesn't strand an already-allocated name (slot pre-init'd to null).
+        file_infos[out_i].name = try allocator.dupe(u8, f.name);
+        file_infos[out_i].is_empty_stream = f.is_dir;
+        file_infos[out_i].ctime = f.ctime;
+        file_infos[out_i].atime = f.atime;
+        file_infos[out_i].mtime = f.mtime;
+        file_infos[out_i].win_attrib = computeWinAttrib(f);
+        file_infos[out_i].xattrs = if (f.xattrs) |x| try allocator.dupe(u8, x) else null;
     }
 
     var archive_meta = meta.ArchiveMetadata{
@@ -921,6 +913,7 @@ fn createMultiFolder(files: []const FileEntry, method: Method, password: ?[]cons
     // archive_meta now owns these arrays — neutralize errdefers to prevent double-free
     folders_owned = false;
     file_infos_owned = false;
+    streams_owned = false;
 
     // Step 5: Encode next-header
     const next_header = try encoder.encodeNextHeader(archive_meta, allocator);
@@ -2217,4 +2210,70 @@ test "archive: createWithOptions encrypted without header encryption" {
     try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
     try std.testing.expectEqualStrings("enc_plain_hdr.txt", contents.metadata.files[0].name.?);
     try std.testing.expectEqualStrings(content, contents.file_data[0]);
+}
+
+test "archive: create (LZMA2) leaks nothing and never double-frees under allocation failure" {
+    // Regression for the errdefer-gap: createLzma2WithThreads performed ~8
+    // allocations but only `coders` had an errdefer, so a failure mid-build leaked
+    // everything before it. Worse, that lone errdefer coexisted with the later
+    // `defer archive_meta.deinit()`, so a failure AFTER archive_meta construction
+    // double-freed `coders`. Drive every allocation index to failure and rely on
+    // the backing testing.allocator to flag any leak or double-free.
+    const files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "hello world hello world hello world" },
+        .{ .name = "dir", .data = "", .is_dir = true },
+        .{ .name = "b.txt", .data = "second file body" },
+    };
+    var i: usize = 0;
+    while (i < 64) : (i += 1) {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = i });
+        const a = failing.allocator();
+        if (create(&files, a)) |archive_data| {
+            allocator_free: {
+                a.free(archive_data);
+                break :allocator_free;
+            }
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+        }
+    }
+}
+
+test "archive: encrypted (LZMA2+AES) leaks nothing and never double-frees under allocation failure" {
+    const files = [_]FileEntry{
+        .{ .name = "secret.txt", .data = "top secret payload data here" },
+        .{ .name = "more.bin", .data = "another secret blob" },
+    };
+    const lp = LevelParams.fromLevel(LevelParams.DEFAULT_LEVEL);
+    var i: usize = 0;
+    while (i < 96) : (i += 1) {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = i });
+        const a = failing.allocator();
+        if (createLzma2Aes(&files, "pw123456", lp.dict_size, lp.nice_len, .{}, a)) |archive_data| {
+            a.free(archive_data);
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+        }
+    }
+}
+
+test "archive: createMultiFolder leaks nothing and never double-frees under allocation failure" {
+    // The multi-folder path uses the _owned-flag idiom for folders/file_infos;
+    // this verifies the standalone arrays (pack_sizes, sub_sizes, etc.) are also
+    // leak-free across every allocation-failure index.
+    const files = [_]FileEntry{
+        .{ .name = "x.txt", .data = "alpha beta gamma delta", .group_index = 0 },
+        .{ .name = "y.txt", .data = "second group payload", .group_index = 1 },
+        .{ .name = "d", .data = "", .is_dir = true, .group_index = 0 },
+    };
+    var i: usize = 0;
+    while (i < 128) : (i += 1) {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = i });
+        const a = failing.allocator();
+        if (createMultiFolder(&files, .lzma2, null, LevelParams.DEFAULT_LEVEL, .{}, a)) |archive_data| {
+            a.free(archive_data);
+        } else |err| {
+            try std.testing.expectEqual(error.OutOfMemory, err);
+        }
+    }
 }

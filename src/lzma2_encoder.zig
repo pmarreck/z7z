@@ -172,10 +172,13 @@ const MatchFinder = struct {
 
     fn init(data: []const u8, dict_size: u32, nice_len_param: u32, allocator: std.mem.Allocator) !MatchFinder {
         const hash = try allocator.alloc(u32, HASH_SIZE);
+        errdefer allocator.free(hash);
         @memset(hash, 0);
         const hash2 = try allocator.alloc(u32, HASH2_SIZE);
+        errdefer allocator.free(hash2);
         @memset(hash2, 0);
         const hash3 = try allocator.alloc(u32, HASH3_SIZE);
+        errdefer allocator.free(hash3);
         @memset(hash3, 0);
         // Sliding window: bt arrays only need dict_size entries (not data.len).
         // This reduces memory from O(data.len) to O(dict_size) — critical for
@@ -184,6 +187,7 @@ const MatchFinder = struct {
         const raw_bt_size: usize = @min(data.len, @as(usize, dict_size));
         const bt_size: usize = if (raw_bt_size == 0) 1 else std.math.ceilPowerOfTwo(usize, raw_bt_size) catch raw_bt_size;
         const bt_left = try allocator.alloc(u32, bt_size);
+        errdefer allocator.free(bt_left);
         @memset(bt_left, 0);
         const bt_right = try allocator.alloc(u32, bt_size);
         @memset(bt_right, 0);
@@ -2446,4 +2450,17 @@ test "compress: level 0 vs level 9 compression ratio" {
     // (For highly repetitive data, level 0 may also compress well, but 9 should be <= 0)
     std.debug.print("\n  [level] Level 0: {d} bytes, Level 9: {d} bytes\n", .{ compressed_0.len, compressed_9.len });
     try std.testing.expect(compressed_9.len <= compressed_0.len);
+}
+
+test "lzma2: MatchFinder.init leaks nothing when a later allocation fails" {
+	// Regression: init had no errdefer on hash/hash2/hash3/bt_left, so a failure
+	// in any allocation after the first leaked all earlier ones. Drive each
+	// allocation index to failure; testing.allocator asserts zero leaks at teardown.
+	const data = [_]u8{0} ** 64;
+	var i: usize = 0;
+	while (i < 5) : (i += 1) {
+		var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = i });
+		const a = failing.allocator();
+		try std.testing.expectError(error.OutOfMemory, MatchFinder.init(&data, 64, 32, a));
+	}
 }
