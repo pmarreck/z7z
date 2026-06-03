@@ -1107,3 +1107,55 @@ test "codec: BCJ2 decompressFolder does not double-free on unpack_size mismatch"
 
 	try std.testing.expectError(CodecError.DecompressFailed, decompressFolder(folder, pack_buf, &ps, 33, null, allocator));
 }
+
+test "codec: lzma2 rejects declared-vs-actual unpack_size mismatch" {
+	const allocator = std.testing.allocator;
+	// Valid LZMA2 stream for "Hello\nWorld!\n" (13 bytes) but declare 999.
+	const compressed = &[_]u8{
+		0x01, 0x00, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F,
+		0x0A, 0x02, 0x00, 0x06, 0x57, 0x6F, 0x72, 0x6C,
+		0x64, 0x21, 0x0A, 0x00,
+	};
+	const folder = TestFolder{
+		.coders = &.{.{ .method_id = &.{METHOD_LZMA2}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 }},
+	};
+	try std.testing.expectError(
+		CodecError.DecompressFailed,
+		decompressFolder(folder, compressed, &.{compressed.len}, 999, null, allocator),
+	);
+}
+
+test "codec: lzma2 rejects truncated input" {
+	const allocator = std.testing.allocator;
+	const full = [_]u8{
+		0x01, 0x00, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F,
+		0x0A, 0x02, 0x00, 0x06, 0x57, 0x6F, 0x72, 0x6C,
+		0x64, 0x21, 0x0A, 0x00,
+	};
+	const truncated = full[0..8]; // cut mid-stream
+	const folder = TestFolder{
+		.coders = &.{.{ .method_id = &.{METHOD_LZMA2}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 }},
+	};
+	// Must not crash; must surface an error rather than silently returning short data.
+	try std.testing.expectError(
+		CodecError.DecompressFailed,
+		decompressFolder(folder, truncated, &.{truncated.len}, 13, null, allocator),
+	);
+}
+
+test "codec: zstd rejects declared-vs-actual unpack_size mismatch" {
+	const allocator = std.testing.allocator;
+	const compressed = &[_]u8{
+		0x28, 0xB5, 0x2F, 0xFD, 0x04, 0x58, 0x69, 0x00,
+		0x00, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x57,
+		0x6F, 0x72, 0x6C, 0x64, 0x21, 0x0A, 0x91, 0xE2,
+		0xB3, 0x20,
+	};
+	const folder = TestFolder{
+		.coders = &.{.{ .method_id = &METHOD_ZSTD, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 }},
+	};
+	try std.testing.expectError(
+		CodecError.DecompressFailed,
+		decompressFolder(folder, compressed, &.{compressed.len}, 999, null, allocator),
+	);
+}

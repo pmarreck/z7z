@@ -2294,3 +2294,21 @@ test "archive: encrypted create without password reports PasswordRequired, not O
         createWithOptions(&files, .{ .method = .lzma2_aes, .password = null }, std.testing.allocator),
     );
 }
+
+test "archive: decrypting with the wrong password fails rather than returning garbage" {
+    const allocator = std.testing.allocator;
+    const files = [_]FileEntry{
+        .{ .name = "secret.txt", .data = "the eagle lands at midnight" },
+    };
+    const archive_data = try createWithMethodAndPassword(&files, .lzma2_aes, "correct horse", allocator);
+    defer allocator.free(archive_data);
+
+    // Wrong password must surface an error (CRC/structure mismatch), not silently
+    // produce corrupted plaintext.
+    try std.testing.expectError(error.StructuralError, readWithPassword(archive_data, "battery staple", allocator));
+
+    // Correct password still round-trips.
+    var contents = try readWithPassword(archive_data, "correct horse", allocator);
+    defer contents.deinit();
+    try std.testing.expectEqualStrings("the eagle lands at midnight", contents.file_data[0]);
+}
