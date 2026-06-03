@@ -145,6 +145,9 @@ const HASH3_BITS = 18;
 const HASH3_SIZE = 1 << HASH3_BITS; // 262144
 const MIN_MATCH = 2;
 const MAX_MATCH = 273;
+// Number of distinct match lengths (MIN_MATCH..MAX_MATCH), i.e. the size of the
+// per-pos-state length price tables. Indexed by (length - MIN_MATCH).
+const NUM_LEN_PRICE_SLOTS = MAX_MATCH - MIN_MATCH + 1;
 
 const Match = struct {
     distance: u32, // 0-based distance (rep format)
@@ -1500,10 +1503,10 @@ fn encodeLzma1ChunkOptimal(
 
     // Pre-compute length price tables — turns priceLenVal calls into array lookups.
     // Prices are stable during the DP phase (probabilities only update during encoding).
-    var len_prices: [NUM_POS_STATES_MAX][272]u32 = undefined;
-    var rep_len_prices: [NUM_POS_STATES_MAX][272]u32 = undefined;
+    var len_prices: [NUM_POS_STATES_MAX][NUM_LEN_PRICE_SLOTS]u32 = undefined;
+    var rep_len_prices: [NUM_POS_STATES_MAX][NUM_LEN_PRICE_SLOTS]u32 = undefined;
     for (0..NUM_POS_STATES_MAX) |ps| {
-        for (0..272) |rl| {
+        for (0..NUM_LEN_PRICE_SLOTS) |rl| {
             len_prices[ps][rl] = priceLenVal(&enc.len_encoder, @intCast(rl), @intCast(ps));
             rep_len_prices[ps][rl] = priceLenVal(&enc.rep_len_encoder, @intCast(rl), @intCast(ps));
         }
