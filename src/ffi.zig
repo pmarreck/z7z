@@ -21,6 +21,7 @@ pub const Z7Z_ERR_OUT_OF_MEMORY: c_int = 6;
 pub const Z7Z_ERR_INVALID_ARG: c_int = 7;
 pub const Z7Z_ERR_INDEX_OUT_OF_BOUNDS: c_int = 8;
 pub const Z7Z_ERR_PASSWORD_REQUIRED: c_int = 9;
+pub const Z7Z_ERR_INTERNAL: c_int = 10;
 
 // ============================================================================
 // Opaque archive handle
@@ -155,16 +156,21 @@ export fn z7z_file_is_symlink(handle: ?*const ArchiveHandle, index: usize) c_int
 // NTFS FILETIME epoch offset: 100ns intervals between 1601-01-01 and 1970-01-01
 const FILETIME_EPOCH_OFFSET: u64 = 11644473600;
 
+/// Convert an NTFS FILETIME (100ns ticks since 1601) to a Unix timestamp (seconds
+/// since 1970). Returns 0 for pre-epoch values (accessor semantics: 0 = unset).
+inline fn filetimeToUnix(ft: u64) i64 {
+	const ticks_per_sec: u64 = 10_000_000;
+	if (ft < FILETIME_EPOCH_OFFSET * ticks_per_sec) return 0;
+	return @intCast((ft / ticks_per_sec) - FILETIME_EPOCH_OFFSET);
+}
+
 /// Get file's modification time as Unix timestamp (seconds since epoch).
 /// Returns 0 if mtime not stored or on error.
 export fn z7z_file_mtime(handle: ?*const ArchiveHandle, index: usize) i64 {
 	const h = handle orelse return 0;
 	if (index >= h.contents.metadata.files.len) return 0;
 	const ft = h.contents.metadata.files[index].mtime orelse return 0;
-	// Convert NTFS FILETIME (100ns since 1601) to Unix timestamp (seconds since 1970)
-	const ticks_per_sec: u64 = 10_000_000;
-	if (ft < FILETIME_EPOCH_OFFSET * ticks_per_sec) return 0;
-	return @intCast((ft / ticks_per_sec) - FILETIME_EPOCH_OFFSET);
+	return filetimeToUnix(ft);
 }
 
 /// Get file's creation/birth time as Unix timestamp (seconds since epoch).
@@ -173,9 +179,7 @@ export fn z7z_file_ctime(handle: ?*const ArchiveHandle, index: usize) i64 {
 	const h = handle orelse return 0;
 	if (index >= h.contents.metadata.files.len) return 0;
 	const ft = h.contents.metadata.files[index].ctime orelse return 0;
-	const ticks_per_sec: u64 = 10_000_000;
-	if (ft < FILETIME_EPOCH_OFFSET * ticks_per_sec) return 0;
-	return @intCast((ft / ticks_per_sec) - FILETIME_EPOCH_OFFSET);
+	return filetimeToUnix(ft);
 }
 
 /// Get file's access time as Unix timestamp (seconds since epoch).
@@ -184,9 +188,7 @@ export fn z7z_file_atime(handle: ?*const ArchiveHandle, index: usize) i64 {
 	const h = handle orelse return 0;
 	if (index >= h.contents.metadata.files.len) return 0;
 	const ft = h.contents.metadata.files[index].atime orelse return 0;
-	const ticks_per_sec: u64 = 10_000_000;
-	if (ft < FILETIME_EPOCH_OFFSET * ticks_per_sec) return 0;
-	return @intCast((ft / ticks_per_sec) - FILETIME_EPOCH_OFFSET);
+	return filetimeToUnix(ft);
 }
 
 /// Get file's win_attrib (POSIX mode in upper 16, Windows attrs in lower 16).
@@ -231,6 +233,41 @@ pub const Z7zFileEntry = extern struct {
 const Z7Z_FLAG_DIRECTORY: u32 = 0x01;
 const Z7Z_FLAG_SYMLINK: u32 = 0x02;
 
+/// Convert a Unix epoch-seconds timestamp (0 = unset) to an NTFS FILETIME in
+/// 100-nanosecond ticks since 1601-01-01.
+inline fn unixToFiletime(unix_secs: i64) ?u64 {
+	return if (unix_secs > 0)
+		(@as(u64, @intCast(unix_secs)) + FILETIME_EPOCH_OFFSET) * 10_000_000
+	else
+		null;
+}
+
+/// Convert the C Z7zFileEntry array into a heap-allocated archive.FileEntry slice.
+/// Entries borrow the caller-provided name/data/xattr buffers (no copies); the
+/// caller owns the returned slice and must free it. Centralizing this mapping keeps
+/// the four z7z_create* variants from drifting when a FileEntry field is added.
+fn convertFileEntries(files_ptr: [*]const Z7zFileEntry, count: usize, allocator: std.mem.Allocator) error{OutOfMemory}![]archive.FileEntry {
+	const zig_files = try allocator.alloc(archive.FileEntry, count);
+	errdefer allocator.free(zig_files);
+	for (0..count) |i| {
+		const cf = files_ptr[i];
+		const name_len = std.mem.len(cf.name);
+		zig_files[i] = .{
+			.name = cf.name[0..name_len],
+			.data = if (cf.data) |d| d[0..cf.data_len] else &.{},
+			.is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0,
+			.is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0,
+			.mtime = unixToFiletime(cf.mtime),
+			.ctime = unixToFiletime(cf.ctime),
+			.atime = unixToFiletime(cf.atime),
+			.win_attrib = if (cf.win_attrib != 0) cf.win_attrib else null,
+			.xattrs = if (cf.xattrs) |xp| xp[0..cf.xattrs_len] else null,
+			.group_index = cf.group_index,
+		};
+	}
+	return zig_files;
+}
+
 /// Create a .7z archive from file entries.
 /// On success, writes archive bytes to `out_data`/`out_len` and returns Z7Z_OK.
 /// Caller must free with z7z_free().
@@ -253,48 +290,8 @@ export fn z7z_create(
 
 	const allocator = ffiAllocator();
 
-	const zig_files = allocator.alloc(archive.FileEntry, count) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	const zig_files = convertFileEntries(files_ptr, count, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
 	defer allocator.free(zig_files);
-
-	for (0..count) |i| {
-		const cf = files_ptr[i];
-		const name_len = std.mem.len(cf.name);
-		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
-		const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
-		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
-		// Convert Unix timestamps to NTFS FILETIME (or null if 0)
-		const mtime: ?u64 = if (cf.mtime > 0)
-			(@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		const ctime: ?u64 = if (cf.ctime > 0)
-			(@as(u64, @intCast(cf.ctime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		const atime: ?u64 = if (cf.atime > 0)
-			(@as(u64, @intCast(cf.atime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		// Map win_attrib (0 = not set)
-		const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
-		// Map xattrs (null pointer = not set)
-		const xattr_data: ?[]const u8 = if (cf.xattrs) |xp|
-			xp[0..cf.xattrs_len]
-		else
-			null;
-		zig_files[i] = .{
-			.name = cf.name[0..name_len],
-			.data = data_slice,
-			.is_dir = is_dir,
-			.is_symlink = is_symlink,
-			.mtime = mtime,
-			.ctime = ctime,
-			.atime = atime,
-			.win_attrib = attrib,
-			.xattrs = xattr_data,
-			.group_index = cf.group_index,
-		};
-	}
 
 	const result = archive.create(zig_files, allocator) catch |e| return mapCreateError(e);
 	out_d.* = result.ptr;
@@ -388,45 +385,8 @@ export fn z7z_create_ex(
 
 	const allocator = ffiAllocator();
 
-	const zig_files = allocator.alloc(archive.FileEntry, count) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	const zig_files = convertFileEntries(files_ptr, count, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
 	defer allocator.free(zig_files);
-
-	for (0..count) |i| {
-		const cf = files_ptr[i];
-		const name_len = std.mem.len(cf.name);
-		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
-		const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
-		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
-		const mtime: ?u64 = if (cf.mtime > 0)
-			(@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		const ctime: ?u64 = if (cf.ctime > 0)
-			(@as(u64, @intCast(cf.ctime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		const atime: ?u64 = if (cf.atime > 0)
-			(@as(u64, @intCast(cf.atime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
-		const xattr_data: ?[]const u8 = if (cf.xattrs) |xp|
-			xp[0..cf.xattrs_len]
-		else
-			null;
-		zig_files[i] = .{
-			.name = cf.name[0..name_len],
-			.data = data_slice,
-			.is_dir = is_dir,
-			.is_symlink = is_symlink,
-			.mtime = mtime,
-			.ctime = ctime,
-			.atime = atime,
-			.win_attrib = attrib,
-			.xattrs = xattr_data,
-			.group_index = cf.group_index,
-		};
-	}
 
 	const progress = archive.ProgressContext{
 		.callback = progress_cb,
@@ -465,45 +425,8 @@ export fn z7z_create_ex_pw(
 
 	const allocator = ffiAllocator();
 
-	const zig_files = allocator.alloc(archive.FileEntry, count) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	const zig_files = convertFileEntries(files_ptr, count, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
 	defer allocator.free(zig_files);
-
-	for (0..count) |i| {
-		const cf = files_ptr[i];
-		const name_len = std.mem.len(cf.name);
-		const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
-		const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
-		const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
-		const mtime: ?u64 = if (cf.mtime > 0)
-			(@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		const ctime: ?u64 = if (cf.ctime > 0)
-			(@as(u64, @intCast(cf.ctime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		const atime: ?u64 = if (cf.atime > 0)
-			(@as(u64, @intCast(cf.atime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-		else
-			null;
-		const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
-		const xattr_data: ?[]const u8 = if (cf.xattrs) |xp|
-			xp[0..cf.xattrs_len]
-		else
-			null;
-		zig_files[i] = .{
-			.name = cf.name[0..name_len],
-			.data = data_slice,
-			.is_dir = is_dir,
-			.is_symlink = is_symlink,
-			.mtime = mtime,
-			.ctime = ctime,
-			.atime = atime,
-			.win_attrib = attrib,
-			.xattrs = xattr_data,
-			.group_index = cf.group_index,
-		};
-	}
 
 	const pw: ?[]const u8 = if (password) |p| std.mem.span(p) else null;
 	const method: archive.Method = if (pw != null) .lzma2_aes else .lzma2;
@@ -549,45 +472,8 @@ export fn z7z_create_ex2(
 
     const allocator = ffiAllocator();
 
-    const zig_files = allocator.alloc(archive.FileEntry, count) catch return Z7Z_ERR_OUT_OF_MEMORY;
+    const zig_files = convertFileEntries(files_ptr, count, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
     defer allocator.free(zig_files);
-
-    for (0..count) |i| {
-        const cf = files_ptr[i];
-        const name_len = std.mem.len(cf.name);
-        const is_dir = (cf.flags & Z7Z_FLAG_DIRECTORY) != 0;
-        const is_symlink = (cf.flags & Z7Z_FLAG_SYMLINK) != 0;
-        const data_slice: []const u8 = if (cf.data) |d| d[0..cf.data_len] else &.{};
-        const mtime: ?u64 = if (cf.mtime > 0)
-            (@as(u64, @intCast(cf.mtime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-        else
-            null;
-        const ctime: ?u64 = if (cf.ctime > 0)
-            (@as(u64, @intCast(cf.ctime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-        else
-            null;
-        const atime: ?u64 = if (cf.atime > 0)
-            (@as(u64, @intCast(cf.atime)) + FILETIME_EPOCH_OFFSET) * 10_000_000
-        else
-            null;
-        const attrib: ?u32 = if (cf.win_attrib != 0) cf.win_attrib else null;
-        const xattr_data: ?[]const u8 = if (cf.xattrs) |xp|
-            xp[0..cf.xattrs_len]
-        else
-            null;
-        zig_files[i] = .{
-            .name = cf.name[0..name_len],
-            .data = data_slice,
-            .is_dir = is_dir,
-            .is_symlink = is_symlink,
-            .mtime = mtime,
-            .ctime = ctime,
-            .atime = atime,
-            .win_attrib = attrib,
-            .xattrs = xattr_data,
-            .group_index = cf.group_index,
-        };
-    }
 
     const pw: ?[]const u8 = if (password) |p| std.mem.span(p) else null;
 
@@ -631,6 +517,7 @@ export fn z7z_error_string(code: c_int) [*:0]const u8 {
 		Z7Z_ERR_INVALID_ARG => "invalid argument",
 		Z7Z_ERR_INDEX_OUT_OF_BOUNDS => "index out of bounds",
 		Z7Z_ERR_PASSWORD_REQUIRED => "password required for encrypted archive",
+		Z7Z_ERR_INTERNAL => "internal error (unexpected)",
 		else => "unknown error",
 	};
 }
@@ -660,7 +547,10 @@ fn mapCreateError(e: anyerror) c_int {
 		error.UnsupportedFeature => Z7Z_ERR_UNSUPPORTED,
 		error.EndOfStream => Z7Z_ERR_TRUNCATED,
 		error.PasswordRequired => Z7Z_ERR_PASSWORD_REQUIRED,
-		else => Z7Z_ERR_STRUCTURAL,
+		// STRUCTURAL is reserved for real archive-structure problems; an error we did
+		// not anticipate from the create path surfaces as INTERNAL, not a misleading
+		// "structural error in archive".
+		else => Z7Z_ERR_INTERNAL,
 	};
 }
 
@@ -688,6 +578,7 @@ test "ffi: error strings are non-empty" {
 		Z7Z_ERR_STRUCTURAL,       Z7Z_ERR_UNSUPPORTED,
 		Z7Z_ERR_OUT_OF_MEMORY,    Z7Z_ERR_INVALID_ARG,
 		Z7Z_ERR_INDEX_OUT_OF_BOUNDS, Z7Z_ERR_PASSWORD_REQUIRED,
+		Z7Z_ERR_INTERNAL,
 	};
 	for (codes) |code| {
 		const msg = z7z_error_string(code);
