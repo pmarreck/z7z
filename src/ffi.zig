@@ -22,6 +22,7 @@ pub const Z7Z_ERR_INVALID_ARG: c_int = 7;
 pub const Z7Z_ERR_INDEX_OUT_OF_BOUNDS: c_int = 8;
 pub const Z7Z_ERR_PASSWORD_REQUIRED: c_int = 9;
 pub const Z7Z_ERR_INTERNAL: c_int = 10;
+pub const Z7Z_ERR_RESOURCE_LIMIT: c_int = 11;
 
 // ============================================================================
 // Opaque archive handle
@@ -518,6 +519,7 @@ export fn z7z_error_string(code: c_int) [*:0]const u8 {
 		Z7Z_ERR_INDEX_OUT_OF_BOUNDS => "index out of bounds",
 		Z7Z_ERR_PASSWORD_REQUIRED => "password required for encrypted archive",
 		Z7Z_ERR_INTERNAL => "internal error (unexpected)",
+		Z7Z_ERR_RESOURCE_LIMIT => "archive resource limit exceeded",
 		else => "unknown error",
 	};
 }
@@ -531,6 +533,7 @@ fn mapArchiveError(e: archive.ArchiveError) c_int {
 		error.UnsupportedFeature => Z7Z_ERR_UNSUPPORTED,
 		error.OutOfMemory => Z7Z_ERR_OUT_OF_MEMORY,
 		error.PasswordRequired => Z7Z_ERR_PASSWORD_REQUIRED,
+		error.ResourceLimitExceeded => Z7Z_ERR_RESOURCE_LIMIT,
 		error.EndOfStream => Z7Z_ERR_TRUNCATED,
 	};
 }
@@ -547,6 +550,7 @@ fn mapCreateError(e: anyerror) c_int {
 		error.UnsupportedFeature => Z7Z_ERR_UNSUPPORTED,
 		error.EndOfStream => Z7Z_ERR_TRUNCATED,
 		error.PasswordRequired => Z7Z_ERR_PASSWORD_REQUIRED,
+		error.ResourceLimitExceeded => Z7Z_ERR_RESOURCE_LIMIT,
 		// STRUCTURAL is reserved for real archive-structure problems; an error we did
 		// not anticipate from the create path surfaces as INTERNAL, not a misleading
 		// "structural error in archive".
@@ -567,6 +571,7 @@ test "ffi: error mapping covers all archive errors" {
 	try std.testing.expectEqual(Z7Z_ERR_OUT_OF_MEMORY, mapArchiveError(error.OutOfMemory));
 	try std.testing.expectEqual(Z7Z_ERR_TRUNCATED, mapArchiveError(error.EndOfStream));
 	try std.testing.expectEqual(Z7Z_ERR_PASSWORD_REQUIRED, mapArchiveError(error.PasswordRequired));
+	try std.testing.expectEqual(Z7Z_ERR_RESOURCE_LIMIT, mapArchiveError(error.ResourceLimitExceeded));
 	// create path (anyerror) must surface a missing password distinctly, not as STRUCTURAL/OOM
 	try std.testing.expectEqual(Z7Z_ERR_PASSWORD_REQUIRED, mapCreateError(error.PasswordRequired));
 }
@@ -578,7 +583,7 @@ test "ffi: error strings are non-empty" {
 		Z7Z_ERR_STRUCTURAL,       Z7Z_ERR_UNSUPPORTED,
 		Z7Z_ERR_OUT_OF_MEMORY,    Z7Z_ERR_INVALID_ARG,
 		Z7Z_ERR_INDEX_OUT_OF_BOUNDS, Z7Z_ERR_PASSWORD_REQUIRED,
-		Z7Z_ERR_INTERNAL,
+		Z7Z_ERR_INTERNAL,         Z7Z_ERR_RESOURCE_LIMIT,
 	};
 	for (codes) |code| {
 		const msg = z7z_error_string(code);

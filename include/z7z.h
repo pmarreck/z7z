@@ -28,6 +28,7 @@ enum {
 	Z7Z_ERR_INDEX_OUT_OF_BOUNDS = 8,
 	Z7Z_ERR_PASSWORD_REQUIRED = 9,
 	Z7Z_ERR_INTERNAL          = 10,
+	Z7Z_ERR_RESOURCE_LIMIT    = 11,
 };
 
 /* Opaque archive handle */

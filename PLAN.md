@@ -238,6 +238,12 @@
 
 ## TODO
 - [x] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
+- [ ] Streaming/deep validation surface for validate (requested 2026-07-08 EST)
+  - [x] Add failing CRC-mismatch tests for payload/substream verification (completed 2026-07-08 04:42 PM EDT)
+  - [x] Add metadata-only unpack-size stats and resource guardrail tests (completed 2026-07-08 04:42 PM EDT)
+  - [x] Add Zig-native verifier/stats API so validate can pass its tracked allocator directly (completed 2026-07-08 04:42 PM EDT)
+  - [x] Keep C ABI dogfooded by z7z CLI/tests, but do not route validate through FFI (completed 2026-07-08 04:42 PM EDT)
+  - [x] Update docs/minimap and reply to validate with consumption instructions (completed 2026-07-08 04:49 PM EDT)
 - [ ] Actual i18n translations (30 languages) once textual UI is stable
 - [ ] `--simple` flag (suppress emoji + ANSI)
 - [ ] `--no-ansi`/`--no-color` flags

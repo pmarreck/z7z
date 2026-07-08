@@ -54,8 +54,12 @@ Progress callback context shared across compression/extraction pipeline.
 Archive-level create and read operations.
 - `FileEntry` — input struct with name, data, is_dir, is_symlink, mtime, win_attrib, ctime, atime, xattrs, group_index
 - `ArchiveContents` — result struct with metadata + extracted file data
+- `ArchiveStats` — metadata-only counts and unpack-size estimates for memory admission (files, folders, substreams, total/largest unpack sizes)
+- `VerifyOptions` — deep verification guardrails: password, progress, max total/folder/file unpack sizes, max expansion ratio
 - `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
 - `LevelParams` — re-export from codec.zig (dict_size + nice_len per level 0-9)
+- `inspect()` — parse archive metadata and return `ArchiveStats` without decompressing payloads
+- `verify()` — deep-verify archive payloads folder-by-folder, checking folder/substream CRCs and discarding decompressed buffers
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
 - `createWithLevel()` — archive creation with explicit compression level (0-9)
 - `createWithProgress()` — archive creation with progress callback, defaults to level 5
@@ -67,6 +71,7 @@ Archive-level create and read operations.
 - `readWithProgress()` — archive extraction with progress callback (fires per-folder decompressed)
   - Multi-folder support: iterates ALL folders with correct pack offset calculation
   - Per-folder file mapping via SubStreamInfo.num_unpack_per_folder
+  - Verifies folder/substream CRCs before returning extracted file data
   - Handles empty stream (directory) entries correctly during file→folder assignment
 
 ## src/metadata.zig
@@ -107,6 +112,7 @@ Codec dispatch: decompress packed data for a folder's coder pipeline.
 
 ## src/ffi.zig
 C FFI boundary for z7z. All functions use C calling convention.
+- `Z7Z_ERR_RESOURCE_LIMIT` — C-visible mapping for resource-limit errors from Zig archive APIs
 - `z7z_open` — open archive from memory buffer, returns opaque handle
 - `z7z_file_count`, `z7z_file_name`, `z7z_file_data`, `z7z_file_size` — query file entries
 - `z7z_file_is_dir` — check if entry is a directory (EmptyStream && !EmptyFile)
@@ -126,6 +132,7 @@ C FFI boundary for z7z. All functions use C calling convention.
 
 ## include/z7z.h
 C header for the FFI. Matches ffi.zig exports.
+- `Z7Z_ERR_RESOURCE_LIMIT` — resource-limit error code (appended to existing enum)
 - `z7z_file_entry` — struct with name, data, data_len, flags, mtime, win_attrib, ctime, atime, xattrs, xattrs_len, group_index
 - `z7z_progress_fn` — progress callback typedef: (bytes_done, bytes_total, user_data)
 - `z7z_open_ex()` / `z7z_open_ex_pw()` — open with progress + optional password

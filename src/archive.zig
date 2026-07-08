@@ -52,6 +52,7 @@ pub const ArchiveError = error{
     EndOfStream,
     OutOfMemory,
     PasswordRequired,
+    ResourceLimitExceeded,
 };
 
 /// Compression method for archive creation.
@@ -88,6 +89,32 @@ pub const ArchiveContents = struct {
         self.allocator.free(self.file_data);
         self.metadata.deinit();
     }
+};
+
+/// Metadata-derived resource summary for callers that need to budget archive
+/// work before decompression. Sizes are unpacked payload sizes from 7z folder
+/// and substream metadata, not retained output buffers.
+pub const ArchiveStats = struct {
+    file_count: u64 = 0,
+    data_file_count: u64 = 0,
+    folder_count: u64 = 0,
+    substream_count: u64 = 0,
+    total_pack_size: u64 = 0,
+    total_unpack_size: u64 = 0,
+    largest_folder_unpack_size: u64 = 0,
+    max_file_unpack_size: u64 = 0,
+};
+
+/// Guardrails and progress for deep archive verification. Limits are checked
+/// against metadata before any folder is decompressed, so callers can reject
+/// expansion bombs while still using their own tracked allocator.
+pub const VerifyOptions = struct {
+    password: ?[]const u8 = null,
+    progress: ProgressContext = .{},
+    max_total_unpack_size: ?u64 = null,
+    max_folder_unpack_size: ?u64 = null,
+    max_file_unpack_size: ?u64 = null,
+    max_expansion_ratio: ?u64 = null,
 };
 
 /// Re-export LevelParams for consumers.
@@ -1220,6 +1247,270 @@ fn createCopy(files: []const FileEntry, allocator: std.mem.Allocator) ![]u8 {
     return archive;
 }
 
+fn parseArchiveMetadata(archive_data: []const u8, password: ?[]const u8, allocator: std.mem.Allocator) ArchiveError!meta.ArchiveMetadata {
+    // Parse signature header
+    const hdr = sig_header.parse(archive_data) catch |e| switch (e) {
+        error.NotArchive => return ArchiveError.NotArchive,
+        error.ChecksumError => return ArchiveError.ChecksumError,
+        error.TruncatedInput => return ArchiveError.TruncatedInput,
+    };
+
+    // Validate next-header bounds
+    const nh_start_u64 = std.math.add(u64, sig_header.HEADER_SIZE, hdr.next_header_offset) catch
+        return ArchiveError.TruncatedInput;
+    const nh_end_u64 = std.math.add(u64, nh_start_u64, hdr.next_header_size) catch
+        return ArchiveError.TruncatedInput;
+    if (nh_end_u64 > archive_data.len) return ArchiveError.TruncatedInput;
+    const nh_start: usize = @intCast(nh_start_u64);
+    const nh_end: usize = @intCast(nh_end_u64);
+
+    // Validate next-header CRC
+    const nh_bytes = archive_data[nh_start..nh_end];
+    if (crc32.hash(nh_bytes) != hdr.next_header_crc) return ArchiveError.ChecksumError;
+
+    // Parse metadata (pass full archive for encoded header support)
+    return meta.parseNextHeaderFull(nh_bytes, archive_data, password, allocator) catch |e| switch (e) {
+        error.StructuralError => return ArchiveError.StructuralError,
+        error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
+        error.EndOfStream => return ArchiveError.EndOfStream,
+        error.OutOfMemory => return ArchiveError.OutOfMemory,
+    };
+}
+
+fn metadataStats(metadata: meta.ArchiveMetadata) ArchiveStats {
+    var stats = ArchiveStats{
+        .file_count = metadata.files.len,
+        .folder_count = metadata.folders.len,
+    };
+
+    if (metadata.pack_info) |pi| {
+        for (pi.pack_sizes) |size| stats.total_pack_size += size;
+    }
+
+    for (metadata.folders) |folder| {
+        const folder_size = folder.getFinalUnpackSize();
+        stats.total_unpack_size += folder_size;
+        stats.largest_folder_unpack_size = @max(stats.largest_folder_unpack_size, folder_size);
+    }
+
+    if (metadata.sub_streams) |ss| {
+        stats.substream_count = ss.unpack_sizes.len;
+        for (ss.unpack_sizes) |size| {
+            stats.max_file_unpack_size = @max(stats.max_file_unpack_size, size);
+        }
+    } else {
+        stats.substream_count = metadata.folders.len;
+        stats.max_file_unpack_size = stats.largest_folder_unpack_size;
+    }
+
+    for (metadata.files) |file| {
+        if (!file.is_empty_stream) stats.data_file_count += 1;
+    }
+
+    return stats;
+}
+
+fn validateResourceLimits(stats: ArchiveStats, archive_len: usize, opts: VerifyOptions) ArchiveError!void {
+    if (opts.max_total_unpack_size) |limit| {
+        if (stats.total_unpack_size > limit) return ArchiveError.ResourceLimitExceeded;
+    }
+    if (opts.max_folder_unpack_size) |limit| {
+        if (stats.largest_folder_unpack_size > limit) return ArchiveError.ResourceLimitExceeded;
+    }
+    if (opts.max_file_unpack_size) |limit| {
+        if (stats.max_file_unpack_size > limit) return ArchiveError.ResourceLimitExceeded;
+    }
+    if (opts.max_expansion_ratio) |ratio| {
+        const denominator: u64 = @max(1, @as(u64, @intCast(archive_len)));
+        if (ratio == 0) return ArchiveError.ResourceLimitExceeded;
+        if (stats.total_unpack_size > denominator *| ratio) return ArchiveError.ResourceLimitExceeded;
+    }
+}
+
+fn folderPackStreamCount(folder: meta.Folder) usize {
+    var total_in: u64 = 0;
+    for (folder.coders) |coder| {
+        total_in += coder.num_in_streams;
+    }
+    return @intCast(total_in - folder.bind_pairs.len);
+}
+
+fn folderSubstreamCounts(metadata: meta.ArchiveMetadata, allocator: std.mem.Allocator) ArchiveError!struct {
+    counts: []const u64,
+    owned: ?[]u64,
+} {
+    if (metadata.sub_streams) |ss| {
+        return .{ .counts = ss.num_unpack_per_folder, .owned = null };
+    }
+
+    const counts = try allocator.alloc(u64, metadata.folders.len);
+    @memset(counts, 1);
+    return .{ .counts = counts, .owned = counts };
+}
+
+fn expectedSubstreamCrc(metadata: meta.ArchiveMetadata, folder_idx: usize, folder_sub_count: usize, digest_idx: *usize) ?u32 {
+    if (folder_sub_count == 1 and metadata.folders[folder_idx].unpack_crc != null) {
+        return metadata.folders[folder_idx].unpack_crc;
+    }
+    const ss = metadata.sub_streams orelse return null;
+    if (digest_idx.* >= ss.digests.len) return null;
+    const digest = ss.digests[digest_idx.*];
+    digest_idx.* += 1;
+    return digest;
+}
+
+fn substreamUnpackSize(metadata: meta.ArchiveMetadata, sub_idx: usize, folder_unpack_size: u64) u64 {
+    if (metadata.sub_streams) |ss| {
+        if (sub_idx < ss.unpack_sizes.len) return ss.unpack_sizes[sub_idx];
+        return 0;
+    }
+    return folder_unpack_size;
+}
+
+fn cleanupFileData(file_data: [][]const u8, allocator: std.mem.Allocator) void {
+    for (file_data) |data| {
+        allocator.free(data);
+    }
+    allocator.free(file_data);
+}
+
+/// Parse archive metadata without decompressing payloads, returning resource
+/// estimates that callers can use for memory admission and scheduling.
+pub fn inspect(archive_data: []const u8, password: ?[]const u8, allocator: std.mem.Allocator) ArchiveError!ArchiveStats {
+    var metadata = try parseArchiveMetadata(archive_data, password, allocator);
+    defer metadata.deinit();
+    return metadataStats(metadata);
+}
+
+/// Deep-verify archive payloads without retaining extracted files. This still
+/// decompresses one folder at a time with the current codec API, but it checks
+/// metadata limits before decompression and discards each folder immediately
+/// after CRC validation.
+pub fn verify(archive_data: []const u8, opts: VerifyOptions, allocator: std.mem.Allocator) ArchiveError!ArchiveStats {
+    var metadata = try parseArchiveMetadata(archive_data, opts.password, allocator);
+    defer metadata.deinit();
+
+    const stats = metadataStats(metadata);
+    try validateResourceLimits(stats, archive_data.len, opts);
+
+    try verifyPayloads(archive_data, metadata, opts.password, opts.progress, allocator, null);
+    return stats;
+}
+
+fn verifyPayloads(
+    archive_data: []const u8,
+    metadata: meta.ArchiveMetadata,
+    password: ?[]const u8,
+    progress: ProgressContext,
+    allocator: std.mem.Allocator,
+    maybe_file_data: ?[][]const u8,
+) ArchiveError!void {
+    if (metadata.pack_info == null or metadata.folders.len == 0) return;
+
+    const pi = metadata.pack_info.?;
+    const folder_counts = try folderSubstreamCounts(metadata, allocator);
+    defer if (folder_counts.owned) |owned| allocator.free(owned);
+    const subs_per_folder = folder_counts.counts;
+
+    // Track position across all folders.
+    var pack_stream_idx: usize = 0; // index into pi.pack_sizes
+    var sub_idx: usize = 0; // index into sub_streams.unpack_sizes
+    var digest_idx: usize = 0; // index into sub_streams.digests (excludes inherited folder CRCs)
+    var file_idx: usize = 0; // index into metadata.files (skipping empty streams)
+
+    // Compute total packed size for progress reporting.
+    var total_pack_size: u64 = 0;
+    for (pi.pack_sizes) |ps| total_pack_size += ps;
+    var pack_bytes_done: u64 = 0;
+
+    for (0..metadata.folders.len) |fi| {
+        const folder = metadata.folders[fi];
+        const num_pack_streams = folderPackStreamCount(folder);
+
+        // Calculate total packed size for this folder (sum of its pack streams).
+        var folder_pack_size: usize = 0;
+        for (0..num_pack_streams) |pi_offset| {
+            const idx = pack_stream_idx + pi_offset;
+            if (idx < pi.pack_sizes.len) {
+                folder_pack_size += @intCast(pi.pack_sizes[idx]);
+            }
+        }
+
+        // Calculate pack offset (base + sum of all previous pack sizes).
+        var pack_offset: usize = @intCast(pi.pack_pos);
+        for (0..pack_stream_idx) |prev| {
+            if (prev < pi.pack_sizes.len) {
+                pack_offset += @intCast(pi.pack_sizes[prev]);
+            }
+        }
+        const pack_start = sig_header.HEADER_SIZE + pack_offset;
+
+        const folder_pack_sizes = if (pack_stream_idx + num_pack_streams <= pi.pack_sizes.len)
+            pi.pack_sizes[pack_stream_idx .. pack_stream_idx + num_pack_streams]
+        else
+            pi.pack_sizes[pack_stream_idx..];
+
+        pack_stream_idx += num_pack_streams;
+
+        const unpack_size: u64 = folder.getFinalUnpackSize();
+
+        if (pack_start + folder_pack_size > archive_data.len) {
+            return ArchiveError.TruncatedInput;
+        }
+        const packed_data = archive_data[pack_start .. pack_start + folder_pack_size];
+
+        const unpacked = codec.decompressFolder(folder, packed_data, folder_pack_sizes, unpack_size, password, allocator) catch |e| switch (e) {
+            error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
+            error.DecompressFailed => return ArchiveError.StructuralError,
+            error.OutOfMemory => return ArchiveError.OutOfMemory,
+        };
+        defer allocator.free(unpacked);
+
+        if (folder.unpack_crc) |expected| {
+            if (crc32.hash(unpacked) != expected) return ArchiveError.ChecksumError;
+        }
+
+        pack_bytes_done += @as(u64, @intCast(folder_pack_size));
+        progress.report(pack_bytes_done, total_pack_size);
+
+        const folder_sub_count: usize = if (fi < subs_per_folder.len) @intCast(subs_per_folder[fi]) else 1;
+        var data_offset: usize = 0;
+        var subs_assigned: usize = 0;
+
+        while (subs_assigned < folder_sub_count and file_idx < metadata.files.len) {
+            if (metadata.files[file_idx].is_empty_stream) {
+                file_idx += 1;
+                continue;
+            }
+
+            const file_size_u64 = substreamUnpackSize(metadata, sub_idx, unpack_size);
+            const file_size: usize = @intCast(file_size_u64);
+            if (data_offset + file_size > unpacked.len) {
+                return ArchiveError.StructuralError;
+            }
+            const file_slice = unpacked[data_offset .. data_offset + file_size];
+
+            if (expectedSubstreamCrc(metadata, fi, folder_sub_count, &digest_idx)) |expected| {
+                if (crc32.hash(file_slice) != expected) return ArchiveError.ChecksumError;
+            }
+
+            if (maybe_file_data) |file_data| {
+                allocator.free(@constCast(file_data[file_idx]));
+                file_data[file_idx] = try allocator.dupe(u8, file_slice);
+            }
+
+            data_offset += file_size;
+            sub_idx += 1;
+            subs_assigned += 1;
+            file_idx += 1;
+        }
+
+        if (data_offset != unpacked.len) {
+            return ArchiveError.StructuralError;
+        }
+    }
+}
+
 /// Read a .7z archive from memory, extracting file contents.
 pub fn read(archive_data: []const u8, allocator: std.mem.Allocator) ArchiveError!ArchiveContents {
     return readWithPassword(archive_data, null, allocator);
@@ -1233,154 +1524,23 @@ pub fn readWithPassword(archive_data: []const u8, password: ?[]const u8, allocat
 /// Read a .7z archive from memory with progress reporting.
 /// Progress reports packed bytes decompressed per folder.
 pub fn readWithProgress(archive_data: []const u8, password: ?[]const u8, progress: ProgressContext, allocator: std.mem.Allocator) ArchiveError!ArchiveContents {
-    // Parse signature header
-    const hdr = sig_header.parse(archive_data) catch |e| switch (e) {
-        error.NotArchive => return ArchiveError.NotArchive,
-        error.ChecksumError => return ArchiveError.ChecksumError,
-        error.TruncatedInput => return ArchiveError.TruncatedInput,
-    };
-
-    // Validate next-header bounds
-    const nh_start = sig_header.HEADER_SIZE + hdr.next_header_offset;
-    const nh_end = nh_start + hdr.next_header_size;
-    if (nh_end > archive_data.len) return ArchiveError.TruncatedInput;
-
-    // Validate next-header CRC
-    const nh_bytes = archive_data[@intCast(nh_start)..@intCast(nh_end)];
-    if (crc32.hash(nh_bytes) != hdr.next_header_crc) return ArchiveError.ChecksumError;
-
-    // Parse metadata (pass full archive for encoded header support)
-    var metadata = meta.parseNextHeaderFull(nh_bytes, archive_data, password, allocator) catch |e| switch (e) {
-        error.StructuralError => return ArchiveError.StructuralError,
-        error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
-        error.EndOfStream => return ArchiveError.EndOfStream,
-        error.OutOfMemory => return ArchiveError.OutOfMemory,
-    };
+    var metadata = try parseArchiveMetadata(archive_data, password, allocator);
     errdefer metadata.deinit();
 
     // Extract file data via codec dispatch — iterate ALL folders
     const file_data = try allocator.alloc([]const u8, metadata.files.len);
-    errdefer allocator.free(file_data);
+    errdefer cleanupFileData(file_data, allocator);
+
+    for (file_data) |*d| {
+        d.* = &.{};
+    }
 
     // Initialize all entries to empty (directories/empty streams stay empty)
     for (file_data) |*d| {
         d.* = try allocator.dupe(u8, &.{});
     }
 
-    if (metadata.pack_info) |pi| {
-        if (metadata.folders.len > 0) {
-            // Determine per-folder substream counts
-            const num_folders = metadata.folders.len;
-            var subs_per_folder: []const u64 = undefined;
-            var subs_per_folder_alloc: ?[]u64 = null;
-            defer if (subs_per_folder_alloc) |a| allocator.free(a);
-
-            if (metadata.sub_streams) |ss| {
-                subs_per_folder = ss.num_unpack_per_folder;
-            } else {
-                // Default: 1 substream per folder
-                subs_per_folder_alloc = try allocator.alloc(u64, num_folders);
-                @memset(subs_per_folder_alloc.?, 1);
-                subs_per_folder = subs_per_folder_alloc.?;
-            }
-
-            // Track position across all folders
-            var pack_stream_idx: usize = 0; // index into pi.pack_sizes
-            var sub_idx: usize = 0; // index into sub_streams.unpack_sizes
-            var file_idx: usize = 0; // index into metadata.files (skipping empty streams)
-
-            // Compute total packed size for progress reporting
-            var total_pack_size: u64 = 0;
-            for (pi.pack_sizes) |ps| total_pack_size += ps;
-            var pack_bytes_done: u64 = 0;
-
-            for (0..num_folders) |fi| {
-                const folder = metadata.folders[fi];
-
-                // Calculate number of pack streams this folder consumes
-                var total_in: u64 = 0;
-                for (folder.coders) |coder| {
-                    total_in += coder.num_in_streams;
-                }
-                const num_pack_streams: usize = @intCast(total_in - folder.bind_pairs.len);
-
-                // Calculate total packed size for this folder (sum of its pack streams)
-                var folder_pack_size: usize = 0;
-                for (0..num_pack_streams) |pi_offset| {
-                    const idx = pack_stream_idx + pi_offset;
-                    if (idx < pi.pack_sizes.len) {
-                        folder_pack_size += @intCast(pi.pack_sizes[idx]);
-                    }
-                }
-
-                // Calculate pack offset (base + sum of all previous pack sizes)
-                var pack_offset: usize = @intCast(pi.pack_pos);
-                for (0..pack_stream_idx) |prev| {
-                    if (prev < pi.pack_sizes.len) {
-                        pack_offset += @intCast(pi.pack_sizes[prev]);
-                    }
-                }
-                const pack_start = sig_header.HEADER_SIZE + pack_offset;
-
-                // Slice of per-stream pack sizes for this folder
-                const folder_pack_sizes = if (pack_stream_idx + num_pack_streams <= pi.pack_sizes.len)
-                    pi.pack_sizes[pack_stream_idx .. pack_stream_idx + num_pack_streams]
-                else
-                    pi.pack_sizes[pack_stream_idx..];
-
-                pack_stream_idx += num_pack_streams;
-
-                // Get folder unpack size (unbound output stream)
-                const unpack_size: u64 = folder.getFinalUnpackSize();
-
-                if (pack_start + folder_pack_size > archive_data.len) {
-                    return ArchiveError.TruncatedInput;
-                }
-                const packed_data = archive_data[pack_start .. pack_start + folder_pack_size];
-
-                // Decompress this folder
-                const unpacked = codec.decompressFolder(folder, packed_data, folder_pack_sizes, unpack_size, password, allocator) catch |e| switch (e) {
-                    error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
-                    error.DecompressFailed => return ArchiveError.StructuralError,
-                    error.OutOfMemory => return ArchiveError.OutOfMemory,
-                };
-                defer allocator.free(unpacked);
-
-                // Report progress: this folder's packed data has been decompressed
-                pack_bytes_done += @as(u64, @intCast(folder_pack_size));
-                progress.report(pack_bytes_done, total_pack_size);
-
-                // Split decompressed data among this folder's substreams
-                const folder_sub_count: usize = if (fi < subs_per_folder.len) @intCast(subs_per_folder[fi]) else 1;
-                var data_offset: usize = 0;
-                var subs_assigned: usize = 0;
-
-                while (subs_assigned < folder_sub_count and file_idx < metadata.files.len) {
-                    if (metadata.files[file_idx].is_empty_stream) {
-                        // Skip empty stream entries (directories) — they don't consume substreams
-                        file_idx += 1;
-                        continue;
-                    }
-
-                    const file_size: usize = if (metadata.sub_streams) |ss|
-                        (if (sub_idx < ss.unpack_sizes.len) @intCast(ss.unpack_sizes[sub_idx]) else 0)
-                    else
-                        @intCast(unpack_size);
-
-                    // Free the initial empty allocation and replace with actual data
-                    allocator.free(@constCast(file_data[file_idx]));
-                    if (data_offset + file_size > unpacked.len) {
-                        return ArchiveError.StructuralError;
-                    }
-                    file_data[file_idx] = try allocator.dupe(u8, unpacked[data_offset .. data_offset + file_size]);
-                    data_offset += file_size;
-                    sub_idx += 1;
-                    subs_assigned += 1;
-                    file_idx += 1;
-                }
-            }
-        }
-    }
+    try verifyPayloads(archive_data, metadata, password, progress, allocator, file_data);
 
     return .{
         .metadata = metadata,
@@ -1913,6 +2073,75 @@ test "archive: FileEntry accepts group_index field" {
         .data = "world",
     };
     try std.testing.expectEqual(@as(u32, 0), g.group_index);
+}
+
+test "archive: verify rejects corrupted copy payload via substream CRC" {
+    const allocator = std.testing.allocator;
+
+    const files = [_]FileEntry{
+        .{ .name = "crc.txt", .data = "crc protected payload" },
+    };
+
+    const archive_data = try createWithMethod(&files, .copy, allocator);
+    defer allocator.free(archive_data);
+
+    const corrupted = try allocator.dupe(u8, archive_data);
+    defer allocator.free(corrupted);
+    corrupted[sig_header.HEADER_SIZE] ^= 0x55;
+
+    try std.testing.expectError(ArchiveError.ChecksumError, verify(corrupted, .{}, allocator));
+    try std.testing.expectError(ArchiveError.ChecksumError, read(corrupted, allocator));
+}
+
+test "archive: inspect reports unpacked work from metadata" {
+    const allocator = std.testing.allocator;
+
+    const files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "alpha" },
+        .{ .name = "b.bin", .data = "bravo-bravo" },
+        .{ .name = "empty-dir", .data = "", .is_dir = true },
+    };
+
+    const archive_data = try createWithMethod(&files, .copy, allocator);
+    defer allocator.free(archive_data);
+
+    const stats = try inspect(archive_data, null, allocator);
+    try std.testing.expectEqual(@as(u64, 3), stats.file_count);
+    try std.testing.expectEqual(@as(u64, 2), stats.data_file_count);
+    try std.testing.expectEqual(@as(u64, 1), stats.folder_count);
+    try std.testing.expectEqual(@as(u64, 2), stats.substream_count);
+    try std.testing.expectEqual(@as(u64, "alpha".len + "bravo-bravo".len), stats.total_unpack_size);
+    try std.testing.expectEqual(@as(u64, "alpha".len + "bravo-bravo".len), stats.largest_folder_unpack_size);
+    try std.testing.expectEqual(@as(u64, "bravo-bravo".len), stats.max_file_unpack_size);
+}
+
+test "archive: verify guardrail rejects total unpack size before extraction" {
+    const allocator = std.testing.allocator;
+
+    const data = [_]u8{'x'} ** 4096;
+    const files = [_]FileEntry{
+        .{ .name = "large.txt", .data = &data },
+    };
+
+    const archive_data = try createWithMethod(&files, .copy, allocator);
+    defer allocator.free(archive_data);
+
+    try std.testing.expectError(
+        ArchiveError.ResourceLimitExceeded,
+        verify(archive_data, .{ .max_total_unpack_size = data.len - 1 }, allocator),
+    );
+}
+
+test "archive: inspect rejects overflowing next-header bounds" {
+    const hdr = sig_header.encode(.{
+        .major_version = 0,
+        .minor_version = 4,
+        .next_header_offset = std.math.maxInt(u64),
+        .next_header_size = 1,
+        .next_header_crc = 0,
+    });
+
+    try std.testing.expectError(ArchiveError.TruncatedInput, inspect(&hdr, null, std.testing.allocator));
 }
 
 test "archive: createMultiFolder groups files into separate folders" {
