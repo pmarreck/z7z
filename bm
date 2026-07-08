@@ -7,6 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 Z7Z="$SCRIPT_DIR/zig-out/bin/z7z"
+VERIFY_BENCH="$SCRIPT_DIR/zig-out/bin/z7z-verify-bench"
 LOG_FILE="$SCRIPT_DIR/tests/benchmark/benchmark.log"
 BM_TMPDIR=""
 
@@ -18,9 +19,19 @@ BOLD='\033[1m'
 RESET='\033[0m'
 
 cleanup() {
-	[ -n "$BM_TMPDIR" ] && rm -rf "$BM_TMPDIR"
+	if [ -n "$BM_TMPDIR" ] && [ -d "$BM_TMPDIR" ]; then
+		find "$BM_TMPDIR" -depth -mindepth 1 -delete 2>/dev/null || true
+		rmdir "$BM_TMPDIR" 2>/dev/null || true
+	fi
 }
 trap cleanup EXIT
+
+delete_files() {
+	for path in "$@"; do
+		[ -e "$path" ] || continue
+		find "$path" -maxdepth 0 -type f -delete
+	done
+}
 
 # ============================================================================
 # Prerequisites
@@ -30,9 +41,9 @@ echo -e "${BOLD}z7z Benchmark Suite${RESET}"
 echo ""
 
 # Build if needed
-if [ ! -f "$Z7Z" ]; then
+if [ ! -f "$Z7Z" ] || [ ! -f "$VERIFY_BENCH" ]; then
 	echo -e "${YELLOW}Binary not found, building...${RESET}"
-	(cd "$SCRIPT_DIR" && nix develop -c zig build -Doptimize=ReleaseFast)
+	(cd "$SCRIPT_DIR" && ./build)
 fi
 
 # Check prerequisites
@@ -184,6 +195,34 @@ log_results() {
 	done
 }
 
+log_verify_results() {
+	local file_label="$1" json_file="$2" archive="$3" original_size="$4"
+
+	local mean stddev compressed_size ratio
+	mean=$(jq -r ".results[0].mean" "$json_file")
+	stddev=$(jq -r ".results[0].stddev" "$json_file")
+	compressed_size=$(wc -c < "$archive" | tr -d ' ')
+	ratio=$(awk "BEGIN { printf \"%.1f\", ($compressed_size / $original_size) * 100 }")
+
+	echo "$TIMESTAMP | z7z verify (25x) | $file_label | $mean | $stddev | $compressed_size | ${ratio}%" >> "$LOG_FILE"
+
+	local prev_line
+	prev_line=$(grep " | z7z verify (25x) | ${file_label} | " "$LOG_FILE" 2>/dev/null | tail -2 | head -1 || true)
+	if [ -n "$prev_line" ]; then
+		local prev_mean pct_change abs_change
+		prev_mean=$(echo "$prev_line" | awk -F'|' '{gsub(/ /,"",$4); print $4}')
+		pct_change=$(awk "BEGIN { printf \"%.1f\", (($mean - $prev_mean) / $prev_mean) * 100 }")
+		abs_change=$(awk "BEGIN { v = $pct_change; if (v < 0) v = -v; print v }")
+		if awk "BEGIN { exit !($abs_change > 10) }"; then
+			if awk "BEGIN { exit !($pct_change > 0) }"; then
+				echo -e "  ${RED}WARNING: z7z verify/$file_label is +${pct_change}% slower than previous${RESET}"
+			else
+				echo -e "  ${GREEN}NOTICE: z7z verify/$file_label is ${pct_change}% faster than previous${RESET}"
+			fi
+		fi
+	fi
+}
+
 # ============================================================================
 # Benchmark Runner
 # ============================================================================
@@ -208,7 +247,7 @@ run_benchmark_group() {
 	hyperfine \
 		--warmup 2 \
 		--min-runs 5 \
-		--prepare "rm -f '$z7z_out' '$ref_st_out' '$ref_mt_out'" \
+		--prepare "find '$z7z_out' '$ref_st_out' '$ref_mt_out' -maxdepth 0 -type f -delete 2>/dev/null || true" \
 		--export-json "$result_json" \
 		-n "z7z (auto)" "'$Z7Z' create '$z7z_out' '$data_file' 2>/dev/null" \
 		-n "7zz -mx=5 -mmt=1" "7zz a -mx=5 -mmt=1 '$ref_st_out' '$data_file' > /dev/null" \
@@ -218,7 +257,7 @@ run_benchmark_group() {
 
 	# Create fresh archives once for size comparison and interop testing
 	# (hyperfine's --prepare may have deleted some during benchmarking)
-	rm -f "$z7z_out" "$ref_st_out" "$ref_mt_out"
+	delete_files "$z7z_out" "$ref_st_out" "$ref_mt_out"
 	"$Z7Z" create "$z7z_out" "$data_file" 2>/dev/null
 	7zz a -mx=5 -mmt=1 "$ref_st_out" "$data_file" > /dev/null 2>&1
 	7zz a -mx=5 -mmt=on "$ref_mt_out" "$data_file" > /dev/null 2>&1
@@ -247,8 +286,18 @@ run_benchmark_group() {
 	fi
 	echo ""
 
+	local verify_json="$BM_TMPDIR/${file_label}_verify.json"
+	echo -e "  ${BOLD}Verify microbenchmark:${RESET}"
+	hyperfine \
+		--warmup 2 \
+		--min-runs 7 \
+		--export-json "$verify_json" \
+		-n "z7z verify (25x)" "'$VERIFY_BENCH' '$z7z_out' 25 > /dev/null 2>&1"
+	echo ""
+
 	# Log results and compare against previous
 	log_results "$file_label" "$result_json" "$z7z_out" "$ref_st_out" "$ref_mt_out" "$original_size"
+	log_verify_results "$file_label" "$verify_json" "$z7z_out" "$original_size"
 }
 
 run_dir_benchmark_group() {
@@ -271,7 +320,7 @@ run_dir_benchmark_group() {
 	hyperfine \
 		--warmup 2 \
 		--min-runs 5 \
-		--prepare "rm -f '$z7z_out' '$ref_st_out' '$ref_mt_out'" \
+		--prepare "find '$z7z_out' '$ref_st_out' '$ref_mt_out' -maxdepth 0 -type f -delete 2>/dev/null || true" \
 		--export-json "$result_json" \
 		-n "z7z (auto)" "'$Z7Z' create '$z7z_out' '$data_dir' 2>/dev/null" \
 		-n "7zz -mx=5 -mmt=1" "7zz a -mx=5 -mmt=1 '$ref_st_out' '$data_dir' > /dev/null" \
@@ -279,7 +328,7 @@ run_dir_benchmark_group() {
 
 	echo ""
 
-	rm -f "$z7z_out" "$ref_st_out" "$ref_mt_out"
+	delete_files "$z7z_out" "$ref_st_out" "$ref_mt_out"
 	"$Z7Z" create "$z7z_out" "$data_dir" 2>/dev/null
 	7zz a -mx=5 -mmt=1 "$ref_st_out" "$data_dir" > /dev/null 2>&1
 	7zz a -mx=5 -mmt=on "$ref_mt_out" "$data_dir" > /dev/null 2>&1
@@ -306,7 +355,17 @@ run_dir_benchmark_group() {
 	fi
 	echo ""
 
+	local verify_json="$BM_TMPDIR/${file_label}_verify.json"
+	echo -e "  ${BOLD}Verify microbenchmark:${RESET}"
+	hyperfine \
+		--warmup 2 \
+		--min-runs 7 \
+		--export-json "$verify_json" \
+		-n "z7z verify (25x)" "'$VERIFY_BENCH' '$z7z_out' 25 > /dev/null 2>&1"
+	echo ""
+
 	log_results "$file_label" "$result_json" "$z7z_out" "$ref_st_out" "$ref_mt_out" "$original_size"
+	log_verify_results "$file_label" "$verify_json" "$z7z_out" "$original_size"
 }
 
 # ============================================================================

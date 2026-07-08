@@ -59,7 +59,8 @@ Archive-level create and read operations.
 - `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
 - `LevelParams` — re-export from codec.zig (dict_size + nice_len per level 0-9)
 - `inspect()` — parse archive metadata and return `ArchiveStats` without decompressing payloads
-- `verify()` — deep-verify archive payloads folder-by-folder, checking folder/substream CRCs and discarding decompressed buffers
+- `verify()` — deep-verify archive payloads folder-by-folder, streaming Copy/LZMA2 output into a CRC sink instead of retaining decompressed buffers
+- `StreamingVerifySink` — splits decoded folder bytes into substreams, enforces total/folder/file limits, and checks folder/substream CRCs incrementally
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
 - `createWithLevel()` — archive creation with explicit compression level (0-9)
 - `createWithProgress()` — archive creation with progress callback, defaults to level 5
@@ -98,6 +99,8 @@ Archive-level create and read operations.
 ## src/codec.zig
 Codec dispatch: decompress packed data for a folder's coder pipeline.
 - `decompressFolder()` — handles single-coder and multi-coder pipelines
+- `OutputSink` / `decompressFolderToSink()` — streaming verification path for single-coder Copy and LZMA2 folders
+- `StreamingLzBuffer` — rolling-window LZMA2 accumulator that writes decoded bytes to a sink while preserving dictionary semantics across resets
 - `decompressMultiCoderPipeline()` — BCJ+LZMA2, AES+LZMA2, AES+BCJ+LZMA2
 - `decompressBcj2Pipeline()` — BCJ2 multi-stream DAG (4 sub-streams: main/call/jump/rc)
 - `bcj2Decode()` — BCJ2 filter decode: range-coded E8/E9/0F8x branch recombination
@@ -190,11 +193,12 @@ C CLI that dogfoods the FFI (list, extract, create, test commands).
 - `symlink_target_is_safe()` — security check: rejects absolute paths and ../ traversal
 
 ## build.zig
-Build configuration. Static lib + C CLI + test step. ReleaseFast default.
+Build configuration. Static lib + C CLI + verify benchmark harness + test step. ReleaseFast default.
 - libmagic linked as a static dependency via build.zig.zon on non-Windows targets
 - progrez linked as a static dependency via build.zig.zon on all platforms
 - `_GNU_SOURCE` macro added for Linux musl compatibility (statx, asprintf)
 - CLI compiled with `-std=gnu11` for POSIX extension support
+- `z7z-verify-bench` — Zig-native executable used by `bm` to time repeated `archive.verify()` calls
 
 ## build.zig.zon
 Package manifest. Dependencies:
@@ -202,21 +206,23 @@ Package manifest. Dependencies:
 - `progrez` — pmarreck/progrez (progress bar library with truecolor gradient, render thread, C FFI)
 
 ## flake.nix
-Nix devShell: zig 0.15.x, 7zz (oracle), hyperfine, luajit, jq, file (for magic database).
-- Pre-fetches libmagic tarball for Nix sandbox builds via `--system` flag pattern.
+Nix devShell/package/checks for Zig 0.16.0, 7zz oracle, hyperfine, luajit, jq, and file.
+- Pre-fetches Zig dependencies with a fixed-output `zig build --fetch=all` derivation for sandboxed builds.
+- Patches Linux installed/test executables with the Nix dynamic linker so `./build` outputs run on NixOS.
 
 ## tools/
 Vendored LuaJIT tools for self-contained benchmarking (no external PATH dependencies).
 - `tools/random` — deterministic pseudo-random number generator (PCG32, multiple distributions)
 - `tools/gen-fake-tree` — deterministic fake directory hierarchy generator (for multi-file benchmarks)
+- `tools/verify_bench.zig` — small Zig harness that loads one archive once and repeatedly calls `archive.verify()` for hyperfine
 - `tools/data/dictionary.txt` — 89K-word dictionary used by gen-fake-tree
 
 ## bm
-Benchmark script (Bash). Uses hyperfine to compare z7z vs 7zz reference on 4 data files.
+Benchmark script (Bash). Uses hyperfine to compare z7z vs 7zz reference on 4 data files, plus verify microbenchmarks.
 - Generates deterministic test data in $TMPDIR via vendored `tools/random` (LuaJIT):
   - 1.16MB repeating prose, 4MB prose, 1MB uniform random, 1MB gaussian (semi-compressible)
 - Runs 3-way comparison: z7z auto, 7zz single-threaded, 7zz multi-threaded
-- Shows compression ratios, validates interop, checks for debug builds
+- Shows compression ratios, validates interop, checks for debug builds, then times `z7z verify (25x)` against each z7z archive
 - Logs timestamped results to `tests/benchmark/benchmark.log`
 - Compares against previous run: warns if >10% slower, notices if >10% faster
 

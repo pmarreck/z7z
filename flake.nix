@@ -16,6 +16,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
         zig = zig-overlay.packages.${system}."0.16.0";
         isDarwin = pkgs.stdenv.isDarwin;
+        isLinux = pkgs.stdenv.isLinux;
 
         # Pre-fetched Zig dependencies (fixed-output derivation)
         # Update this hash when build.zig.zon changes:
@@ -56,7 +57,8 @@
             ++ pkgs.lib.optionals isDarwin [
               pkgs.darwin.cctools
               pkgs.apple-sdk
-            ];
+            ]
+            ++ pkgs.lib.optionals isLinux [ pkgs.patchelf ];
 
           dontConfigure = true;
 
@@ -70,6 +72,13 @@
               export C_INCLUDE_PATH="${pkgs.apple-sdk}/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include''${C_INCLUDE_PATH:+:$C_INCLUDE_PATH}"
             ''}
             zig build --prefix $out -Doptimize=ReleaseFast
+            ${pkgs.lib.optionalString isLinux ''
+              DL="$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)"
+              for f in "$out"/bin/*; do
+                [ -f "$f" ] || continue
+                patchelf --set-interpreter "$DL" "$f" 2>/dev/null || true
+              done
+            ''}
           '';
 
           dontInstall = true;
@@ -88,7 +97,7 @@
               pkgs.darwin.cctools
               pkgs.apple-sdk
             ]
-            ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.patchelf ];
+            ++ pkgs.lib.optionals isLinux [ pkgs.patchelf ];
 
           dontConfigure = true;
 
@@ -105,7 +114,7 @@
             # into binaries, which does not exist in the Nix sandbox. Compile
             # the test binaries first, patchelf them, then run the test step
             # which reuses the cached (now patched) artifacts.
-            ${pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+            ${pkgs.lib.optionalString isLinux ''
             zig build test-compile
             DL="$(cat ${pkgs.stdenv.cc}/nix-support/dynamic-linker)"
             # Patch every executable under .zig-cache and zig-out; non-ELF

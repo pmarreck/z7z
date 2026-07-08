@@ -15,7 +15,7 @@ A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives t
 - **Full metadata** — mtime, birthtime (fixes [7zz's long-standing bug](https://sourceforge.net/p/sevenzip/bugs/) of storing ctime instead), atime, POSIX permissions
 - **Extended attributes** — xattrs preserved on macOS and Linux, including `com.apple.ResourceFork` (resource forks); stored as custom property 0x7A, invisible to 7zz (`7zz t` validates clean). Ephemeral xattrs (`com.apple.quarantine`, etc.) are excluded. Use `--no-xattr` to skip
 - **Symlink support** — with path-traversal security
-- **Deep verification API** — Zig-native metadata stats, expansion guardrails, and CRC verification without retaining extracted payloads
+- **Deep verification API** — Zig-native metadata stats, expansion guardrails, and streaming CRC verification without retaining extracted payloads
 - **Progress reporting** — rate/ETA on interactive terminals
 - **stdin/stdout** — pipe support via `-`/`@stdin`/`@stdout`
 - **i18n groundwork** — `--lang` flag, `Z7Z_LANG` env var (30-language translation ready)
@@ -41,14 +41,17 @@ Compared against `7zz` at `-mx=5` on macOS/ARM64 (Apple M4):
 
 Compression ratios within 1-2% of 7zz at `-mx=5`. Full bidirectional interop verified.
 
+Run `./bm` for the current benchmark suite. It records compression timings plus a `z7z verify (25x)` microbenchmark over deterministic text, uniform random, gaussian/semi-compressible, and fake-tree datasets in `tests/benchmark/benchmark.log`.
+
 ## Building
 
-Requires Zig 0.16+:
+Requires Zig 0.16. Use the top-level scripts so native builds go through Nix's patched, deterministic package path:
 
 ```sh
-zig build                          # ReleaseFast by default
-zig build -Doptimize=Debug         # debug build
-zig build test                     # run all tests
+./build                            # ReleaseFast build
+./build debug                      # debug build
+./test                             # full test suite
+./bm                               # benchmark suite
 ```
 
 Or with Nix:

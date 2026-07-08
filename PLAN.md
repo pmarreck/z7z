@@ -244,6 +244,13 @@
   - [x] Add Zig-native verifier/stats API so validate can pass its tracked allocator directly (completed 2026-07-08 04:42 PM EDT)
   - [x] Keep C ABI dogfooded by z7z CLI/tests, but do not route validate through FFI (completed 2026-07-08 04:42 PM EDT)
   - [x] Update docs/minimap and reply to validate with consumption instructions (completed 2026-07-08 04:49 PM EDT)
+  - [ ] Streaming sink verifier follow-up from validate (requested 2026-07-08 06:46 PM EDT)
+    - [x] Add capped-allocation regression proving `verify()` does not allocate the full Copy folder output (completed 2026-07-08 07:17 PM EDT)
+    - [x] Add streaming substream CRC/boundary and resource-limit coverage (completed 2026-07-08 07:17 PM EDT)
+    - [x] Add codec output sink for Copy and wire `archive.verify()` through it (completed 2026-07-08 07:17 PM EDT)
+    - [x] Implement LZMA2 streaming sink path, including multi-block dictionary-reset regression (completed 2026-07-08 07:17 PM EDT)
+    - [x] Add `z7z verify (25x)` microbenchmark baseline over deterministic/random/semi-compressible datasets (completed 2026-07-08 07:17 PM EDT)
+    - [ ] Reply to validate with green implementation or concrete codec-pipeline blocker
 - [ ] Actual i18n translations (30 languages) once textual UI is stable
 - [ ] `--simple` flag (suppress emoji + ANSI)
 - [ ] `--no-ansi`/`--no-color` flags

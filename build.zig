@@ -76,6 +76,19 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(cli);
     const install_cli = b.addInstallArtifact(cli, .{});
 
+    // --- Zig-native verifier benchmark harness ---
+    const verify_bench = b.addExecutable(.{
+        .name = "z7z-verify-bench",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/verify_bench.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    verify_bench.root_module.addImport("z7z", lib_module);
+    b.installArtifact(verify_bench);
+
     // --- Unit tests ---
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{

@@ -15,6 +15,24 @@ pub const CodecError = error{
 	OutOfMemory,
 };
 
+pub const SinkError = error{
+	OutOfMemory,
+	ResourceLimitExceeded,
+	ChecksumError,
+	StructuralError,
+};
+
+pub const StreamingError = CodecError || SinkError;
+
+pub const OutputSink = struct {
+	ptr: *anyopaque,
+	writeFn: *const fn (*anyopaque, []const u8) SinkError!void,
+
+	pub fn write(self: *OutputSink, data: []const u8) SinkError!void {
+		try self.writeFn(self.ptr, data);
+	}
+};
+
 /// Known method IDs.
 const METHOD_COPY: u8 = 0x00;
 const METHOD_LZMA2: u8 = 0x21;
@@ -48,6 +66,32 @@ pub fn decompressFolder(
 		return decompressSingleCoder(coder, packed_data, unpack_size, allocator);
 	} else if (folder.coders.len >= 2) {
 		return decompressMultiCoderPipeline(folder, packed_data, pack_sizes, unpack_size, password, allocator);
+	}
+	return CodecError.UnsupportedMethod;
+}
+
+/// Decompress a folder directly into a sink for verification paths that do
+/// not need retained output. Currently supports Copy and single-coder LZMA2.
+pub fn decompressFolderToSink(
+	folder: anytype,
+	packed_data: []const u8,
+	pack_sizes: []const u64,
+	unpack_size: u64,
+	password: ?[]const u8,
+	sink: *OutputSink,
+	allocator: std.mem.Allocator,
+) StreamingError!void {
+	_ = pack_sizes;
+	_ = password;
+	if (folder.coders.len != 1) return CodecError.UnsupportedMethod;
+
+	const coder = folder.coders[0];
+	const mid = coder.method_id;
+	if (mid.len == 1 and mid[0] == METHOD_COPY) {
+		if (@as(u64, @intCast(packed_data.len)) != unpack_size) return CodecError.DecompressFailed;
+		return sink.write(packed_data);
+	} else if (mid.len == 1 and mid[0] == METHOD_LZMA2) {
+		return decodeLzma2ToSink(packed_data, unpack_size, coder.properties, sink, allocator);
 	}
 	return CodecError.UnsupportedMethod;
 }
@@ -451,6 +495,240 @@ fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.All
 	}
 
 	return allocating.toOwnedSlice() catch return CodecError.OutOfMemory;
+}
+
+fn lzma2DictSize(properties: []const u8, unpack_size: u64) CodecError!usize {
+	if (unpack_size == 0) return 1;
+	if (properties.len == 0) return @intCast(@min(unpack_size, @as(u64, 1 << 23)));
+	if (properties.len != 1) return CodecError.DecompressFailed;
+	const p = properties[0];
+	if (p > 40) return CodecError.DecompressFailed;
+	const raw = (@as(u64, 2 | (p & 1)) << @intCast(p / 2 + 11));
+	return @intCast(@max(@as(u64, 1), @min(raw, unpack_size)));
+}
+
+const StreamingLzBuffer = struct {
+	window: []u8,
+	start: usize = 0,
+	count: usize = 0,
+	len: usize = 0,
+	total_len: u64 = 0,
+	sink: *OutputSink,
+
+	fn init(window: []u8, sink: *OutputSink) StreamingLzBuffer {
+		return .{
+			.window = window,
+			.sink = sink,
+		};
+	}
+
+	fn pushWindowByte(self: *StreamingLzBuffer, byte: u8) void {
+		if (self.count < self.window.len) {
+			self.window[(self.start + self.count) % self.window.len] = byte;
+			self.count += 1;
+		} else {
+			self.window[self.start] = byte;
+			self.start = (self.start + 1) % self.window.len;
+		}
+		self.len += 1;
+		self.total_len += 1;
+	}
+
+	pub fn reset(self: *StreamingLzBuffer, writer: *std.Io.Writer) !void {
+		_ = writer;
+		self.start = 0;
+		self.count = 0;
+		self.len = 0;
+	}
+
+	pub fn lastOr(self: StreamingLzBuffer, lit: u8) u8 {
+		if (self.count == 0) return lit;
+		return self.window[(self.start + self.count - 1) % self.window.len];
+	}
+
+	pub fn lastN(self: StreamingLzBuffer, dist: usize) !u8 {
+		if (dist == 0 or dist > self.count) return error.CorruptInput;
+		return self.window[(self.start + self.count - dist) % self.window.len];
+	}
+
+	pub fn appendLiteral(
+		self: *StreamingLzBuffer,
+		gpa: std.mem.Allocator,
+		lit: u8,
+		writer: *std.Io.Writer,
+	) !void {
+		_ = gpa;
+		_ = writer;
+		try self.appendRawLiteral(lit);
+	}
+
+	fn appendRawLiteral(self: *StreamingLzBuffer, lit: u8) !void {
+		self.pushWindowByte(lit);
+		try self.sink.write(&.{lit});
+	}
+
+	pub fn appendLz(
+		self: *StreamingLzBuffer,
+		gpa: std.mem.Allocator,
+		len: usize,
+		dist: usize,
+		writer: *std.Io.Writer,
+	) !void {
+		_ = gpa;
+		_ = writer;
+		if (dist == 0 or dist > self.count) return error.CorruptInput;
+
+		var scratch: [4096]u8 = undefined;
+		var remaining = len;
+		while (remaining > 0) {
+			const n = @min(remaining, scratch.len);
+			for (scratch[0..n]) |*out| {
+				const byte = try self.lastN(dist);
+				out.* = byte;
+				self.pushWindowByte(byte);
+			}
+			try self.sink.write(scratch[0..n]);
+			remaining -= n;
+		}
+	}
+
+	pub fn finish(self: *StreamingLzBuffer, writer: *std.Io.Writer) !void {
+		_ = self;
+		_ = writer;
+	}
+};
+
+fn parseLzma2Uncompressed(
+	reader: *std.Io.Reader,
+	accum: *StreamingLzBuffer,
+	reset_dict: bool,
+) !usize {
+	var unused_writer = std.Io.Writer.failing;
+	const unpacked_size = @as(u17, try reader.takeInt(u16, .big)) + 1;
+	if (reset_dict) try accum.reset(&unused_writer);
+	for (0..unpacked_size) |_| {
+		try accum.appendRawLiteral(try reader.takeByte());
+	}
+	return 2 + unpacked_size;
+}
+
+fn parseLzma2Compressed(
+	ld: *std.compress.lzma.Decode,
+	reader: *std.Io.Reader,
+	allocating: *std.Io.Writer.Allocating,
+	accum: *StreamingLzBuffer,
+	status: u8,
+) !u64 {
+	if (status & 0x80 == 0) return error.CorruptInput;
+
+	const Reset = struct {
+		dict: bool,
+		state: bool,
+		props: bool,
+	};
+
+	const reset: Reset = switch ((status >> 5) & 0x3) {
+		0 => .{ .dict = false, .state = false, .props = false },
+		1 => .{ .dict = false, .state = true, .props = false },
+		2 => .{ .dict = false, .state = true, .props = true },
+		3 => .{ .dict = true, .state = true, .props = true },
+		else => unreachable,
+	};
+
+	var n_read: u64 = 0;
+	const unpacked_size = blk: {
+		var tmp: u64 = status & 0x1F;
+		tmp <<= 16;
+		tmp |= try reader.takeInt(u16, .big);
+		n_read += 2;
+		break :blk tmp + 1;
+	};
+	const packed_size = blk: {
+		const tmp: u17 = try reader.takeInt(u16, .big);
+		n_read += 2;
+		break :blk tmp + 1;
+	};
+
+	if (reset.dict) try accum.reset(&allocating.writer);
+
+	if (reset.state) {
+		var new_props = ld.properties;
+		if (reset.props) {
+			var props = try reader.takeByte();
+			n_read += 1;
+			if (props >= 225) return error.CorruptInput;
+
+			const lc: u4 = @intCast(props % 9);
+			props /= 9;
+			const lp: u3 = @intCast(props % 5);
+			props /= 5;
+			const pb: u3 = @intCast(props);
+			if (lc + lp > 4) return error.CorruptInput;
+			new_props = .{ .lc = lc, .lp = lp, .pb = pb };
+		}
+		try ld.resetState(allocating.allocator, new_props);
+	}
+
+	const expected_unpacked_size = accum.len + unpacked_size;
+	const start_count = n_read;
+	var range_decoder = try std.compress.lzma.RangeDecoder.initCounting(reader, &n_read);
+
+	while (accum.len < expected_unpacked_size) {
+		const status_result = try ld.process(reader, allocating, accum, &range_decoder, &n_read);
+		if (status_result == .finished) break;
+	}
+
+	if (accum.len != expected_unpacked_size) return error.DecompressedSizeMismatch;
+	if (n_read - start_count != packed_size) return error.CompressedSizeMismatch;
+
+	return n_read;
+}
+
+fn decodeLzma2ToSink(
+	packed_data: []const u8,
+	unpack_size: u64,
+	properties: []const u8,
+	sink: *OutputSink,
+	allocator: std.mem.Allocator,
+) StreamingError!void {
+	const dict_size = try lzma2DictSize(properties, unpack_size);
+	const window = allocator.alloc(u8, dict_size) catch return CodecError.OutOfMemory;
+	defer allocator.free(window);
+
+	var in: std.Io.Reader = .fixed(packed_data);
+	var fake_allocating: std.Io.Writer.Allocating = .{
+		.allocator = allocator,
+		.writer = std.Io.Writer.failing,
+		.alignment = .of(u8),
+	};
+	var accum = StreamingLzBuffer.init(window, sink);
+	var ld = std.compress.lzma.Decode.init(allocator, .{ .lc = 0, .lp = 0, .pb = 0 }) catch return CodecError.OutOfMemory;
+	defer ld.deinit(allocator);
+
+	var n_read: u64 = 0;
+	while (true) {
+		const status = in.takeByte() catch return CodecError.DecompressFailed;
+		n_read += 1;
+		switch (status) {
+			0 => break,
+			1 => n_read += parseLzma2Uncompressed(&in, &accum, true) catch |e| return mapStreamingLzma2Error(e),
+			2 => n_read += parseLzma2Uncompressed(&in, &accum, false) catch |e| return mapStreamingLzma2Error(e),
+			else => n_read += parseLzma2Compressed(&ld, &in, &fake_allocating, &accum, status) catch |e| return mapStreamingLzma2Error(e),
+		}
+	}
+
+	if (n_read != packed_data.len) return CodecError.DecompressFailed;
+	if (accum.total_len != unpack_size) return CodecError.DecompressFailed;
+}
+
+fn mapStreamingLzma2Error(err: anyerror) StreamingError {
+	return switch (err) {
+		error.OutOfMemory => CodecError.OutOfMemory,
+		error.ResourceLimitExceeded => SinkError.ResourceLimitExceeded,
+		error.ChecksumError => SinkError.ChecksumError,
+		error.StructuralError => SinkError.StructuralError,
+		else => CodecError.DecompressFailed,
+	};
 }
 
 /// Decompress Zstandard-compressed data using Zig's std.compress.zstd.

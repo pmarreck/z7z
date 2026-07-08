@@ -1393,8 +1393,226 @@ pub fn verify(archive_data: []const u8, opts: VerifyOptions, allocator: std.mem.
     const stats = metadataStats(metadata);
     try validateResourceLimits(stats, archive_data.len, opts);
 
-    try verifyPayloads(archive_data, metadata, opts.password, opts.progress, allocator, null);
+    try verifyPayloadsStreaming(archive_data, metadata, opts, allocator);
     return stats;
+}
+
+const StreamingVerifySink = struct {
+    metadata: meta.ArchiveMetadata,
+    opts: VerifyOptions,
+    folder_idx: usize,
+    folder_sub_count: usize,
+    unpack_size: u64,
+    digest_idx: *usize,
+    sub_idx: *usize,
+    file_idx: *usize,
+    total_decoded: *u64,
+    folder_crc: crc32.State = crc32.State.init(),
+    sub_crc: crc32.State = crc32.State.init(),
+    folder_bytes: u64 = 0,
+    sub_bytes: u64 = 0,
+    sub_size: u64 = 0,
+    subs_assigned: usize = 0,
+    sub_expected_crc: ?u32 = null,
+    active_substream: bool = false,
+
+    fn outputSink(self: *StreamingVerifySink) codec.OutputSink {
+        return .{
+            .ptr = self,
+            .writeFn = writeThunk,
+        };
+    }
+
+    fn writeThunk(ctx: *anyopaque, data: []const u8) codec.SinkError!void {
+        const self: *StreamingVerifySink = @ptrCast(@alignCast(ctx));
+        try self.write(data);
+    }
+
+    fn checkedAdd(a: u64, b: u64) codec.SinkError!u64 {
+        return std.math.add(u64, a, b) catch return codec.SinkError.ResourceLimitExceeded;
+    }
+
+    fn enforceWholeChunkLimits(self: StreamingVerifySink, chunk_len: u64) codec.SinkError!void {
+        const next_total = try checkedAdd(self.total_decoded.*, chunk_len);
+        const next_folder = try checkedAdd(self.folder_bytes, chunk_len);
+        if (next_folder > self.unpack_size) return codec.SinkError.StructuralError;
+        if (self.opts.max_total_unpack_size) |limit| {
+            if (next_total > limit) return codec.SinkError.ResourceLimitExceeded;
+        }
+        if (self.opts.max_folder_unpack_size) |limit| {
+            if (next_folder > limit) return codec.SinkError.ResourceLimitExceeded;
+        }
+    }
+
+    fn ensureSubstream(self: *StreamingVerifySink) codec.SinkError!bool {
+        while (true) {
+            while (self.file_idx.* < self.metadata.files.len and self.metadata.files[self.file_idx.*].is_empty_stream) {
+                self.file_idx.* += 1;
+            }
+            if (self.subs_assigned >= self.folder_sub_count) return false;
+            if (self.file_idx.* >= self.metadata.files.len) return codec.SinkError.StructuralError;
+
+            self.sub_size = substreamUnpackSize(self.metadata, self.sub_idx.*, self.unpack_size);
+            self.sub_expected_crc = expectedSubstreamCrc(self.metadata, self.folder_idx, self.folder_sub_count, self.digest_idx);
+            self.sub_crc = crc32.State.init();
+            self.sub_bytes = 0;
+            self.active_substream = true;
+
+            if (self.sub_size != 0) return true;
+            try self.finishSubstream();
+        }
+    }
+
+    fn finishSubstream(self: *StreamingVerifySink) codec.SinkError!void {
+        if (self.sub_expected_crc) |expected| {
+            if (self.sub_crc.final() != expected) return codec.SinkError.ChecksumError;
+        }
+        self.sub_idx.* += 1;
+        self.subs_assigned += 1;
+        self.file_idx.* += 1;
+        self.active_substream = false;
+    }
+
+    fn write(self: *StreamingVerifySink, data: []const u8) codec.SinkError!void {
+        const chunk_len: u64 = @intCast(data.len);
+        try self.enforceWholeChunkLimits(chunk_len);
+
+        self.folder_crc.update(data);
+        self.folder_bytes += chunk_len;
+        self.total_decoded.* += chunk_len;
+
+        var offset: usize = 0;
+        while (offset < data.len) {
+            if (!self.active_substream and !try self.ensureSubstream()) {
+                return codec.SinkError.StructuralError;
+            }
+
+            const remaining_sub: usize = @intCast(self.sub_size - self.sub_bytes);
+            const n = @min(remaining_sub, data.len - offset);
+            const next_sub_bytes = try checkedAdd(self.sub_bytes, @intCast(n));
+            if (self.opts.max_file_unpack_size) |limit| {
+                if (next_sub_bytes > limit) return codec.SinkError.ResourceLimitExceeded;
+            }
+
+            self.sub_crc.update(data[offset .. offset + n]);
+            self.sub_bytes = next_sub_bytes;
+            offset += n;
+
+            if (self.sub_bytes == self.sub_size) {
+                try self.finishSubstream();
+            }
+        }
+    }
+
+    fn finish(self: *StreamingVerifySink) ArchiveError!void {
+        while (!self.active_substream and self.subs_assigned < self.folder_sub_count) {
+            if (!(self.ensureSubstream() catch |e| return mapSinkError(e))) break;
+        }
+        if (self.active_substream) return ArchiveError.StructuralError;
+        if (self.folder_bytes != self.unpack_size) return ArchiveError.StructuralError;
+        if (self.subs_assigned != self.folder_sub_count) return ArchiveError.StructuralError;
+        if (self.metadata.folders[self.folder_idx].unpack_crc) |expected| {
+            if (self.folder_crc.final() != expected) return ArchiveError.ChecksumError;
+        }
+    }
+};
+
+fn mapSinkError(err: codec.SinkError) ArchiveError {
+    return switch (err) {
+        error.OutOfMemory => ArchiveError.OutOfMemory,
+        error.ResourceLimitExceeded => ArchiveError.ResourceLimitExceeded,
+        error.ChecksumError => ArchiveError.ChecksumError,
+        error.StructuralError => ArchiveError.StructuralError,
+    };
+}
+
+fn mapStreamingCodecError(err: codec.StreamingError) ArchiveError {
+    return switch (err) {
+        error.UnsupportedMethod => ArchiveError.UnsupportedFeature,
+        error.DecompressFailed => ArchiveError.StructuralError,
+        error.OutOfMemory => ArchiveError.OutOfMemory,
+        error.ResourceLimitExceeded => ArchiveError.ResourceLimitExceeded,
+        error.ChecksumError => ArchiveError.ChecksumError,
+        error.StructuralError => ArchiveError.StructuralError,
+    };
+}
+
+fn verifyPayloadsStreaming(
+    archive_data: []const u8,
+    metadata: meta.ArchiveMetadata,
+    opts: VerifyOptions,
+    allocator: std.mem.Allocator,
+) ArchiveError!void {
+    if (metadata.pack_info == null or metadata.folders.len == 0) return;
+
+    const pi = metadata.pack_info.?;
+    const folder_counts = try folderSubstreamCounts(metadata, allocator);
+    defer if (folder_counts.owned) |owned| allocator.free(owned);
+    const subs_per_folder = folder_counts.counts;
+
+    var pack_stream_idx: usize = 0;
+    var sub_idx: usize = 0;
+    var digest_idx: usize = 0;
+    var file_idx: usize = 0;
+    var total_decoded: u64 = 0;
+
+    var total_pack_size: u64 = 0;
+    for (pi.pack_sizes) |ps| total_pack_size += ps;
+    var pack_bytes_done: u64 = 0;
+
+    for (0..metadata.folders.len) |fi| {
+        const folder = metadata.folders[fi];
+        const num_pack_streams = folderPackStreamCount(folder);
+
+        var folder_pack_size: usize = 0;
+        for (0..num_pack_streams) |pi_offset| {
+            const idx = pack_stream_idx + pi_offset;
+            if (idx < pi.pack_sizes.len) {
+                folder_pack_size += @intCast(pi.pack_sizes[idx]);
+            }
+        }
+
+        var pack_offset: usize = @intCast(pi.pack_pos);
+        for (0..pack_stream_idx) |prev| {
+            if (prev < pi.pack_sizes.len) {
+                pack_offset += @intCast(pi.pack_sizes[prev]);
+            }
+        }
+        const pack_start = sig_header.HEADER_SIZE + pack_offset;
+
+        const folder_pack_sizes = if (pack_stream_idx + num_pack_streams <= pi.pack_sizes.len)
+            pi.pack_sizes[pack_stream_idx .. pack_stream_idx + num_pack_streams]
+        else
+            pi.pack_sizes[pack_stream_idx..];
+
+        pack_stream_idx += num_pack_streams;
+
+        const unpack_size: u64 = folder.getFinalUnpackSize();
+        if (pack_start + folder_pack_size > archive_data.len) {
+            return ArchiveError.TruncatedInput;
+        }
+        const packed_data = archive_data[pack_start .. pack_start + folder_pack_size];
+
+        var sink_state = StreamingVerifySink{
+            .metadata = metadata,
+            .opts = opts,
+            .folder_idx = fi,
+            .folder_sub_count = if (fi < subs_per_folder.len) @intCast(subs_per_folder[fi]) else 1,
+            .unpack_size = unpack_size,
+            .digest_idx = &digest_idx,
+            .sub_idx = &sub_idx,
+            .file_idx = &file_idx,
+            .total_decoded = &total_decoded,
+        };
+        var sink = sink_state.outputSink();
+        codec.decompressFolderToSink(folder, packed_data, folder_pack_sizes, unpack_size, opts.password, &sink, allocator) catch |e| {
+            return mapStreamingCodecError(e);
+        };
+        try sink_state.finish();
+
+        pack_bytes_done += @as(u64, @intCast(folder_pack_size));
+        opts.progress.report(pack_bytes_done, total_pack_size);
+    }
 }
 
 fn verifyPayloads(
@@ -1552,6 +1770,63 @@ pub fn readWithProgress(archive_data: []const u8, password: ?[]const u8, progres
 // ============================================================================
 // Tests
 // ============================================================================
+
+const MaxSingleAllocationAllocator = struct {
+    backing: std.mem.Allocator,
+    max_single_alloc: usize,
+    max_observed_alloc: usize = 0,
+
+    fn init(backing: std.mem.Allocator, max_single_alloc: usize) MaxSingleAllocationAllocator {
+        return .{
+            .backing = backing,
+            .max_single_alloc = max_single_alloc,
+        };
+    }
+
+    fn allocator(self: *MaxSingleAllocationAllocator) std.mem.Allocator {
+        return .{
+            .ptr = self,
+            .vtable = &vtable,
+        };
+    }
+
+    const vtable: std.mem.Allocator.VTable = .{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
+    fn fromContext(ctx: *anyopaque) *MaxSingleAllocationAllocator {
+        return @ptrCast(@alignCast(ctx));
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self = fromContext(ctx);
+        self.max_observed_alloc = @max(self.max_observed_alloc, len);
+        if (len > self.max_single_alloc) return null;
+        return self.backing.rawAlloc(len, alignment, ret_addr);
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self = fromContext(ctx);
+        self.max_observed_alloc = @max(self.max_observed_alloc, new_len);
+        if (new_len > self.max_single_alloc) return false;
+        return self.backing.rawResize(memory, alignment, new_len, ret_addr);
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self = fromContext(ctx);
+        self.max_observed_alloc = @max(self.max_observed_alloc, new_len);
+        if (new_len > self.max_single_alloc) return null;
+        return self.backing.rawRemap(memory, alignment, new_len, ret_addr);
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self = fromContext(ctx);
+        self.backing.rawFree(memory, alignment, ret_addr);
+    }
+};
 
 test "archive: create and read back single file" {
     const allocator = std.testing.allocator;
@@ -2115,7 +2390,7 @@ test "archive: inspect reports unpacked work from metadata" {
     try std.testing.expectEqual(@as(u64, "bravo-bravo".len), stats.max_file_unpack_size);
 }
 
-test "archive: verify guardrail rejects total unpack size before extraction" {
+test "archive: verify guardrails reject unpack sizes before extraction" {
     const allocator = std.testing.allocator;
 
     const data = [_]u8{'x'} ** 4096;
@@ -2130,6 +2405,94 @@ test "archive: verify guardrail rejects total unpack size before extraction" {
         ArchiveError.ResourceLimitExceeded,
         verify(archive_data, .{ .max_total_unpack_size = data.len - 1 }, allocator),
     );
+    try std.testing.expectError(
+        ArchiveError.ResourceLimitExceeded,
+        verify(archive_data, .{ .max_folder_unpack_size = data.len - 1 }, allocator),
+    );
+    try std.testing.expectError(
+        ArchiveError.ResourceLimitExceeded,
+        verify(archive_data, .{ .max_file_unpack_size = data.len - 1 }, allocator),
+    );
+}
+
+test "archive: verify copy payload does not allocate full folder output" {
+    const allocator = std.testing.allocator;
+
+    const large = [_]u8{'x'} ** (16 * 1024);
+    const files = [_]FileEntry{
+        .{ .name = "large-copy.bin", .data = &large },
+    };
+
+    const archive_data = try createWithMethod(&files, .copy, allocator);
+    defer allocator.free(archive_data);
+
+    var capped = MaxSingleAllocationAllocator.init(allocator, 4096);
+    const stats = try verify(archive_data, .{}, capped.allocator());
+
+    try std.testing.expectEqual(@as(u64, large.len), stats.total_unpack_size);
+    try std.testing.expect(capped.max_observed_alloc < large.len);
+}
+
+test "archive: verify lzma2 payload is bounded by decoder window, not folder output" {
+    const allocator = std.testing.allocator;
+
+    const data = try allocator.alloc(u8, 192 * 1024);
+    defer allocator.free(data);
+    for (data, 0..) |*b, i| {
+        b.* = @truncate((i * 37) ^ (i >> 3));
+    }
+    const files = [_]FileEntry{
+        .{ .name = "large-lzma2.bin", .data = data },
+    };
+
+    const archive_data = try createWithLevel(&files, .lzma2, null, 0, .{}, allocator);
+    defer allocator.free(archive_data);
+
+    var capped = MaxSingleAllocationAllocator.init(allocator, 96 * 1024);
+    const stats = try verify(archive_data, .{}, capped.allocator());
+
+    try std.testing.expectEqual(@as(u64, data.len), stats.total_unpack_size);
+    try std.testing.expect(capped.max_observed_alloc < data.len);
+}
+
+test "archive: streaming verify counts lzma2 output across dictionary resets" {
+    const allocator = std.testing.allocator;
+
+    const data = try allocator.alloc(u8, 2 * 1024 * 1024);
+    defer allocator.free(data);
+    const pattern = "abcabcabcabcabcabcabcabcabcabcabcabc";
+    for (data, 0..) |*b, i| {
+        b.* = pattern[i % pattern.len];
+    }
+    const files = [_]FileEntry{
+        .{ .name = "multi-block-lzma2.txt", .data = data },
+    };
+
+    const archive_data = try createWithMethod(&files, .lzma2, allocator);
+    defer allocator.free(archive_data);
+
+    const stats = try verify(archive_data, .{}, allocator);
+    try std.testing.expectEqual(@as(u64, data.len), stats.total_unpack_size);
+}
+
+test "archive: streaming verify honors multi-file substream CRC boundaries" {
+    const allocator = std.testing.allocator;
+
+    const files = [_]FileEntry{
+        .{ .name = "a.txt", .data = "alpha-alpha-alpha" },
+        .{ .name = "b.txt", .data = "bravo-bravo-bravo" },
+    };
+
+    const archive_data = try createWithMethod(&files, .copy, allocator);
+    defer allocator.free(archive_data);
+
+    _ = try verify(archive_data, .{}, allocator);
+
+    const corrupted = try allocator.dupe(u8, archive_data);
+    defer allocator.free(corrupted);
+    corrupted[sig_header.HEADER_SIZE + files[0].data.len] ^= 0x33;
+
+    try std.testing.expectError(ArchiveError.ChecksumError, verify(corrupted, .{}, allocator));
 }
 
 test "archive: inspect rejects overflowing next-header bounds" {

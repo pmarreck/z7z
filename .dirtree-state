@@ -1,11 +1,17 @@
 # Dirtree: Stateful directory trees in the CLI for humans and LLMs. https://github.com/pmarreck/dirtree
 ver=1.2
+depth=2
+
 close=[
 	.direnv
 ]
 
 annotate=[
+	bm = Hyperfine benchmark suite for compression and z7z verify microbenchmarks over deterministic datasets
+	flake.nix = Nix package/check/devshell for Zig 0.16; patches Linux executables and runs sandboxed tests
 	include/z7z.h = Public C FFI declarations and error codes for z7z
-	src/archive.zig = Archive create/read plus metadata-only inspect and folder-scoped verify with CRC/resource guardrails
+	src/archive.zig = Archive create/read/inspect/verify; verify streams Copy/LZMA2 output into CRC/resource-limit sink
+	src/codec.zig = Codec dispatch plus materialized and streaming Copy/LZMA2 decode paths for archive verification
 	src/ffi.zig = C ABI wrapper around z7z core, dogfooded by CLI and FFI tests
+	tools/verify_bench.zig = Verify microbenchmark harness that repeatedly calls Zig archive.verify() on one loaded archive
 ]
