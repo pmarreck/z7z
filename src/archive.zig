@@ -1432,6 +1432,10 @@ const StreamingVerifySink = struct {
         return std.math.add(u64, a, b) catch return codec.SinkError.ResourceLimitExceeded;
     }
 
+    fn folderCrcMirrorsSubstream(self: StreamingVerifySink) bool {
+        return self.folder_sub_count == 1;
+    }
+
     fn enforceWholeChunkLimits(self: StreamingVerifySink, chunk_len: u64) codec.SinkError!void {
         const next_total = try checkedAdd(self.total_decoded.*, chunk_len);
         const next_folder = try checkedAdd(self.folder_bytes, chunk_len);
@@ -1477,7 +1481,9 @@ const StreamingVerifySink = struct {
         const chunk_len: u64 = @intCast(data.len);
         try self.enforceWholeChunkLimits(chunk_len);
 
-        self.folder_crc.update(data);
+        if (!self.folderCrcMirrorsSubstream()) {
+            self.folder_crc.update(data);
+        }
         self.folder_bytes += chunk_len;
         self.total_decoded.* += chunk_len;
 
@@ -1512,7 +1518,11 @@ const StreamingVerifySink = struct {
         if (self.folder_bytes != self.unpack_size) return ArchiveError.StructuralError;
         if (self.subs_assigned != self.folder_sub_count) return ArchiveError.StructuralError;
         if (self.metadata.folders[self.folder_idx].unpack_crc) |expected| {
-            if (self.folder_crc.final() != expected) return ArchiveError.ChecksumError;
+            const actual = if (self.folderCrcMirrorsSubstream())
+                self.sub_crc.final()
+            else
+                self.folder_crc.final();
+            if (actual != expected) return ArchiveError.ChecksumError;
         }
     }
 };

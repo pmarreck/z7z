@@ -508,12 +508,16 @@ fn lzma2DictSize(properties: []const u8, unpack_size: u64) CodecError!usize {
 }
 
 const StreamingLzBuffer = struct {
+	const output_buffer_size = 16 * 1024;
+
 	window: []u8,
 	start: usize = 0,
 	count: usize = 0,
 	len: usize = 0,
 	total_len: u64 = 0,
 	sink: *OutputSink,
+	pending: [output_buffer_size]u8 = undefined,
+	pending_len: usize = 0,
 
 	fn init(window: []u8, sink: *OutputSink) StreamingLzBuffer {
 		return .{
@@ -524,14 +528,80 @@ const StreamingLzBuffer = struct {
 
 	fn pushWindowByte(self: *StreamingLzBuffer, byte: u8) void {
 		if (self.count < self.window.len) {
-			self.window[(self.start + self.count) % self.window.len] = byte;
+			var write_pos = self.start + self.count;
+			if (write_pos >= self.window.len) write_pos -= self.window.len;
+			self.window[write_pos] = byte;
 			self.count += 1;
 		} else {
 			self.window[self.start] = byte;
-			self.start = (self.start + 1) % self.window.len;
+			self.start += 1;
+			if (self.start == self.window.len) self.start = 0;
 		}
 		self.len += 1;
 		self.total_len += 1;
+	}
+
+	/// Append bytes to the LZ dictionary window without emitting them. This
+	/// keeps match lookback state current while sink writes are batched.
+	fn pushWindowSlice(self: *StreamingLzBuffer, data: []const u8) void {
+		self.len += data.len;
+		self.total_len += data.len;
+		if (data.len >= self.window.len) {
+			@memcpy(self.window, data[data.len - self.window.len ..]);
+			self.start = 0;
+			self.count = self.window.len;
+			return;
+		}
+
+		var remaining = data;
+		while (remaining.len > 0) {
+			const write_pos = if (self.count < self.window.len)
+				(self.start + self.count) % self.window.len
+			else
+				self.start;
+			const contig = if (self.count < self.window.len and write_pos < self.start)
+				self.start - write_pos
+			else
+				self.window.len - write_pos;
+			const n = @min(contig, remaining.len);
+			@memcpy(self.window[write_pos .. write_pos + n], remaining[0..n]);
+			if (self.count < self.window.len) {
+				self.count += n;
+			} else {
+				self.start = (self.start + n) % self.window.len;
+			}
+			remaining = remaining[n..];
+		}
+	}
+
+	/// Batch decoded output before handing it to the verification sink, reducing
+	/// callback, limit-check, and incremental-CRC overhead for literal-heavy data.
+	fn emit(self: *StreamingLzBuffer, data: []const u8) !void {
+		if (data.len == 0) return;
+		if (data.len >= self.pending.len) {
+			try self.flush();
+			try self.sink.write(data);
+			return;
+		}
+		if (data.len > self.pending.len - self.pending_len) {
+			try self.flush();
+		}
+		@memcpy(self.pending[self.pending_len .. self.pending_len + data.len], data);
+		self.pending_len += data.len;
+	}
+
+	fn flush(self: *StreamingLzBuffer) !void {
+		if (self.pending_len == 0) return;
+		try self.sink.write(self.pending[0..self.pending_len]);
+		self.pending_len = 0;
+	}
+
+	fn emitByte(self: *StreamingLzBuffer, byte: u8) !void {
+		if (self.pending_len == self.pending.len) {
+			try self.flush();
+		}
+		self.pending[self.pending_len] = byte;
+		self.pending_len += 1;
 	}
 
 	pub fn reset(self: *StreamingLzBuffer, writer: *std.Io.Writer) !void {
@@ -543,12 +613,16 @@ const StreamingLzBuffer = struct {
 
 	pub fn lastOr(self: StreamingLzBuffer, lit: u8) u8 {
 		if (self.count == 0) return lit;
-		return self.window[(self.start + self.count - 1) % self.window.len];
+		var index = self.start + self.count - 1;
+		if (index >= self.window.len) index -= self.window.len;
+		return self.window[index];
 	}
 
 	pub fn lastN(self: StreamingLzBuffer, dist: usize) !u8 {
 		if (dist == 0 or dist > self.count) return error.CorruptInput;
-		return self.window[(self.start + self.count - dist) % self.window.len];
+		var index = self.start + self.count - dist;
+		if (index >= self.window.len) index -= self.window.len;
+		return self.window[index];
 	}
 
 	pub fn appendLiteral(
@@ -564,7 +638,12 @@ const StreamingLzBuffer = struct {
 
 	fn appendRawLiteral(self: *StreamingLzBuffer, lit: u8) !void {
 		self.pushWindowByte(lit);
-		try self.sink.write(&.{lit});
+		try self.emitByte(lit);
+	}
+
+	fn appendRawSlice(self: *StreamingLzBuffer, data: []const u8) !void {
+		self.pushWindowSlice(data);
+		try self.emit(data);
 	}
 
 	pub fn appendLz(
@@ -578,23 +657,37 @@ const StreamingLzBuffer = struct {
 		_ = writer;
 		if (dist == 0 or dist > self.count) return error.CorruptInput;
 
+		if (self.start == 0 and self.count + len <= self.window.len) {
+			const buf_len = self.count;
+			const src = self.window[buf_len - dist ..][0..len];
+			const dst = self.window[buf_len..][0..len];
+			for (dst, src) |*d, s| d.* = s;
+			self.count += len;
+			self.len += len;
+			self.total_len += len;
+			try self.emit(dst);
+			return;
+		}
+
 		var scratch: [4096]u8 = undefined;
 		var remaining = len;
 		while (remaining > 0) {
 			const n = @min(remaining, scratch.len);
 			for (scratch[0..n]) |*out| {
-				const byte = try self.lastN(dist);
+				var index = self.start + self.count - dist;
+				if (index >= self.window.len) index -= self.window.len;
+				const byte = self.window[index];
 				out.* = byte;
 				self.pushWindowByte(byte);
 			}
-			try self.sink.write(scratch[0..n]);
+			try self.emit(scratch[0..n]);
 			remaining -= n;
 		}
 	}
 
 	pub fn finish(self: *StreamingLzBuffer, writer: *std.Io.Writer) !void {
-		_ = self;
 		_ = writer;
+		try self.flush();
 	}
 };
 
@@ -606,9 +699,7 @@ fn parseLzma2Uncompressed(
 	var unused_writer = std.Io.Writer.failing;
 	const unpacked_size = @as(u17, try reader.takeInt(u16, .big)) + 1;
 	if (reset_dict) try accum.reset(&unused_writer);
-	for (0..unpacked_size) |_| {
-		try accum.appendRawLiteral(try reader.takeByte());
-	}
+	try accum.appendRawSlice(try reader.take(unpacked_size));
 	return 2 + unpacked_size;
 }
 
@@ -717,6 +808,7 @@ fn decodeLzma2ToSink(
 		}
 	}
 
+	accum.finish(&fake_allocating.writer) catch |e| return mapStreamingLzma2Error(e);
 	if (n_read != packed_data.len) return CodecError.DecompressFailed;
 	if (accum.total_len != unpack_size) return CodecError.DecompressFailed;
 }

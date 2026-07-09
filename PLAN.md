@@ -80,6 +80,8 @@
   - Entropy-based chunk probe: count unique bytes in first 2KB; ≥250 → skip LZMA encoder
   - Dictionary match check: probe HC3 for cross-chunk matches before skipping
   - Result: random 1MB 7.7ms vs 7zz 65ms; compressible text unchanged (12.6ms, 1.5x faster)
+- [x] Streaming verify optimization: batched LZMA2 sink writes, cheaper dictionary indexing, and single-substream CRC dedupe (~2026-07-08 22:55 EDT)
+  - Verify 25x: text_1m 333ms→82ms, text_4m 1.17s→284ms, binary_1m 230ms→58ms, gauss_1m 1.99s→1.90s, fake_tree 1.20s→1.13s
 
 ## Phase 8: Benchmark Suite (~2026-02-23)
 - [x] `./bm` — Bash script using hyperfine to benchmark z7z vs 7zz (~2026-02-23 EST)
