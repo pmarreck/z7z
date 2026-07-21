@@ -763,3 +763,20 @@ test "cli: leading ~/ in path args is expanded to HOME" {
     var arc_buf: [256]u8 = undefined;
     try testing.expect(fileExists(tmpPath(&arc_buf, "scurvy.md.7z")));
 }
+
+test "cli: create with a single non-.7z arg derives <input>.7z output" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "notes.md", "note body\n");
+
+    var in_buf: [256]u8 = undefined;
+    const input = tmpPath(&in_buf, "notes.md");
+    const result = try runCli(allocator, &.{ "a", input });
+    defer result.deinit(allocator);
+
+    try testing.expectEqual(@as(u8, 0), result.exit_code);
+    var arc_buf: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&arc_buf, "notes.md.7z")));
+}

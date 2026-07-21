@@ -289,6 +289,26 @@ static char *expand_tilde(const char *path) {
 	return out;
 }
 
+/* Case-insensitively test whether a path ends in the ".7z" archive extension. */
+static int ends_with_7z(const char *path) {
+	if (path == NULL) return 0;
+	size_t n = strlen(path);
+	if (n < 3) return 0;
+	const char *e = path + n - 3;
+	return e[0] == '.' && e[1] == '7' && (e[2] == 'z' || e[2] == 'Z');
+}
+
+/* Derive a default archive name by appending ".7z" to an input path.
+ * Returns a newly malloc'd string the caller must free. */
+static char *derive_archive_name(const char *input) {
+	size_t n = strlen(input);
+	char *out = malloc(n + 4); /* ".7z" + NUL */
+	if (out == NULL) return NULL;
+	memcpy(out, input, n);
+	memcpy(out + n, ".7z", 4); /* copies the NUL too */
+	return out;
+}
+
 /* Read entire file into malloc'd buffer. Caller frees. */
 static uint8_t *read_file(const char *path, size_t *out_len) {
 	if (is_stdin_path(path)) return read_stdin(out_len);
@@ -1795,15 +1815,34 @@ int main(int argc, char **argv) {
 		}
 		return cmd_extract(argv[arg_start], out_dir, filter_count, filters);
 	} else if (strcmp(cmd, "create") == 0 || strcmp(cmd, "a") == 0) {
-		if (arg_start >= argc || arg_start + 1 >= argc) {
-			fprintf(stderr, "error: create requires archive path and at least one input file or directory\n");
+		if (arg_start >= argc) {
+			fprintf(stderr, "error: create requires at least one input file or directory\n");
 			return 1;
+		}
+		const char *archive_path;
+		char **inputs;
+		int input_count;
+		if (argc - arg_start == 1 && !ends_with_7z(argv[arg_start])) {
+			/* Single non-.7z positional: treat it as the INPUT and default the
+			 * output archive name to <input>.7z (next to the input). */
+			archive_path = derive_archive_name(argv[arg_start]);
+			inputs = argv + arg_start;
+			input_count = 1;
+		} else {
+			/* Explicit: first positional is the archive, the rest are inputs. */
+			if (arg_start + 1 >= argc) {
+				fprintf(stderr, "error: create requires archive path and at least one input file or directory\n");
+				return 1;
+			}
+			archive_path = argv[arg_start];
+			inputs = argv + arg_start + 1;
+			input_count = argc - arg_start - 1;
 		}
 		/* Warn if -mhe=on without password */
 		if (g_header_encrypt && !g_password) {
 			fprintf(stderr, "warning: -mhe=on has no effect without -p/--password\n");
 		}
-		return cmd_create(argv[arg_start], argc - arg_start - 1, argv + arg_start + 1);
+		return cmd_create(archive_path, input_count, inputs);
 	} else {
 		fprintf(stderr, "error: unknown command '%s'\n", cmd);
 		usage(argv[0]);
