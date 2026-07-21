@@ -309,6 +309,44 @@ static char *derive_archive_name(const char *input) {
 	return out;
 }
 
+/* forward decl: defined later, used by dirname_of below */
+static const char *basename_of(const char *path);
+
+/* True if `cmd` is one of z7z's recognized subcommand verbs. Used to decide
+ * whether a bare first argument is a verb or an implicit file operand. */
+static int is_known_verb(const char *cmd) {
+	static const char *verbs[] = { "list", "l", "extract", "x", "e", "test", "t", "create", "a" };
+	for (size_t i = 0; i < sizeof(verbs) / sizeof(verbs[0]); i++)
+		if (strcmp(cmd, verbs[i]) == 0) return 1;
+	return 0;
+}
+
+/* Strip a trailing ".7z" from an archive path, keeping its directory component.
+ * "dir/foo.md.7z" -> "dir/foo.md". Returns a newly malloc'd string. */
+static char *derive_extract_dir(const char *archive_path) {
+	size_t n = strlen(archive_path);
+	size_t keep = ends_with_7z(archive_path) ? n - 3 : n;
+	char *out = malloc(keep + 1);
+	if (out == NULL) return NULL;
+	memcpy(out, archive_path, keep);
+	out[keep] = 0;
+	return out;
+}
+
+/* Return the directory portion of a path as a newly malloc'd string, or "." if
+ * the path has no directory component. A lone root "/" is preserved. */
+static char *dirname_of(const char *path) {
+	const char *base = basename_of(path);
+	size_t dlen = (size_t)(base - path); /* includes the trailing separator */
+	if (dlen == 0) return strdup(".");
+	if (dlen > 1) dlen--; /* drop the trailing separator (but keep root "/") */
+	char *out = malloc(dlen + 1);
+	if (out == NULL) return NULL;
+	memcpy(out, path, dlen);
+	out[dlen] = 0;
+	return out;
+}
+
 /* Read entire file into malloc'd buffer. Caller frees. */
 static uint8_t *read_file(const char *path, size_t *out_len) {
 	if (is_stdin_path(path)) return read_stdin(out_len);
@@ -1209,7 +1247,7 @@ static int cmd_list(const char *archive_path) {
 }
 
 static int cmd_extract(const char *archive_path, const char *out_dir,
-                       int filter_count, char **filters) {
+                       int filter_count, char **filters, int smart_dest) {
 	size_t data_len = 0;
 	uint8_t *data = read_file(archive_path, &data_len);
 	if (!data) return 1;
@@ -1248,6 +1286,19 @@ static int cmd_extract(const char *archive_path, const char *out_dir,
 	}
 
 	size_t count = z7z_file_count(ar);
+
+	/* Implicit (no-verb) extract: choose a destination "of the same name" as the
+	 * archive. One entry restores next to the archive (its stored name); many
+	 * entries go into a folder named after the archive minus ".7z". An explicit
+	 * -o/positional out_dir always wins. */
+	if (smart_dest && out_dir == NULL) {
+		out_dir = (count > 1) ? derive_extract_dir(archive_path) : dirname_of(archive_path);
+		if (out_dir && out_dir[0] && ensure_dir(out_dir) != 0) {
+			if (prog) { progrez_finish(prog); progrez_destroy(prog); }
+			z7z_close(ar);
+			return 1;
+		}
+	}
 	int errors = 0;
 
 	/* Track directory paths and their mtimes for deferred restoration.
@@ -1763,6 +1814,32 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	/* Verb inference: if the first non-flag argument is not a recognized verb,
+	 * treat it as an implicit file operand. A .7z argument means extract
+	 * ("of the same name"), anything else means create (output defaults to
+	 * <input>.7z via the create branch below). The operand stays at cmd_idx, so
+	 * lower arg_start to include it. */
+	int implicit_extract = 0;
+	if (!is_known_verb(cmd)) {
+		if (ends_with_7z(cmd)) {
+			arg_start = cmd_idx;
+			cmd = "x";
+			implicit_extract = 1;
+		} else {
+			/* Infer create only if the operand names an existing file/dir; a
+			 * non-existent, non-.7z first arg is more likely a mistyped verb, so
+			 * leave it for the "unknown command" error below. */
+			char *probe = expand_tilde(cmd);
+			struct stat st;
+			int exists = (probe != NULL && stat(probe, &st) == 0);
+			free(probe);
+			if (exists) {
+				arg_start = cmd_idx;
+				cmd = "a";
+			}
+		}
+	}
+
 	/* Expand a leading ~ in every positional path argument and in -o<dir>.
 	 * Paths with spaces must be quoted, which suppresses the shell's tilde
 	 * expansion, so z7z does it itself. (Small allocations intentionally leaked;
@@ -1813,7 +1890,7 @@ int main(int argc, char **argv) {
 			filter_count = 0;
 			filters = NULL;
 		}
-		return cmd_extract(argv[arg_start], out_dir, filter_count, filters);
+		return cmd_extract(argv[arg_start], out_dir, filter_count, filters, implicit_extract);
 	} else if (strcmp(cmd, "create") == 0 || strcmp(cmd, "a") == 0) {
 		if (arg_start >= argc) {
 			fprintf(stderr, "error: create requires at least one input file or directory\n");

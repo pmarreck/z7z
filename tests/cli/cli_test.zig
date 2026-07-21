@@ -780,3 +780,72 @@ test "cli: create with a single non-.7z arg derives <input>.7z output" {
     var arc_buf: [256]u8 = undefined;
     try testing.expect(fileExists(tmpPath(&arc_buf, "notes.md.7z")));
 }
+
+test "cli: no verb + non-.7z arg infers create -> <input>.7z" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "notes3.md", "inferred create\n");
+
+    var in_buf: [256]u8 = undefined;
+    const result = try runCli(allocator, &.{tmpPath(&in_buf, "notes3.md")});
+    defer result.deinit(allocator);
+
+    try testing.expectEqual(@as(u8, 0), result.exit_code);
+    var arc_buf: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&arc_buf, "notes3.md.7z")));
+}
+
+test "cli: no verb + single-entry .7z infers extract -> restores file next to archive" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "solo.md", "solo body\n");
+
+    var in_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const input = tmpPath(&in_buf, "solo.md");
+    const archive = tmpPath(&arc_buf, "solo.md.7z");
+
+    const c = try runCli(allocator, &.{ "a", archive, input });
+    defer c.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), c.exit_code);
+
+    // Remove the original, then implicit-extract should restore it next to the archive.
+    dir.deleteFile(testing.io, "solo.md") catch {};
+    var arc2_buf: [256]u8 = undefined;
+    const x = try runCli(allocator, &.{tmpPath(&arc2_buf, "solo.md.7z")});
+    defer x.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), x.exit_code);
+
+    var out_buf: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&out_buf, "solo.md")));
+}
+
+test "cli: no verb + multi-entry .7z infers extract -> folder named after archive" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "m1.txt", "one");
+    try writeTestFile(dir, "m2.txt", "two");
+
+    var a_buf: [256]u8 = undefined;
+    var b_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const c = try runCli(allocator, &.{ "a", tmpPath(&arc_buf, "bundle.7z"), tmpPath(&a_buf, "m1.txt"), tmpPath(&b_buf, "m2.txt") });
+    defer c.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), c.exit_code);
+
+    var arc2_buf: [256]u8 = undefined;
+    const x = try runCli(allocator, &.{tmpPath(&arc2_buf, "bundle.7z")});
+    defer x.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), x.exit_code);
+
+    var o1: [256]u8 = undefined;
+    var o2: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&o1, "bundle/m1.txt")));
+    try testing.expect(fileExists(tmpPath(&o2, "bundle/m2.txt")));
+}
