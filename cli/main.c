@@ -66,6 +66,8 @@ static int g_yes = 0;              /* -y: assume Yes on overwrite prompts */
 static int g_force = 0;            /* -f/--force: overwrite auto-derived targets */
 static int g_flat_extract = 0;     /* 1 when using 'e' command (flat extract) */
 static const char *g_out_dir = NULL; /* -o<dir> output directory override */
+static const char *g_input_filename = NULL;  /* --if: entry name for stdin content */
+static const char *g_output_filename = NULL; /* --of: output archive path ("-" = stdout) */
 static int g_mmt = -1;            /* -mmt=N: thread count (-1 = auto) */
 static int g_header_encrypt = 0;  /* -mhe=on: encrypt archive headers */
 
@@ -150,6 +152,11 @@ static void usage(const char *prog) {
 		"  %s create  [options] <archive.7z> <file1|dir1> [file2|dir2 ...]\n"
 		"  %s test    <archive.7z>\n"
 		"\n"
+		"Shortcuts (no verb needed):\n"
+		"  %s <file|dir>          Create <file>.7z next to the input\n"
+		"  %s <archive.7z>        Extract (single entry -> file, many -> folder)\n"
+		"  ... | %s --if <name>   Archive stdin as one entry named <name>\n"
+		"\n"
 		"Commands:\n"
 		"  list, l       List archive contents\n"
 		"  extract, x    Extract archive preserving directory structure\n"
@@ -164,8 +171,14 @@ static void usage(const char *prog) {
 		"  --no-progress         Suppress progress indication\n"
 		"  -p, --password <pw>   Encrypt/decrypt archive with password\n"
 		"  -y                    Assume Yes on all prompts (overwrite existing files)\n"
+		"  -f, --force           Overwrite auto-derived output targets\n"
 		"  -o<dir>               Set output directory for extraction\n"
 		"  --lang <code>         Set language (overrides Z7Z_LANG env var)\n"
+		"\n"
+		"Stdin / stdout (a leading ~ in any path is expanded to $HOME):\n"
+		"  --if,  --input-filename  <name>   Read one entry from stdin, named <name>\n"
+		"  --of,  --output-filename <path>   Output archive path ('-' = stdout)\n"
+		"  -, @stdin, @stdout                Usable for any path argument\n"
 		"\n"
 		"Create options:\n"
 		"  -N                    Compression level 0-9 (e.g. -0, -5, -9)\n"
@@ -186,7 +199,7 @@ static void usage(const char *prog) {
 		"\n"
 		"Selective extraction:\n"
 		"  %s extract archive.7z -o out/ file1.txt dir/  (extract only matching entries)\n",
-		prog, prog, prog, prog, prog, prog);
+		prog, prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
 static void about(void) {
@@ -1550,6 +1563,30 @@ static int cmd_create(const char *archive_path, int file_count, char **file_path
 	}
 
 	for (int i = 0; i < file_count; i++) {
+		/* Content from stdin: no filesystem metadata exists, so synthesize a
+		 * regular file (mode 0644, current time). The entry name comes from
+		 * --if/--input-filename, defaulting to "stdin" if unspecified. */
+		if (is_stdin_path(file_paths[i])) {
+			size_t slen = 0;
+			uint8_t *sdata = read_stdin(&slen);
+			if (!sdata) {
+				fprintf(stderr, "error: failed to read stdin\n");
+				entry_list_free(&list);
+				return 1;
+			}
+			const char *name = g_input_filename ? g_input_filename : "stdin";
+			int64_t now = (int64_t)time(NULL);
+			if (entry_list_add_file(&list, name, sdata, slen,
+			                        now, now, now,
+			                        win_attrib_from_mode(S_IFREG | 0644),
+			                        NULL, 0) != 0) {
+				fprintf(stderr, "error: out of memory\n");
+				free(sdata);
+				entry_list_free(&list);
+				return 1;
+			}
+			continue;
+		}
 		struct stat st;
 		if (lstat(file_paths[i], &st) != 0) {
 			fprintf(stderr, "error: cannot stat '%s': %s\n",
@@ -1766,6 +1803,8 @@ static int parse_flag_with_arg(const char *arg, const char *next_arg) {
 		fprintf(stderr, "warning: invalid compression level '%s', using default %d\n", next_arg, Z7Z_DEFAULT_LEVEL);
 		return 2;
 	}
+	if ((strcmp(arg, "--if") == 0 || strcmp(arg, "--input-filename") == 0) && next_arg != NULL) { g_input_filename = next_arg; return 2; }
+	if ((strcmp(arg, "--of") == 0 || strcmp(arg, "--output-filename") == 0) && next_arg != NULL) { g_output_filename = next_arg; return 2; }
 	return 0;
 }
 
@@ -1815,6 +1854,31 @@ int main(int argc, char **argv) {
 		} else {
 			break;  /* first non-flag after command found; stop flag parsing */
 		}
+	}
+
+	/* Create-from-stdin: --if/--input-filename names a single entry whose content
+	 * is read from stdin. Output is --of/--output-filename ("-" = stdout), else a
+	 * positional archive after an explicit create verb, else derived <if>.7z.
+	 * Handled here (before the !cmd bail) because '--if x --of y' has no verb. */
+	if (g_input_filename != NULL) {
+		const char *out = g_output_filename;
+		if (out == NULL) {
+			if (cmd != NULL && (strcmp(cmd, "a") == 0 || strcmp(cmd, "create") == 0) && cmd_idx + 1 < argc)
+				out = argv[cmd_idx + 1];
+			else
+				out = derive_archive_name(g_input_filename);
+		}
+		if (!is_stdout_path(out)) out = expand_tilde(out);
+		if (!is_stdout_path(out) && !g_force) {
+			struct stat st;
+			if (stat(out, &st) == 0) {
+				fprintf(stderr, "error: '%s' already exists (use -f/--force to overwrite)\n", out);
+				return 1;
+			}
+		}
+		char *stdin_arg[1];
+		stdin_arg[0] = "-";
+		return cmd_create(out, 1, stdin_arg);
 	}
 
 	if (!cmd) {
