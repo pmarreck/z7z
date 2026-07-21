@@ -709,3 +709,57 @@ test "cli: test with verbose shows file names" {
     try testing.expectEqual(@as(u8, 0), tr.exit_code);
     try testing.expect(std.mem.indexOf(u8, tr.stdout, "verbose_test.txt") != null);
 }
+
+/// Run the CLI with HOME (and USERPROFILE, for Windows) overridden to `home`,
+/// so tilde-expansion tests are deterministic and isolated from the real $HOME.
+fn runCliHome(allocator: std.mem.Allocator, args: []const []const u8, home: []const u8) !CliResult {
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(allocator);
+    try argv.append(allocator, exe_path);
+    try argv.appendSlice(allocator, args);
+
+    var env = std.process.Environ.Map.init(allocator);
+    defer env.deinit();
+    try env.put("HOME", home);
+    try env.put("USERPROFILE", home); // Windows home
+
+    const result = try std.process.run(allocator, testing.io, .{
+        .argv = argv.items,
+        .environ_map = &env,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        .signal => 255,
+        else => 254,
+    };
+    return .{ .stdout = result.stdout, .stderr = result.stderr, .exit_code = code };
+}
+
+fn fileExists(path: []const u8) bool {
+    var f = std.Io.Dir.cwd().openFile(testing.io, path, .{}) catch return false;
+    f.close(testing.io);
+    return true;
+}
+
+test "cli: leading ~/ in path args is expanded to HOME" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "scurvy.md", "Scurvy is a vitamin C deficiency.\n");
+
+    // HOME points at the tmp dir (relative is fine: the child runs from the project
+    // root, and z7z simply substitutes ~ -> HOME before resolving the path).
+    const home = ".zig-cache/cli-test-tmp";
+
+    // Paths with spaces must be quoted, which suppresses the shell's own tilde
+    // expansion — so z7z must expand a leading ~/ itself.
+    const result = try runCliHome(allocator, &.{ "a", "~/scurvy.md.7z", "~/scurvy.md" }, home);
+    defer result.deinit(allocator);
+
+    try testing.expectEqual(@as(u8, 0), result.exit_code);
+    var arc_buf: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&arc_buf, "scurvy.md.7z")));
+}

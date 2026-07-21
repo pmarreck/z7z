@@ -259,6 +259,36 @@ static uint8_t *read_stdin(size_t *out_len) {
 	return buf;
 }
 
+/* Expand a leading ~ or ~/ (or ~\ on Windows) to the user's home directory.
+ * Returns a newly malloc'd string the caller must free; on any path that does
+ * NOT begin with a bare "~" segment (including "~user"), returns a strdup of the
+ * original so the caller uniformly owns the result. Home resolves to $HOME
+ * (Unix) with a fallback to %USERPROFILE% (Windows). Rationale: paths with
+ * spaces must be quoted, and quoting suppresses the shell's own tilde
+ * expansion, so the CLI must expand a leading tilde itself. */
+static char *expand_tilde(const char *path) {
+	if (path == NULL) return NULL;
+	if (path[0] != '~') return strdup(path);
+	char next = path[1];
+	int bare = (next == '\0');
+	int sep = (next == '/' || next == '\\');
+	if (!bare && !sep) return strdup(path); /* ~user, ~+, etc. left untouched */
+
+	const char *home = getenv("HOME");
+	if (home == NULL || home[0] == '\0') home = getenv("USERPROFILE");
+	if (home == NULL || home[0] == '\0') return strdup(path); /* cannot expand */
+
+	const char *rest = bare ? "" : (path + 1); /* keep the leading separator */
+	size_t hlen = strlen(home);
+	size_t rlen = strlen(rest);
+	char *out = malloc(hlen + rlen + 1);
+	if (out == NULL) return NULL;
+	memcpy(out, home, hlen);
+	memcpy(out + hlen, rest, rlen);
+	out[hlen + rlen] = '\0';
+	return out;
+}
+
 /* Read entire file into malloc'd buffer. Caller frees. */
 static uint8_t *read_file(const char *path, size_t *out_len) {
 	if (is_stdin_path(path)) return read_stdin(out_len);
@@ -1712,6 +1742,15 @@ int main(int argc, char **argv) {
 			break;
 		}
 	}
+
+	/* Expand a leading ~ in every positional path argument and in -o<dir>.
+	 * Paths with spaces must be quoted, which suppresses the shell's tilde
+	 * expansion, so z7z does it itself. (Small allocations intentionally leaked;
+	 * the process is short-lived.) */
+	for (int i = arg_start; i < argc; i++) {
+		argv[i] = expand_tilde(argv[i]);
+	}
+	if (g_out_dir) g_out_dir = expand_tilde(g_out_dir);
 
 	if (strcmp(cmd, "list") == 0 || strcmp(cmd, "l") == 0) {
 		if (arg_start >= argc) {
