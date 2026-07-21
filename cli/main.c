@@ -1575,9 +1575,15 @@ static int cmd_create(const char *archive_path, int file_count, char **file_path
 				return 1;
 			}
 			const char *name = g_input_filename ? g_input_filename : "stdin";
+			/* stdin has no filesystem metadata. mtime = now records when the
+			 * content was reconstituted into an archive; ctime (creation/birth) is
+			 * pinned to the Unix epoch to flag the creation time as synthesized,
+			 * not original. Epoch is 0, but 0 is the "unset" sentinel in the entry
+			 * layer, so use 1s past epoch — still an unmistakable 1970 marker. */
 			int64_t now = (int64_t)time(NULL);
+			const int64_t EPOCH_MARKER = 1; /* 1970-01-01 00:00:01 UTC */
 			if (entry_list_add_file(&list, name, sdata, slen,
-			                        now, now, now,
+			                        now, EPOCH_MARKER, now,
 			                        win_attrib_from_mode(S_IFREG | 0644),
 			                        NULL, 0) != 0) {
 				fprintf(stderr, "error: out of memory\n");

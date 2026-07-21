@@ -1355,6 +1355,19 @@ Z7Z_ABS="$(pwd)/$Z7Z"
 ( cd "$TMPDIR" && printf 'derived\n' | "$Z7Z_ABS" --if derived.txt )
 assert_file_exists "stdin: --if without --of derives <name>.7z" "$TMPDIR/derived.txt.7z"
 
+# stdin entry metadata: creation time pinned to the Unix epoch (synthesized
+# marker), mtime records reconstitution (now). Verified against the STORED
+# metadata via 7zz -slt (TZ-robust: epoch year is always 19xx, now is 20xx),
+# which sidesteps flaky filesystem birthtime support on CI.
+if command -v 7zz > /dev/null 2>&1; then
+	printf 'ts probe\n' | $Z7Z --if ts.txt --of "$TMPDIR/ts.7z"
+	SLT_OUT=$(7zz l -slt "$TMPDIR/ts.7z" 2>/dev/null)
+	assert_contains "stdin: creation time synthesized to epoch" "$SLT_OUT" "Created = 19"
+	assert_contains "stdin: mtime records reconstitution (not epoch)" "$SLT_OUT" "Modified = 20"
+else
+	echo "  SKIP: stdin epoch-ctime checks (7zz not available)"
+fi
+
 # ============================================================================
 # Summary
 # ============================================================================
