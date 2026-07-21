@@ -63,6 +63,7 @@ static int g_level = Z7Z_DEFAULT_LEVEL;  /* compression level 0-9, default 5 */
 static const char *g_password = NULL;
 static const char *g_lang = "en";  /* default language; overridden by Z7Z_LANG or --lang */
 static int g_yes = 0;              /* -y: assume Yes on overwrite prompts */
+static int g_force = 0;            /* -f/--force: overwrite auto-derived targets */
 static int g_flat_extract = 0;     /* 1 when using 'e' command (flat extract) */
 static const char *g_out_dir = NULL; /* -o<dir> output directory override */
 static int g_mmt = -1;            /* -mmt=N: thread count (-1 = auto) */
@@ -1293,6 +1294,34 @@ static int cmd_extract(const char *archive_path, const char *out_dir,
 	 * -o/positional out_dir always wins. */
 	if (smart_dest && out_dir == NULL) {
 		out_dir = (count > 1) ? derive_extract_dir(archive_path) : dirname_of(archive_path);
+		/* Guard the auto-derived target against silent overwrite: the folder for
+		 * a multi-entry archive, or the single restored file otherwise. */
+		if (!g_force && out_dir) {
+			struct stat dst;
+			if (count > 1) {
+				if (stat(out_dir, &dst) == 0) {
+					fprintf(stderr, "error: '%s' already exists (use -f/--force to overwrite)\n", out_dir);
+					if (prog) { progrez_finish(prog); progrez_destroy(prog); }
+					z7z_close(ar);
+					return 1;
+				}
+			} else if (count == 1) {
+				const char *nm = z7z_file_name(ar, 0);
+				if (nm) {
+					char tgt[4096];
+					if (out_dir[0] && strcmp(out_dir, ".") != 0)
+						snprintf(tgt, sizeof(tgt), "%s/%s", out_dir, nm);
+					else
+						snprintf(tgt, sizeof(tgt), "%s", nm);
+					if (stat(tgt, &dst) == 0) {
+						fprintf(stderr, "error: '%s' already exists (use -f/--force to overwrite)\n", tgt);
+						if (prog) { progrez_finish(prog); progrez_destroy(prog); }
+						z7z_close(ar);
+						return 1;
+					}
+				}
+			}
+		}
 		if (out_dir && out_dir[0] && ensure_dir(out_dir) != 0) {
 			if (prog) { progrez_finish(prog); progrez_destroy(prog); }
 			z7z_close(ar);
@@ -1693,6 +1722,7 @@ static int parse_flag(const char *arg) {
 	if (strcmp(arg, "-v") == 0 || strcmp(arg, "--verbose") == 0) { g_verbose = 1; return 1; }
 	if (strcmp(arg, "--no-progress") == 0) { g_no_progress = 1; return 1; }
 	if (strcmp(arg, "-y") == 0) { g_yes = 1; return 1; }
+	if (strcmp(arg, "-f") == 0 || strcmp(arg, "--force") == 0) { g_force = 1; return 1; }
 	if (strcmp(arg, "--solid") == 0) { g_solid_mode = SOLID_ON; return 1; }
 	if (strcmp(arg, "--no-solid") == 0) { g_solid_mode = SOLID_OFF; return 1; }
 	/* Output directory: -o<dir> (7zz compatible, no space) */
@@ -1905,6 +1935,12 @@ int main(int argc, char **argv) {
 			archive_path = derive_archive_name(argv[arg_start]);
 			inputs = argv + arg_start;
 			input_count = 1;
+			/* Guard the auto-derived target against silent overwrite. */
+			struct stat dst;
+			if (!g_force && archive_path && stat(archive_path, &dst) == 0) {
+				fprintf(stderr, "error: '%s' already exists (use -f/--force to overwrite)\n", archive_path);
+				return 1;
+			}
 		} else {
 			/* Explicit: first positional is the archive, the rest are inputs. */
 			if (arg_start + 1 >= argc) {

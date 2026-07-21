@@ -849,3 +849,82 @@ test "cli: no verb + multi-entry .7z infers extract -> folder named after archiv
     try testing.expect(fileExists(tmpPath(&o1, "bundle/m1.txt")));
     try testing.expect(fileExists(tmpPath(&o2, "bundle/m2.txt")));
 }
+
+test "cli: derived-create refuses to overwrite an existing .7z without -f" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "dup.md", "content\n");
+    var in_buf: [256]u8 = undefined;
+    const input = tmpPath(&in_buf, "dup.md");
+
+    const r1 = try runCli(allocator, &.{ "a", input });
+    defer r1.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), r1.exit_code);
+
+    const r2 = try runCli(allocator, &.{ "a", input });
+    defer r2.deinit(allocator);
+    try testing.expect(r2.exit_code != 0);
+    try testing.expect(std.mem.indexOf(u8, r2.stderr, "already exists") != null);
+
+    const r3 = try runCli(allocator, &.{ "-f", "a", input });
+    defer r3.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), r3.exit_code);
+}
+
+test "cli: implicit multi-extract refuses to overwrite an existing folder without -f" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "p1.txt", "one");
+    try writeTestFile(dir, "p2.txt", "two");
+    var a_buf: [256]u8 = undefined;
+    var b_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const c = try runCli(allocator, &.{ "a", tmpPath(&arc_buf, "pack.7z"), tmpPath(&a_buf, "p1.txt"), tmpPath(&b_buf, "p2.txt") });
+    defer c.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), c.exit_code);
+
+    var arc2: [256]u8 = undefined;
+    const r1 = try runCli(allocator, &.{tmpPath(&arc2, "pack.7z")});
+    defer r1.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), r1.exit_code);
+
+    var arc3: [256]u8 = undefined;
+    const r2 = try runCli(allocator, &.{tmpPath(&arc3, "pack.7z")});
+    defer r2.deinit(allocator);
+    try testing.expect(r2.exit_code != 0);
+    try testing.expect(std.mem.indexOf(u8, r2.stderr, "already exists") != null);
+
+    var arc4: [256]u8 = undefined;
+    const r3 = try runCli(allocator, &.{ "--force", tmpPath(&arc4, "pack.7z") });
+    defer r3.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), r3.exit_code);
+}
+
+test "cli: implicit single-entry extract refuses to overwrite the restored file without -f" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "one.md", "only\n");
+    var in_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const c = try runCli(allocator, &.{ "a", tmpPath(&arc_buf, "one.md.7z"), tmpPath(&in_buf, "one.md") });
+    defer c.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), c.exit_code);
+
+    // one.md still exists next to the archive -> implicit extract must refuse.
+    var arc2: [256]u8 = undefined;
+    const r = try runCli(allocator, &.{tmpPath(&arc2, "one.md.7z")});
+    defer r.deinit(allocator);
+    try testing.expect(r.exit_code != 0);
+    try testing.expect(std.mem.indexOf(u8, r.stderr, "already exists") != null);
+
+    var arc3: [256]u8 = undefined;
+    const rf = try runCli(allocator, &.{ "-f", tmpPath(&arc3, "one.md.7z") });
+    defer rf.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), rf.exit_code);
+}
