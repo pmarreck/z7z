@@ -709,3 +709,222 @@ test "cli: test with verbose shows file names" {
     try testing.expectEqual(@as(u8, 0), tr.exit_code);
     try testing.expect(std.mem.indexOf(u8, tr.stdout, "verbose_test.txt") != null);
 }
+
+/// Run the CLI with HOME (and USERPROFILE, for Windows) overridden to `home`,
+/// so tilde-expansion tests are deterministic and isolated from the real $HOME.
+fn runCliHome(allocator: std.mem.Allocator, args: []const []const u8, home: []const u8) !CliResult {
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(allocator);
+    try argv.append(allocator, exe_path);
+    try argv.appendSlice(allocator, args);
+
+    var env = std.process.Environ.Map.init(allocator);
+    defer env.deinit();
+    try env.put("HOME", home);
+    try env.put("USERPROFILE", home); // Windows home
+
+    const result = try std.process.run(allocator, testing.io, .{
+        .argv = argv.items,
+        .environ_map = &env,
+        .stdout_limit = .limited(1024 * 1024),
+        .stderr_limit = .limited(1024 * 1024),
+    });
+    const code: u8 = switch (result.term) {
+        .exited => |c| c,
+        .signal => 255,
+        else => 254,
+    };
+    return .{ .stdout = result.stdout, .stderr = result.stderr, .exit_code = code };
+}
+
+fn fileExists(path: []const u8) bool {
+    var f = std.Io.Dir.cwd().openFile(testing.io, path, .{}) catch return false;
+    f.close(testing.io);
+    return true;
+}
+
+test "cli: leading ~/ in path args is expanded to HOME" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "scurvy.md", "Scurvy is a vitamin C deficiency.\n");
+
+    // HOME points at the tmp dir (relative is fine: the child runs from the project
+    // root, and z7z simply substitutes ~ -> HOME before resolving the path).
+    const home = ".zig-cache/cli-test-tmp";
+
+    // Paths with spaces must be quoted, which suppresses the shell's own tilde
+    // expansion — so z7z must expand a leading ~/ itself.
+    const result = try runCliHome(allocator, &.{ "a", "~/scurvy.md.7z", "~/scurvy.md" }, home);
+    defer result.deinit(allocator);
+
+    try testing.expectEqual(@as(u8, 0), result.exit_code);
+    var arc_buf: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&arc_buf, "scurvy.md.7z")));
+}
+
+test "cli: create with a single non-.7z arg derives <input>.7z output" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "notes.md", "note body\n");
+
+    var in_buf: [256]u8 = undefined;
+    const input = tmpPath(&in_buf, "notes.md");
+    const result = try runCli(allocator, &.{ "a", input });
+    defer result.deinit(allocator);
+
+    try testing.expectEqual(@as(u8, 0), result.exit_code);
+    var arc_buf: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&arc_buf, "notes.md.7z")));
+}
+
+test "cli: no verb + non-.7z arg infers create -> <input>.7z" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "notes3.md", "inferred create\n");
+
+    var in_buf: [256]u8 = undefined;
+    const result = try runCli(allocator, &.{tmpPath(&in_buf, "notes3.md")});
+    defer result.deinit(allocator);
+
+    try testing.expectEqual(@as(u8, 0), result.exit_code);
+    var arc_buf: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&arc_buf, "notes3.md.7z")));
+}
+
+test "cli: no verb + single-entry .7z infers extract -> restores file next to archive" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "solo.md", "solo body\n");
+
+    var in_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const input = tmpPath(&in_buf, "solo.md");
+    const archive = tmpPath(&arc_buf, "solo.md.7z");
+
+    const c = try runCli(allocator, &.{ "a", archive, input });
+    defer c.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), c.exit_code);
+
+    // Remove the original, then implicit-extract should restore it next to the archive.
+    dir.deleteFile(testing.io, "solo.md") catch {};
+    var arc2_buf: [256]u8 = undefined;
+    const x = try runCli(allocator, &.{tmpPath(&arc2_buf, "solo.md.7z")});
+    defer x.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), x.exit_code);
+
+    var out_buf: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&out_buf, "solo.md")));
+}
+
+test "cli: no verb + multi-entry .7z infers extract -> folder named after archive" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "m1.txt", "one");
+    try writeTestFile(dir, "m2.txt", "two");
+
+    var a_buf: [256]u8 = undefined;
+    var b_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const c = try runCli(allocator, &.{ "a", tmpPath(&arc_buf, "bundle.7z"), tmpPath(&a_buf, "m1.txt"), tmpPath(&b_buf, "m2.txt") });
+    defer c.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), c.exit_code);
+
+    var arc2_buf: [256]u8 = undefined;
+    const x = try runCli(allocator, &.{tmpPath(&arc2_buf, "bundle.7z")});
+    defer x.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), x.exit_code);
+
+    var o1: [256]u8 = undefined;
+    var o2: [256]u8 = undefined;
+    try testing.expect(fileExists(tmpPath(&o1, "bundle/m1.txt")));
+    try testing.expect(fileExists(tmpPath(&o2, "bundle/m2.txt")));
+}
+
+test "cli: derived-create refuses to overwrite an existing .7z without -f" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "dup.md", "content\n");
+    var in_buf: [256]u8 = undefined;
+    const input = tmpPath(&in_buf, "dup.md");
+
+    const r1 = try runCli(allocator, &.{ "a", input });
+    defer r1.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), r1.exit_code);
+
+    const r2 = try runCli(allocator, &.{ "a", input });
+    defer r2.deinit(allocator);
+    try testing.expect(r2.exit_code != 0);
+    try testing.expect(std.mem.indexOf(u8, r2.stderr, "already exists") != null);
+
+    const r3 = try runCli(allocator, &.{ "-f", "a", input });
+    defer r3.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), r3.exit_code);
+}
+
+test "cli: implicit multi-extract refuses to overwrite an existing folder without -f" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "p1.txt", "one");
+    try writeTestFile(dir, "p2.txt", "two");
+    var a_buf: [256]u8 = undefined;
+    var b_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const c = try runCli(allocator, &.{ "a", tmpPath(&arc_buf, "pack.7z"), tmpPath(&a_buf, "p1.txt"), tmpPath(&b_buf, "p2.txt") });
+    defer c.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), c.exit_code);
+
+    var arc2: [256]u8 = undefined;
+    const r1 = try runCli(allocator, &.{tmpPath(&arc2, "pack.7z")});
+    defer r1.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), r1.exit_code);
+
+    var arc3: [256]u8 = undefined;
+    const r2 = try runCli(allocator, &.{tmpPath(&arc3, "pack.7z")});
+    defer r2.deinit(allocator);
+    try testing.expect(r2.exit_code != 0);
+    try testing.expect(std.mem.indexOf(u8, r2.stderr, "already exists") != null);
+
+    var arc4: [256]u8 = undefined;
+    const r3 = try runCli(allocator, &.{ "--force", tmpPath(&arc4, "pack.7z") });
+    defer r3.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), r3.exit_code);
+}
+
+test "cli: implicit single-entry extract refuses to overwrite the restored file without -f" {
+    cleanTmpDir();
+    const allocator = testing.allocator;
+    var dir = try makeTmpDir();
+    defer dir.close(testing.io);
+    try writeTestFile(dir, "one.md", "only\n");
+    var in_buf: [256]u8 = undefined;
+    var arc_buf: [256]u8 = undefined;
+    const c = try runCli(allocator, &.{ "a", tmpPath(&arc_buf, "one.md.7z"), tmpPath(&in_buf, "one.md") });
+    defer c.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), c.exit_code);
+
+    // one.md still exists next to the archive -> implicit extract must refuse.
+    var arc2: [256]u8 = undefined;
+    const r = try runCli(allocator, &.{tmpPath(&arc2, "one.md.7z")});
+    defer r.deinit(allocator);
+    try testing.expect(r.exit_code != 0);
+    try testing.expect(std.mem.indexOf(u8, r.stderr, "already exists") != null);
+
+    var arc3: [256]u8 = undefined;
+    const rf = try runCli(allocator, &.{ "-f", tmpPath(&arc3, "one.md.7z") });
+    defer rf.deinit(allocator);
+    try testing.expectEqual(@as(u8, 0), rf.exit_code);
+}

@@ -285,3 +285,25 @@
 - [ ] `--no-ansi`/`--no-color` flags
 - [ ] JSON output option for structured output
 - [ ] LLVM IR hand-tuning for hot paths (match finder, DP parser)
+
+## CLI ergonomics (2026-07-21 EST)
+- [x] Expand a leading `~/` in path args to $HOME (USERPROFILE fallback on Windows) — quoted paths (needed for spaces) suppress shell tilde expansion
+- [x] Default output archive to `<input>.7z` when a single non-.7z input is given
+- [x] Verb inference: bare `<file>` → create; bare `<archive.7z>` → extract (single→file, many→folder "of the same name"); unknown non-file arg still errors ("unknown command", typo protection)
+- [x] `-f`/`--force` guards the auto-derived targets (derived .7z, extract folder/file) against silent overwrite
+- [x] `--if`/`--input-filename` + `--of`/`--output-filename` archive stdin as one named entry; `--of -` writes to stdout
+- [x] Hardened test-cli: `set -u` (not `set -euo pipefail`) + explicit build guard, per testing rules
+- [ ] **DECIDE (Peter): stdin entry metadata** — currently synthesized as regular file mode 0644 + current time (stdin has no fs metadata). Confirm or pick a different default (e.g. epoch mtime for reproducibility).
+
+## Code-review follow-ups (fleet review 2026-06-01) — done + deferred
+Verified all 7 finding notes against source; fixed the real bugs (TDD, regression-tested):
+- [x] CRITICAL double-frees in aes_crypt.decrypt7zAes + codec BCJ2 decode (explicit free + errdefer)
+- [x] CRITICAL errdefer leak gaps + latent double-free across archive create paths (createLzma2/createLzma2Aes/createMultiFolder) + MatchFinder.init — failing-allocator regression tests
+- [x] CRITICAL `error.OutOfMemory` masquerade for missing password → `PasswordRequired` (+ FFI Z7Z_ERR_PASSWORD_REQUIRED, header, CLI)
+- [x] FFI dedup: convertFileEntries (4 create variants) + unix/filetime helpers; mapCreateError no longer swallows unknown → Z7Z_ERR_INTERNAL
+- [x] interop tests skip (error.SkipZigTest) instead of silently passing when 7zz absent
+- [x] deleted unreferenced src/_debug_lzma.zig; named magic literal 272 → NUM_LEN_PRICE_SLOTS
+- [x] test coverage: decompression error paths (LZMA2/zstd mismatch, truncated), wrong-password, progress contract
+- [ ] **Deferred (low value / high risk):** decompose 200-400 line encoder functions (createMultiFolder, encodeLzma1ChunkOptimal, compressChunked) — pure readability refactor of a working, hot, tested path; regression risk > benefit. Do only alongside a bench guard.
+- [ ] **Deferred (speculative):** batched `z7z_file_entry_read` FFI accessor — real win only at 100k+ entry archives; no current consumer, so premature per minimal-implementation rule.
+- [ ] **Deferred (partial):** exhaustive metadata/encoder per-feature test matrix (truncation-at-every-NID, per-flag encode roundtrips) — highest-value subset added; remainder is incremental.

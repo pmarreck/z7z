@@ -2,7 +2,7 @@
 # CLI integration tests for z7z.
 # Run from project root: nix develop -c ./test-cli
 
-set -euo pipefail
+set -u  # NOT set -e: tests must accumulate failures (pass/fail counters), not abort
 
 Z7Z="./zig-out/bin/z7z"
 PASS=0
@@ -66,7 +66,10 @@ get_perms() {
 
 # Build first
 echo "Building z7z..."
-zig build
+if ! zig build; then
+	echo "FATAL: zig build failed" >&2
+	exit 1
+fi
 echo ""
 
 TMPDIR=$(mktemp -d)
@@ -1321,6 +1324,49 @@ assert_files_equal "level: -mx=1 --solid roundtrip" "$TMPDIR/leveldata/comptest.
 # Help text mentions compression level
 HELP_OUT=$($Z7Z --help 2>&1)
 assert_contains "level: help shows -mx=N" "$HELP_OUT" "mx=N"
+
+# ============================================================================
+# Test: create from stdin with --if / --of
+# ============================================================================
+echo "--- stdin input naming (--if / --of) ---"
+
+printf 'hello from stdin\n' | $Z7Z --if greeting.txt --of "$TMPDIR/stdin_named.7z"
+assert_file_exists "stdin: --if/--of creates archive" "$TMPDIR/stdin_named.7z"
+STDIN_LIST=$($Z7Z list "$TMPDIR/stdin_named.7z" 2>/dev/null)
+assert_contains "stdin: entry named via --if" "$STDIN_LIST" "greeting.txt"
+mkdir -p "$TMPDIR/stdin_out"
+$Z7Z extract "$TMPDIR/stdin_named.7z" "$TMPDIR/stdin_out" > /dev/null 2>&1
+if [ -f "$TMPDIR/stdin_out/greeting.txt" ]; then
+	CONTENT=$(cat "$TMPDIR/stdin_out/greeting.txt")
+	assert_contains "stdin: content preserved" "$CONTENT" "hello from stdin"
+else
+	fail "stdin: content preserved (greeting.txt not extracted)"
+fi
+
+# --of - writes the archive to stdout (GNU convention)
+printf 'piped bytes\n' | $Z7Z --if p.txt --of - > "$TMPDIR/from_stdout.7z" 2>/dev/null
+assert_file_exists "stdin: --of - writes archive to stdout" "$TMPDIR/from_stdout.7z"
+STDOUT_LIST=$($Z7Z list "$TMPDIR/from_stdout.7z" 2>/dev/null)
+assert_contains "stdin: stdout archive is valid + named" "$STDOUT_LIST" "p.txt"
+
+# --if without --of derives <input-filename>.7z next to CWD.
+# ($Z7Z is a relative path, so use an absolute one inside the cd subshell.)
+Z7Z_ABS="$(pwd)/$Z7Z"
+( cd "$TMPDIR" && printf 'derived\n' | "$Z7Z_ABS" --if derived.txt )
+assert_file_exists "stdin: --if without --of derives <name>.7z" "$TMPDIR/derived.txt.7z"
+
+# stdin entry metadata: creation time pinned to the Unix epoch (synthesized
+# marker), mtime records reconstitution (now). Verified against the STORED
+# metadata via 7zz -slt (TZ-robust: epoch year is always 19xx, now is 20xx),
+# which sidesteps flaky filesystem birthtime support on CI.
+if command -v 7zz > /dev/null 2>&1; then
+	printf 'ts probe\n' | $Z7Z --if ts.txt --of "$TMPDIR/ts.7z"
+	SLT_OUT=$(7zz l -slt "$TMPDIR/ts.7z" 2>/dev/null)
+	assert_contains "stdin: creation time synthesized to epoch" "$SLT_OUT" "Created = 19"
+	assert_contains "stdin: mtime records reconstitution (not epoch)" "$SLT_OUT" "Modified = 20"
+else
+	echo "  SKIP: stdin epoch-ctime checks (7zz not available)"
+fi
 
 # ============================================================================
 # Summary

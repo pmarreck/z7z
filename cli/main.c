@@ -71,8 +71,11 @@ static int g_level = Z7Z_DEFAULT_LEVEL;  /* compression level 0-9, default 5 */
 static const char *g_password = NULL;
 static const char *g_lang = "en";  /* default language; overridden by Z7Z_LANG or --lang */
 static int g_yes = 0;              /* -y: assume Yes on overwrite prompts */
+static int g_force = 0;            /* -f/--force: overwrite auto-derived targets */
 static int g_flat_extract = 0;     /* 1 when using 'e' command (flat extract) */
 static const char *g_out_dir = NULL; /* -o<dir> output directory override */
+static const char *g_input_filename = NULL;  /* --if: entry name for stdin content */
+static const char *g_output_filename = NULL; /* --of: output archive path ("-" = stdout) */
 static int g_mmt = -1;            /* -mmt=N: thread count (-1 = auto) */
 static int g_header_encrypt = 0;  /* -mhe=on: encrypt archive headers */
 
@@ -157,6 +160,11 @@ static void usage(const char *prog) {
 		"  %s create  [options] <archive.7z> <file1|dir1> [file2|dir2 ...]\n"
 		"  %s test    <archive.7z>\n"
 		"\n"
+		"Shortcuts (no verb needed):\n"
+		"  %s <file|dir>          Create <file>.7z next to the input\n"
+		"  %s <archive.7z>        Extract (single entry -> file, many -> folder)\n"
+		"  ... | %s --if <name>   Archive stdin as one entry named <name>\n"
+		"\n"
 		"Commands:\n"
 		"  list, l       List archive contents\n"
 		"  extract, x    Extract archive preserving directory structure\n"
@@ -171,8 +179,14 @@ static void usage(const char *prog) {
 		"  --no-progress         Suppress progress indication\n"
 		"  -p, --password <pw>   Encrypt/decrypt archive with password\n"
 		"  -y                    Assume Yes on all prompts (overwrite existing files)\n"
+		"  -f, --force           Overwrite auto-derived output targets\n"
 		"  -o<dir>               Set output directory for extraction\n"
 		"  --lang <code>         Set language (overrides Z7Z_LANG env var)\n"
+		"\n"
+		"Stdin / stdout (a leading ~ in any path is expanded to $HOME):\n"
+		"  --if,  --input-filename  <name>   Read one entry from stdin, named <name>\n"
+		"  --of,  --output-filename <path>   Output archive path ('-' = stdout)\n"
+		"  -, @stdin, @stdout                Usable for any path argument\n"
 		"\n"
 		"Create options:\n"
 		"  -N                    Compression level 0-9 (e.g. -0, -5, -9)\n"
@@ -193,7 +207,7 @@ static void usage(const char *prog) {
 		"\n"
 		"Selective extraction:\n"
 		"  %s extract archive.7z -o out/ file1.txt dir/  (extract only matching entries)\n",
-		prog, prog, prog, prog, prog, prog);
+		prog, prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
 static void about(void) {
@@ -265,6 +279,94 @@ static uint8_t *read_stdin(size_t *out_len) {
 
 	*out_len = len;
 	return buf;
+}
+
+/* Expand a leading ~ or ~/ (or ~\ on Windows) to the user's home directory.
+ * Returns a newly malloc'd string the caller must free; on any path that does
+ * NOT begin with a bare "~" segment (including "~user"), returns a strdup of the
+ * original so the caller uniformly owns the result. Home resolves to $HOME
+ * (Unix) with a fallback to %USERPROFILE% (Windows). Rationale: paths with
+ * spaces must be quoted, and quoting suppresses the shell's own tilde
+ * expansion, so the CLI must expand a leading tilde itself. */
+static char *expand_tilde(const char *path) {
+	if (path == NULL) return NULL;
+	if (path[0] != '~') return strdup(path);
+	char next = path[1];
+	int bare = (next == '\0');
+	int sep = (next == '/' || next == '\\');
+	if (!bare && !sep) return strdup(path); /* ~user, ~+, etc. left untouched */
+
+	const char *home = getenv("HOME");
+	if (home == NULL || home[0] == '\0') home = getenv("USERPROFILE");
+	if (home == NULL || home[0] == '\0') return strdup(path); /* cannot expand */
+
+	const char *rest = bare ? "" : (path + 1); /* keep the leading separator */
+	size_t hlen = strlen(home);
+	size_t rlen = strlen(rest);
+	char *out = malloc(hlen + rlen + 1);
+	if (out == NULL) return NULL;
+	memcpy(out, home, hlen);
+	memcpy(out + hlen, rest, rlen);
+	out[hlen + rlen] = '\0';
+	return out;
+}
+
+/* Case-insensitively test whether a path ends in the ".7z" archive extension. */
+static int ends_with_7z(const char *path) {
+	if (path == NULL) return 0;
+	size_t n = strlen(path);
+	if (n < 3) return 0;
+	const char *e = path + n - 3;
+	return e[0] == '.' && e[1] == '7' && (e[2] == 'z' || e[2] == 'Z');
+}
+
+/* Derive a default archive name by appending ".7z" to an input path.
+ * Returns a newly malloc'd string the caller must free. */
+static char *derive_archive_name(const char *input) {
+	size_t n = strlen(input);
+	char *out = malloc(n + 4); /* ".7z" + NUL */
+	if (out == NULL) return NULL;
+	memcpy(out, input, n);
+	memcpy(out + n, ".7z", 4); /* copies the NUL too */
+	return out;
+}
+
+/* forward decl: defined later, used by dirname_of below */
+static const char *basename_of(const char *path);
+
+/* True if `cmd` is one of z7z's recognized subcommand verbs. Used to decide
+ * whether a bare first argument is a verb or an implicit file operand. */
+static int is_known_verb(const char *cmd) {
+	static const char *verbs[] = { "list", "l", "extract", "x", "e", "test", "t", "create", "a" };
+	for (size_t i = 0; i < sizeof(verbs) / sizeof(verbs[0]); i++)
+		if (strcmp(cmd, verbs[i]) == 0) return 1;
+	return 0;
+}
+
+/* Strip a trailing ".7z" from an archive path, keeping its directory component.
+ * "dir/foo.md.7z" -> "dir/foo.md". Returns a newly malloc'd string. */
+static char *derive_extract_dir(const char *archive_path) {
+	size_t n = strlen(archive_path);
+	size_t keep = ends_with_7z(archive_path) ? n - 3 : n;
+	char *out = malloc(keep + 1);
+	if (out == NULL) return NULL;
+	memcpy(out, archive_path, keep);
+	out[keep] = 0;
+	return out;
+}
+
+/* Return the directory portion of a path as a newly malloc'd string, or "." if
+ * the path has no directory component. A lone root "/" is preserved. */
+static char *dirname_of(const char *path) {
+	const char *base = basename_of(path);
+	size_t dlen = (size_t)(base - path); /* includes the trailing separator */
+	if (dlen == 0) return strdup(".");
+	if (dlen > 1) dlen--; /* drop the trailing separator (but keep root "/") */
+	char *out = malloc(dlen + 1);
+	if (out == NULL) return NULL;
+	memcpy(out, path, dlen);
+	out[dlen] = 0;
+	return out;
 }
 
 /* Read entire file into malloc'd buffer. Caller frees. */
@@ -1167,7 +1269,7 @@ static int cmd_list(const char *archive_path) {
 }
 
 static int cmd_extract(const char *archive_path, const char *out_dir,
-                       int filter_count, char **filters) {
+                       int filter_count, char **filters, int smart_dest) {
 	size_t data_len = 0;
 	uint8_t *data = read_file(archive_path, &data_len);
 	if (!data) return 1;
@@ -1206,6 +1308,47 @@ static int cmd_extract(const char *archive_path, const char *out_dir,
 	}
 
 	size_t count = z7z_file_count(ar);
+
+	/* Implicit (no-verb) extract: choose a destination "of the same name" as the
+	 * archive. One entry restores next to the archive (its stored name); many
+	 * entries go into a folder named after the archive minus ".7z". An explicit
+	 * -o/positional out_dir always wins. */
+	if (smart_dest && out_dir == NULL) {
+		out_dir = (count > 1) ? derive_extract_dir(archive_path) : dirname_of(archive_path);
+		/* Guard the auto-derived target against silent overwrite: the folder for
+		 * a multi-entry archive, or the single restored file otherwise. */
+		if (!g_force && out_dir) {
+			struct stat dst;
+			if (count > 1) {
+				if (stat(out_dir, &dst) == 0) {
+					fprintf(stderr, "error: '%s' already exists (use -f/--force to overwrite)\n", out_dir);
+					if (prog) { progrez_finish(prog); progrez_destroy(prog); }
+					z7z_close(ar);
+					return 1;
+				}
+			} else if (count == 1) {
+				const char *nm = z7z_file_name(ar, 0);
+				if (nm) {
+					char tgt[4096];
+					if (out_dir[0] && strcmp(out_dir, ".") != 0)
+						snprintf(tgt, sizeof(tgt), "%s/%s", out_dir, nm);
+					else
+						snprintf(tgt, sizeof(tgt), "%s", nm);
+					if (stat(tgt, &dst) == 0) {
+						fprintf(stderr, "error: '%s' already exists (use -f/--force to overwrite)\n", tgt);
+						if (prog) { progrez_finish(prog); progrez_destroy(prog); }
+						z7z_close(ar);
+						return 1;
+					}
+				}
+			}
+		}
+		if (out_dir && out_dir[0] && ensure_dir(out_dir) != 0) {
+			if (prog) { progrez_finish(prog); progrez_destroy(prog); }
+			z7z_close(ar);
+			return 1;
+		}
+	}
 	int errors = 0;
 
 	/* Track directory paths and their mtimes for deferred restoration.
@@ -1428,6 +1571,36 @@ static int cmd_create(const char *archive_path, int file_count, char **file_path
 	}
 
 	for (int i = 0; i < file_count; i++) {
+		/* Content from stdin: no filesystem metadata exists, so synthesize a
+		 * regular file (mode 0644, current time). The entry name comes from
+		 * --if/--input-filename, defaulting to "stdin" if unspecified. */
+		if (is_stdin_path(file_paths[i])) {
+			size_t slen = 0;
+			uint8_t *sdata = read_stdin(&slen);
+			if (!sdata) {
+				fprintf(stderr, "error: failed to read stdin\n");
+				entry_list_free(&list);
+				return 1;
+			}
+			const char *name = g_input_filename ? g_input_filename : "stdin";
+			/* stdin has no filesystem metadata. mtime = now records when the
+			 * content was reconstituted into an archive; ctime (creation/birth) is
+			 * pinned to the Unix epoch to flag the creation time as synthesized,
+			 * not original. Epoch is 0, but 0 is the "unset" sentinel in the entry
+			 * layer, so use 1s past epoch — still an unmistakable 1970 marker. */
+			int64_t now = (int64_t)time(NULL);
+			const int64_t EPOCH_MARKER = 1; /* 1970-01-01 00:00:01 UTC */
+			if (entry_list_add_file(&list, name, sdata, slen,
+			                        now, EPOCH_MARKER, now,
+			                        win_attrib_from_mode(S_IFREG | 0644),
+			                        NULL, 0) != 0) {
+				fprintf(stderr, "error: out of memory\n");
+				free(sdata);
+				entry_list_free(&list);
+				return 1;
+			}
+			continue;
+		}
 		struct stat st;
 		if (lstat(file_paths[i], &st) != 0) {
 			fprintf(stderr, "error: cannot stat '%s': %s\n",
@@ -1600,6 +1773,7 @@ static int parse_flag(const char *arg) {
 	if (strcmp(arg, "-v") == 0 || strcmp(arg, "--verbose") == 0) { g_verbose = 1; return 1; }
 	if (strcmp(arg, "--no-progress") == 0) { g_no_progress = 1; return 1; }
 	if (strcmp(arg, "-y") == 0) { g_yes = 1; return 1; }
+	if (strcmp(arg, "-f") == 0 || strcmp(arg, "--force") == 0) { g_force = 1; return 1; }
 	if (strcmp(arg, "--solid") == 0) { g_solid_mode = SOLID_ON; return 1; }
 	if (strcmp(arg, "--no-solid") == 0) { g_solid_mode = SOLID_OFF; return 1; }
 	/* Output directory: -o<dir> (7zz compatible, no space) */
@@ -1643,6 +1817,8 @@ static int parse_flag_with_arg(const char *arg, const char *next_arg) {
 		fprintf(stderr, "warning: invalid compression level '%s', using default %d\n", next_arg, Z7Z_DEFAULT_LEVEL);
 		return 2;
 	}
+	if ((strcmp(arg, "--if") == 0 || strcmp(arg, "--input-filename") == 0) && next_arg != NULL) { g_input_filename = next_arg; return 2; }
+	if ((strcmp(arg, "--of") == 0 || strcmp(arg, "--output-filename") == 0) && next_arg != NULL) { g_output_filename = next_arg; return 2; }
 	return 0;
 }
 
@@ -1694,6 +1870,31 @@ int main(int argc, char **argv) {
 		}
 	}
 
+	/* Create-from-stdin: --if/--input-filename names a single entry whose content
+	 * is read from stdin. Output is --of/--output-filename ("-" = stdout), else a
+	 * positional archive after an explicit create verb, else derived <if>.7z.
+	 * Handled here (before the !cmd bail) because '--if x --of y' has no verb. */
+	if (g_input_filename != NULL) {
+		const char *out = g_output_filename;
+		if (out == NULL) {
+			if (cmd != NULL && (strcmp(cmd, "a") == 0 || strcmp(cmd, "create") == 0) && cmd_idx + 1 < argc)
+				out = argv[cmd_idx + 1];
+			else
+				out = derive_archive_name(g_input_filename);
+		}
+		if (!is_stdout_path(out)) out = expand_tilde(out);
+		if (!is_stdout_path(out) && !g_force) {
+			struct stat st;
+			if (stat(out, &st) == 0) {
+				fprintf(stderr, "error: '%s' already exists (use -f/--force to overwrite)\n", out);
+				return 1;
+			}
+		}
+		char *stdin_arg[1];
+		stdin_arg[0] = "-";
+		return cmd_create(out, 1, stdin_arg);
+	}
+
 	if (!cmd) {
 		usage(argv[0]);
 		return 1;
@@ -1720,6 +1921,41 @@ int main(int argc, char **argv) {
 			break;
 		}
 	}
+
+	/* Verb inference: if the first non-flag argument is not a recognized verb,
+	 * treat it as an implicit file operand. A .7z argument means extract
+	 * ("of the same name"), anything else means create (output defaults to
+	 * <input>.7z via the create branch below). The operand stays at cmd_idx, so
+	 * lower arg_start to include it. */
+	int implicit_extract = 0;
+	if (!is_known_verb(cmd)) {
+		if (ends_with_7z(cmd)) {
+			arg_start = cmd_idx;
+			cmd = "x";
+			implicit_extract = 1;
+		} else {
+			/* Infer create only if the operand names an existing file/dir; a
+			 * non-existent, non-.7z first arg is more likely a mistyped verb, so
+			 * leave it for the "unknown command" error below. */
+			char *probe = expand_tilde(cmd);
+			struct stat st;
+			int exists = (probe != NULL && stat(probe, &st) == 0);
+			free(probe);
+			if (exists) {
+				arg_start = cmd_idx;
+				cmd = "a";
+			}
+		}
+	}
+
+	/* Expand a leading ~ in every positional path argument and in -o<dir>.
+	 * Paths with spaces must be quoted, which suppresses the shell's tilde
+	 * expansion, so z7z does it itself. (Small allocations intentionally leaked;
+	 * the process is short-lived.) */
+	for (int i = arg_start; i < argc; i++) {
+		argv[i] = expand_tilde(argv[i]);
+	}
+	if (g_out_dir) g_out_dir = expand_tilde(g_out_dir);
 
 	if (strcmp(cmd, "list") == 0 || strcmp(cmd, "l") == 0) {
 		if (arg_start >= argc) {
@@ -1762,17 +1998,42 @@ int main(int argc, char **argv) {
 			filter_count = 0;
 			filters = NULL;
 		}
-		return cmd_extract(argv[arg_start], out_dir, filter_count, filters);
+		return cmd_extract(argv[arg_start], out_dir, filter_count, filters, implicit_extract);
 	} else if (strcmp(cmd, "create") == 0 || strcmp(cmd, "a") == 0) {
-		if (arg_start >= argc || arg_start + 1 >= argc) {
-			fprintf(stderr, "error: create requires archive path and at least one input file or directory\n");
+		if (arg_start >= argc) {
+			fprintf(stderr, "error: create requires at least one input file or directory\n");
 			return 1;
+		}
+		const char *archive_path;
+		char **inputs;
+		int input_count;
+		if (argc - arg_start == 1 && !ends_with_7z(argv[arg_start])) {
+			/* Single non-.7z positional: treat it as the INPUT and default the
+			 * output archive name to <input>.7z (next to the input). */
+			archive_path = derive_archive_name(argv[arg_start]);
+			inputs = argv + arg_start;
+			input_count = 1;
+			/* Guard the auto-derived target against silent overwrite. */
+			struct stat dst;
+			if (!g_force && archive_path && stat(archive_path, &dst) == 0) {
+				fprintf(stderr, "error: '%s' already exists (use -f/--force to overwrite)\n", archive_path);
+				return 1;
+			}
+		} else {
+			/* Explicit: first positional is the archive, the rest are inputs. */
+			if (arg_start + 1 >= argc) {
+				fprintf(stderr, "error: create requires archive path and at least one input file or directory\n");
+				return 1;
+			}
+			archive_path = argv[arg_start];
+			inputs = argv + arg_start + 1;
+			input_count = argc - arg_start - 1;
 		}
 		/* Warn if -mhe=on without password */
 		if (g_header_encrypt && !g_password) {
 			fprintf(stderr, "warning: -mhe=on has no effect without -p/--password\n");
 		}
-		return cmd_create(argv[arg_start], argc - arg_start - 1, argv + arg_start + 1);
+		return cmd_create(archive_path, input_count, inputs);
 	} else {
 		fprintf(stderr, "error: unknown command '%s'\n", cmd);
 		usage(argv[0]);
