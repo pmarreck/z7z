@@ -71,7 +71,7 @@ pub fn decompressFolder(
 }
 
 /// Decompress a folder directly into a sink for verification paths that do
-/// not need retained output. Currently supports Copy and single-coder LZMA2.
+/// not need retained output.
 pub fn decompressFolderToSink(
 	folder: anytype,
 	packed_data: []const u8,
@@ -82,19 +82,138 @@ pub fn decompressFolderToSink(
 	allocator: std.mem.Allocator,
 ) StreamingError!void {
 	_ = pack_sizes;
-	_ = password;
-	if (folder.coders.len != 1) return CodecError.UnsupportedMethod;
+	if (folder.coders.len == 0) return CodecError.UnsupportedMethod;
+	if (folder.coders.len == 1) {
+		const coder = folder.coders[0];
+		if (is7zAesMethod(coder.method_id)) {
+			const pw = password orelse return CodecError.UnsupportedMethod;
+			const decrypted = aes.decrypt7zAes(packed_data, coder.properties, pw, unpack_size, allocator) catch
+				return CodecError.DecompressFailed;
+			defer allocator.free(decrypted);
+			return sink.write(decrypted);
+		}
+		return decompressSingleCoderToSink(coder, packed_data, unpack_size, sink, allocator);
+	}
 
-	const coder = folder.coders[0];
+	var aes_idx: ?usize = null;
+	var compressor_idx: ?usize = null;
+	var filter_idx: ?usize = null;
+	var bcj2_idx: ?usize = null;
+	for (folder.coders, 0..) |coder, i| {
+		const mid = coder.method_id;
+		if (is7zAesMethod(mid)) {
+			aes_idx = i;
+		} else if (isBcj2Method(mid)) {
+			bcj2_idx = i;
+		} else if (isCompressorMethod(mid)) {
+			compressor_idx = i;
+		} else if (isFilterMethod(mid)) {
+			filter_idx = i;
+		} else {
+			return CodecError.UnsupportedMethod;
+		}
+	}
+	if (bcj2_idx != null) return CodecError.UnsupportedMethod;
+
+	const comp_idx = compressor_idx orelse return CodecError.UnsupportedMethod;
+	var current_data = packed_data;
+	var decrypted_buf: ?[]u8 = null;
+	defer if (decrypted_buf) |buf| allocator.free(buf);
+	if (aes_idx) |ai| {
+		const pw = password orelse return CodecError.UnsupportedMethod;
+		const aes_unpack = if (ai < folder.unpack_sizes.len)
+			folder.unpack_sizes[ai]
+		else
+			@as(u64, @intCast(packed_data.len));
+		decrypted_buf = aes.decrypt7zAes(packed_data, folder.coders[ai].properties, pw, aes_unpack, allocator) catch
+			return CodecError.DecompressFailed;
+		current_data = decrypted_buf.?;
+	}
+
+	const comp_unpack = if (comp_idx < folder.unpack_sizes.len)
+		folder.unpack_sizes[comp_idx]
+	else
+		unpack_size;
+	if (filter_idx) |fi| {
+		if (!isBcjX86Method(folder.coders[fi].method_id)) return CodecError.UnsupportedMethod;
+		var filter = BcjX86Sink.init(sink);
+		var filter_output = filter.outputSink();
+		try decompressSingleCoderToSink(folder.coders[comp_idx], current_data, comp_unpack, &filter_output, allocator);
+		return filter.finish();
+	}
+	return decompressSingleCoderToSink(folder.coders[comp_idx], current_data, comp_unpack, sink, allocator);
+}
+
+fn decompressSingleCoderToSink(
+	coder: anytype,
+	packed_data: []const u8,
+	unpack_size: u64,
+	sink: *OutputSink,
+	allocator: std.mem.Allocator,
+) StreamingError!void {
 	const mid = coder.method_id;
 	if (mid.len == 1 and mid[0] == METHOD_COPY) {
 		if (@as(u64, @intCast(packed_data.len)) != unpack_size) return CodecError.DecompressFailed;
 		return sink.write(packed_data);
 	} else if (mid.len == 1 and mid[0] == METHOD_LZMA2) {
 		return decodeLzma2ToSink(packed_data, unpack_size, coder.properties, sink, allocator);
+	} else if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) {
+		return decodeLzmaToSink(packed_data, unpack_size, coder.properties, sink, allocator);
 	}
 	return CodecError.UnsupportedMethod;
 }
+
+const BcjX86Sink = struct {
+	const input_chunk_size = 4096;
+
+	downstream: *OutputSink,
+	pending: [4]u8 = undefined,
+	pending_len: usize = 0,
+	position: u32 = 0,
+	state: u32 = 0,
+
+	fn init(downstream: *OutputSink) BcjX86Sink {
+		return .{ .downstream = downstream };
+	}
+
+	fn outputSink(self: *BcjX86Sink) OutputSink {
+		return .{ .ptr = self, .writeFn = writeThunk };
+	}
+
+	fn writeThunk(ctx: *anyopaque, data: []const u8) SinkError!void {
+		const self: *BcjX86Sink = @ptrCast(@alignCast(ctx));
+		try self.write(data);
+	}
+
+	fn write(self: *BcjX86Sink, data: []const u8) SinkError!void {
+		var offset: usize = 0;
+		while (offset < data.len) {
+			var scratch: [input_chunk_size + 4]u8 = undefined;
+			@memcpy(scratch[0..self.pending_len], self.pending[0..self.pending_len]);
+
+			const take = @min(input_chunk_size, data.len - offset);
+			@memcpy(scratch[self.pending_len .. self.pending_len + take], data[offset .. offset + take]);
+			const available = self.pending_len + take;
+			const processed = bcjX86Convert(scratch[0..available], self.position, &self.state, false);
+			if (processed > 0) {
+				try self.downstream.write(scratch[0..processed]);
+				self.position +%= @intCast(processed);
+			}
+
+			self.pending_len = available - processed;
+			std.debug.assert(self.pending_len <= self.pending.len);
+			@memcpy(self.pending[0..self.pending_len], scratch[processed..available]);
+			offset += take;
+		}
+	}
+
+	fn finish(self: *BcjX86Sink) SinkError!void {
+		if (self.pending_len == 0) return;
+		try self.downstream.write(self.pending[0..self.pending_len]);
+		self.position +%= @intCast(self.pending_len);
+		self.pending_len = 0;
+	}
+};
 
 /// Decompress with a single coder (Copy, LZMA2, LZMA, or ZSTD).
 fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u64, allocator: std.mem.Allocator) CodecError![]u8 {
@@ -813,6 +932,55 @@ fn decodeLzma2ToSink(
 	if (accum.total_len != unpack_size) return CodecError.DecompressFailed;
 }
 
+fn decodeLzmaToSink(
+	packed_data: []const u8,
+	unpack_size: u64,
+	properties: []const u8,
+	sink: *OutputSink,
+	allocator: std.mem.Allocator,
+) StreamingError!void {
+	if (properties.len < 5 or unpack_size > std.math.maxInt(usize)) return CodecError.DecompressFailed;
+
+	const props_byte = properties[0];
+	if (props_byte >= 225) return CodecError.DecompressFailed;
+	const lc: u4 = @intCast(props_byte % 9);
+	const lp_pb = props_byte / 9;
+	const lp: u3 = @intCast(lp_pb % 5);
+	const pb: u3 = @intCast(lp_pb / 5);
+	if (@as(u8, lc) + @as(u8, lp) > 4) return CodecError.DecompressFailed;
+
+	const declared_dict_size = std.mem.readInt(u32, properties[1..5], .little);
+	const dict_size: usize = @intCast(@max(
+		@as(u64, 1),
+		@min(@as(u64, declared_dict_size), unpack_size),
+	));
+	const window = allocator.alloc(u8, dict_size) catch return CodecError.OutOfMemory;
+	defer allocator.free(window);
+
+	var in: std.Io.Reader = .fixed(packed_data);
+	var fake_allocating: std.Io.Writer.Allocating = .{
+		.allocator = allocator,
+		.writer = std.Io.Writer.failing,
+		.alignment = .of(u8),
+	};
+	var accum = StreamingLzBuffer.init(window, sink);
+	var dec = std.compress.lzma.Decode.init(allocator, .{ .lc = lc, .lp = lp, .pb = pb }) catch
+		return CodecError.OutOfMemory;
+	defer dec.deinit(allocator);
+
+	var n_read: u64 = 0;
+	var range_decoder = std.compress.lzma.RangeDecoder.initCounting(&in, &n_read) catch
+		return CodecError.DecompressFailed;
+	while (accum.total_len < unpack_size) {
+		const status = dec.process(&in, &fake_allocating, &accum, &range_decoder, &n_read) catch |e|
+			return mapStreamingLzma2Error(e);
+		if (status == .finished) break;
+	}
+
+	accum.finish(&fake_allocating.writer) catch |e| return mapStreamingLzma2Error(e);
+	if (accum.total_len != unpack_size) return CodecError.DecompressFailed;
+}
+
 fn mapStreamingLzma2Error(err: anyerror) StreamingError {
 	return switch (err) {
 		error.OutOfMemory => CodecError.OutOfMemory,
@@ -1078,6 +1246,45 @@ test "codec: bcj x86 decode" {
 
 	// Should match original
 	try std.testing.expectEqualSlices(u8, &input, &decoded);
+}
+
+test "codec: streaming bcj x86 preserves branches split across chunks" {
+	const Collector = struct {
+		buffer: []u8,
+		len: usize = 0,
+
+		fn outputSink(self: *@This()) OutputSink {
+			return .{ .ptr = self, .writeFn = writeThunk };
+		}
+
+		fn writeThunk(ctx: *anyopaque, data: []const u8) SinkError!void {
+			const self: *@This() = @ptrCast(@alignCast(ctx));
+			if (data.len > self.buffer.len - self.len) return SinkError.StructuralError;
+			@memcpy(self.buffer[self.len .. self.len + data.len], data);
+			self.len += data.len;
+		}
+	};
+
+	var original: [8200]u8 = [_]u8{0x90} ** 8200;
+	for (&[_]usize{ 4094, 4096, 8189 }) |pos| {
+		original[pos] = 0xE8;
+		std.mem.writeInt(u32, original[pos + 1 ..][0..4], @intCast(0x1000 + pos), .little);
+	}
+	var encoded = original;
+	bcjX86Encode(&encoded);
+
+	var decoded: [original.len]u8 = undefined;
+	var collector = Collector{ .buffer = &decoded };
+	var downstream = collector.outputSink();
+	var filter = BcjX86Sink.init(&downstream);
+	try filter.write(encoded[0..1]);
+	try filter.write(encoded[1..4095]);
+	try filter.write(encoded[4095..4098]);
+	try filter.write(encoded[4098..]);
+	try filter.finish();
+
+	try std.testing.expectEqual(original.len, collector.len);
+	try std.testing.expectEqualSlices(u8, &original, decoded[0..collector.len]);
 }
 
 test "codec: multi-coder folder (BCJ+LZMA2)" {

@@ -240,6 +240,26 @@
 
 ## TODO
 - [x] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
+- [ ] Support every non-obsolete 7z feature accepted by current 7-Zip (Peter directive, 2026-08-27 EDT)
+  - [x] Reproduce and classify `/home/pmarreck/Downloads/RESET BAT-499-v1.7z` as single-coder LZMA before changing behavior (completed 2026-08-27 12:40 PM EDT)
+  - [x] Add a failing 7zz-generated LZMA extraction/streaming differential regression and verify the reported fixture directly (completed 2026-08-27 12:40 PM EDT)
+  - [x] Stream LZMA verification output with dictionary-bounded memory (completed 2026-08-27 12:40 PM EDT)
+  - [ ] Build a differential feature matrix against current 7zz for modern methods, filters, encryption, headers, and folder graphs
+  - [ ] Define obsolete exclusions from current 7-Zip documentation/history and record the rationale
+  - [ ] Curiosity poke: distinguish unsupported codec data from malformed metadata and encrypted data requiring a password
+- [ ] Restore streaming verification parity for coder/filter chains (validate request, 2026-08-27 EDT)
+  - [x] Add a failing BCJ+LZMA2 streaming-verification regression that passes through retained extraction (completed 2026-08-27 12:40 PM EDT)
+  - [x] Add differential verdict/CRC coverage and a packed-region corruption sweep against the extraction path (completed 2026-08-27 12:40 PM EDT)
+  - [x] Stream x86 BCJ with four bytes of fixed boundary state and cover split branch operands (completed 2026-08-27 12:40 PM EDT)
+  - [ ] Stream supported fixed-state filters with bounded memory; preserve AES and multi-folder behavior
+  - [ ] Cover BCJ2 and every filter already supported by extraction, or document an extraction-side unsupported method explicitly
+  - [ ] Curiosity poke: verify filter state across sink chunk boundaries and branch operands split across chunks
+  - [ ] Reply to validate with the passing commit SHA and API/artifact notes
+- [ ] Add seekable/range-input verification API without breaking `verify([]const u8, ...)` (validate request, 2026-07-10 EDT)
+  - [ ] Add a failing chunked seekable-source test covering end-header reads and payload ranges
+  - [ ] Preserve resource limits, encryption behavior, folder/substream CRC accounting, and output sink semantics
+  - [ ] Curiosity poke: reject offset/length overflow and short reads without allocating the declared archive size
+  - [ ] Reply to validate with the passing commit SHA and consumption notes
 - [ ] Streaming/deep validation surface for validate (requested 2026-07-08 EST)
   - [x] Add failing CRC-mismatch tests for payload/substream verification (completed 2026-07-08 04:42 PM EDT)
   - [x] Add metadata-only unpack-size stats and resource guardrail tests (completed 2026-07-08 04:42 PM EDT)

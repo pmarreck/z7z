@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const archive = @import("archive.zig");
+const sig_header = @import("header.zig");
 
 /// Run 7zz with arguments, returning stdout, stderr, and exit code.
 /// Returns null if 7zz is not available.
@@ -398,6 +399,43 @@ test "interop: 7zz LZMA2 archive readable by z7z" {
 	try std.testing.expectEqualStrings(content, contents.file_data[0]);
 }
 
+test "interop: 7zz LZMA archive passes extraction and streaming verification" {
+	const allocator = std.testing.allocator;
+
+	var tmp_dir = std.testing.tmpDir(.{});
+	defer tmp_dir.cleanup();
+
+	const content = "LZMA streaming verification parity.\n" ** 200;
+	const src_file = try tmp_dir.dir.createFile(std.testing.io, "lzma.txt", .{});
+	try src_file.writeStreamingAll(std.testing.io, content);
+	src_file.close(std.testing.io);
+
+	const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
+	defer allocator.free(dir_path);
+	const src_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "lzma.txt", allocator);
+	defer allocator.free(src_path);
+	const archive_path = try std.fmt.allocPrint(allocator, "{s}/lzma.7z", .{dir_path});
+	defer allocator.free(archive_path);
+
+	const result = run7zz(&.{ "7zz", "a", "-m0=LZMA", archive_path, src_path }, allocator) orelse return error.SkipZigTest;
+	defer allocator.free(result.stdout);
+	defer allocator.free(result.stderr);
+	switch (result.term) {
+		.exited => |code| if (code != 0) return,
+		else => return,
+	}
+
+	const archive_data = try tmp_dir.dir.readFileAlloc(std.testing.io, "lzma.7z", allocator, .limited(1024 * 1024));
+	defer allocator.free(archive_data);
+
+	var contents = try archive.read(archive_data, allocator);
+	defer contents.deinit();
+	try std.testing.expectEqualSlices(u8, content, contents.file_data[0]);
+
+	const stats = try archive.verify(archive_data, .{}, allocator);
+	try std.testing.expectEqual(@as(u64, content.len), stats.total_unpack_size);
+}
+
 test "interop: 7zz BCJ+LZMA2 archive readable by z7z" {
 	const allocator = std.testing.allocator;
 
@@ -453,6 +491,30 @@ test "interop: 7zz BCJ+LZMA2 archive readable by z7z" {
 
 	try std.testing.expectEqual(@as(usize, 1), contents.metadata.files.len);
 	try std.testing.expectEqualSlices(u8, &fake_exe, contents.file_data[0]);
+
+	const stats = try archive.verify(archive_data, .{}, allocator);
+	try std.testing.expectEqual(@as(u64, fake_exe.len), stats.total_unpack_size);
+
+	const corrupted = try allocator.dupe(u8, archive_data);
+	defer allocator.free(corrupted);
+	const next_header_offset = std.mem.readInt(u64, archive_data[12..20], .little);
+	const packed_end: usize = sig_header.HEADER_SIZE + @as(usize, @intCast(next_header_offset));
+	try std.testing.expect(packed_end > sig_header.HEADER_SIZE);
+
+	var extraction_rejections: usize = 0;
+	for (sig_header.HEADER_SIZE..packed_end) |offset| {
+		corrupted[offset] ^= 0x80;
+		const extraction_accepted = if (archive.read(corrupted, allocator)) |value| accepted: {
+			var contents_value = value;
+			contents_value.deinit();
+			break :accepted true;
+		} else |_| false;
+		const streaming_accepted = if (archive.verify(corrupted, .{}, allocator)) |_| true else |_| false;
+		try std.testing.expectEqual(extraction_accepted, streaming_accepted);
+		if (!extraction_accepted) extraction_rejections += 1;
+		corrupted[offset] ^= 0x80;
+	}
+	try std.testing.expect(extraction_rejections > 0);
 }
 
 test "interop: 7zz encoded header archive readable by z7z" {
