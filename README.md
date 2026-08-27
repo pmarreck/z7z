@@ -1,7 +1,6 @@
 # z7z
 
-[![CI](https://github.com/pmarreck/z7z/actions/workflows/ci.yml/badge.svg?branch=yolo)](https://github.com/pmarreck/z7z/actions/workflows/ci.yml)
-[![Garnix](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fgarnix.io%2Fapi%2Fbadges%2Fpmarreck%2Fz7z%3Fbranch%3Dyolo)](https://garnix.io)
+[![Mechatron Prime CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fthelio-nixos.tail66c90.ts.net%2Fbadges%2Fz7z.json&style=for-the-badge)](https://thelio-nixos.tail66c90.ts.net/mechatron-prime/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives that are fully interoperable with the reference `7-Zip` implementation.
@@ -50,6 +49,7 @@ Requires Zig 0.16. Use the top-level scripts so native builds go through Nix's p
 ```sh
 ./build                            # ReleaseFast build
 ./build debug                      # debug build
+./build_all                        # ReleaseFast builds for all 5 supported targets
 ./test                             # full test suite
 ./bm                               # benchmark suite
 ```

@@ -13,7 +13,15 @@
 
 #ifdef __APPLE__
 #include <sys/attr.h>
+#if __has_include(<sys/xattr.h>)
 #include <sys/xattr.h>
+#else
+/* Zig's cross-macOS libc stubs expose these symbols but omit sys/xattr.h. */
+#define XATTR_NOFOLLOW 0x0001
+ssize_t listxattr(const char *, char *, size_t, int);
+ssize_t getxattr(const char *, const char *, void *, size_t, unsigned int, int);
+int setxattr(const char *, const char *, const void *, size_t, unsigned int, int);
+#endif
 #elif defined(__linux__)
 #include <sys/xattr.h>
 #include <sys/sysmacros.h>

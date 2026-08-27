@@ -7,8 +7,12 @@ close=[
 ]
 
 annotate=[
+	.mechatron-prime/targets = Exact-commit Mechatron targets for native tests and five release builds
+	README.md = Project overview, Mechatron badge, features, build commands, and usage
 	bm = Hyperfine benchmark suite for compression and z7z verify microbenchmarks over deterministic datasets
-	flake.nix = Nix package/check/devshell for Zig 0.16; patches Linux executables and runs sandboxed tests
+	build_all = Five-target ReleaseFast cross-build entry point
+	cli/main.c = C CLI dogfooding the FFI with cross-platform metadata and extraction adapters
+	flake.nix = Nix package/check/devshell with five explicit Mechatron cross-build outputs
 	include/z7z.h = Public C FFI declarations and error codes for z7z
 	src/archive.zig = Archive create/read plus slice and range-backed streaming verification orchestration
 	src/codec.zig = 7z codec dispatch with bounded streaming LZMA/LZMA2, x86 BCJ, and BCJ2 pipelines

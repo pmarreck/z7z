@@ -84,8 +84,38 @@
           dontInstall = true;
           dontFixup = true;
         };
+
+        mkCrossPackage = target: pkgs.stdenvNoCC.mkDerivation {
+          pname = "z7z-${target}";
+          version = "0.1.0";
+          src = self;
+
+          nativeBuildInputs = [ zig ];
+          strictDeps = true;
+          dontConfigure = true;
+
+          buildPhase = ''
+            export HOME="$TMPDIR"
+            export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-cache"
+            mkdir -p "$ZIG_GLOBAL_CACHE_DIR"
+            cp -r ${zigDeps}/* "$ZIG_GLOBAL_CACHE_DIR/"
+            chmod -R u+w "$ZIG_GLOBAL_CACHE_DIR"
+            zig build --prefix "$out" -Doptimize=ReleaseFast -Dtarget=${target}
+          '';
+
+          dontInstall = true;
+          dontFixup = true;
+        };
       in {
-        packages.default = z7z;
+        packages = {
+          default = z7z;
+        } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          aarch64-macos = mkCrossPackage "aarch64-macos";
+          aarch64-linux-musl = mkCrossPackage "aarch64-linux-musl";
+          x86_64-linux-musl = mkCrossPackage "x86_64-linux-musl";
+          aarch64-windows-gnu = mkCrossPackage "aarch64-windows-gnu";
+          x86_64-windows-gnu = mkCrossPackage "x86_64-windows-gnu";
+        };
 
         checks.test = pkgs.stdenv.mkDerivation {
           pname = "z7z-test";

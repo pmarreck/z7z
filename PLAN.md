@@ -239,7 +239,12 @@
   - 10 new CLI integration tests, all passing
 
 ## TODO
-- [x] CI: GitHub Actions for macos-aarch64, linux-x86_64, linux-aarch64, windows-x86_64, windows-aarch64
+- [ ] Migrate CI from retired Garnix/GitHub Actions to Mechatron Prime (requested 2026-08-27 EDT)
+  - [x] Expose reproducible Nix build outputs for macOS arm64, musl Linux arm64/x86_64, and Windows GNU arm64/x86_64 (completed 2026-08-27 01:24 PM EDT)
+  - [x] Add exact-commit `.mechatron-prime/targets` plus a five-platform `./build_all` developer entry point (completed 2026-08-27 01:24 PM EDT)
+  - [x] Replace retired CI badges and remove the redundant GitHub Actions workflow after target builds pass (completed 2026-08-27 01:24 PM EDT)
+  - [ ] Provision the signed GitHub webhook, push `yolo`, and verify the exact commit passes Mechatron
+  - [x] Curiosity poke: inspect produced binaries so successful derivations cannot hide wrong target formats or dynamic Linux linkage (completed 2026-08-27 01:24 PM EDT)
 - [ ] Support every non-obsolete 7z feature accepted by current 7-Zip (Peter directive, 2026-08-27 EDT)
   - [x] Reproduce and classify `/home/pmarreck/Downloads/RESET BAT-499-v1.7z` as single-coder LZMA before changing behavior (completed 2026-08-27 12:40 PM EDT)
   - [x] Add a failing 7zz-generated LZMA extraction/streaming differential regression and verify the reported fixture directly (completed 2026-08-27 12:40 PM EDT)

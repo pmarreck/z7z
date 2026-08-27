@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+set -u
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+targets=(
+	"aarch64-macos"
+	"aarch64-linux-musl"
+	"x86_64-linux-musl"
+	"aarch64-windows-gnu"
+	"x86_64-windows-gnu"
+)
+failures=0
+
+for target in "${targets[@]}"; do
+	printf '\n=== Building %s ===\n' "$target"
+	if nix develop "$script_dir" -c zig build \
+		-Doptimize=ReleaseFast \
+		-Dtarget="$target" \
+		--prefix "$script_dir/zig-out/$target"; then
+		printf 'PASS: %s\n' "$target"
+	else
+		printf 'FAIL: %s\n' "$target" >&2
+		failures=$((failures + 1))
+	fi
+done
+
+if ((failures > 0)); then
+	printf '\nFAILED: %d target(s)\n' "$failures" >&2
+	exit "$failures"
+fi
+
+printf '\nALL TARGETS BUILT\n'

@@ -232,5 +232,8 @@ Benchmark script (Bash). Uses hyperfine to compare z7z vs 7zz reference on 4 dat
 - Logs timestamped results to `tests/benchmark/benchmark.log`
 - Compares against previous run: warns if >10% slower, notices if >10% faster
 
+## build_all
+Builds ReleaseFast artifacts for the five supported macOS, musl Linux, and Windows targets through the Nix development shell.
+
 ## tests/benchmark/benchmark.log
 Timestamped benchmark results. Format: `timestamp | label | file | mean | stddev | size | ratio`
