@@ -239,11 +239,11 @@
   - 10 new CLI integration tests, all passing
 
 ## TODO
-- [ ] Migrate CI from retired Garnix/GitHub Actions to Mechatron Prime (requested 2026-08-27 EDT)
+- [x] Migrate CI from retired Garnix/GitHub Actions to Mechatron Prime (completed 2026-08-27 01:32 PM EDT)
   - [x] Expose reproducible Nix build outputs for macOS arm64, musl Linux arm64/x86_64, and Windows GNU arm64/x86_64 (completed 2026-08-27 01:24 PM EDT)
   - [x] Add exact-commit `.mechatron-prime/targets` plus a five-platform `./build_all` developer entry point (completed 2026-08-27 01:24 PM EDT)
   - [x] Replace retired CI badges and remove the redundant GitHub Actions workflow after target builds pass (completed 2026-08-27 01:24 PM EDT)
-  - [ ] Provision the signed GitHub webhook, push `yolo`, and verify the exact commit passes Mechatron
+  - [x] Verify the active signed GitHub webhook, push `yolo`, and confirm exact SHA `d495452` passes Mechatron with a public `PASSING` badge (completed 2026-08-27 01:32 PM EDT)
   - [x] Curiosity poke: inspect produced binaries so successful derivations cannot hide wrong target formats or dynamic Linux linkage (completed 2026-08-27 01:24 PM EDT)
 - [ ] Support every non-obsolete 7z feature accepted by current 7-Zip (Peter directive, 2026-08-27 EDT)
   - [x] Reproduce and classify `/home/pmarreck/Downloads/RESET BAT-499-v1.7z` as single-coder LZMA before changing behavior (completed 2026-08-27 12:40 PM EDT)
@@ -252,21 +252,21 @@
   - [ ] Build a differential feature matrix against current 7zz for modern methods, filters, encryption, headers, and folder graphs
   - [ ] Define obsolete exclusions from current 7-Zip documentation/history and record the rationale
   - [ ] Curiosity poke: distinguish unsupported codec data from malformed metadata and encrypted data requiring a password
-- [ ] Restore streaming verification parity for coder/filter chains (validate request, 2026-08-27 EDT)
+- [x] Restore streaming verification parity for coder/filter chains (validate request, completed 2026-08-27 01:32 PM EDT)
   - [x] Add a failing BCJ+LZMA2 streaming-verification regression that passes through retained extraction (completed 2026-08-27 12:40 PM EDT)
   - [x] Add differential verdict/CRC coverage and a packed-region corruption sweep against the extraction path (completed 2026-08-27 12:40 PM EDT)
   - [x] Stream x86 BCJ with four bytes of fixed boundary state and cover split branch operands (completed 2026-08-27 12:40 PM EDT)
   - [x] Stream every filter supported by retained extraction with bounded memory; preserve AES and multi-folder behavior (completed 2026-08-27 12:56 PM EDT)
   - [x] Stream BCJ2 through pull-based Copy/LZMA/LZMA2 inputs; cover a real 7zz folder graph, corruption parity, and capped allocation (completed 2026-08-27 12:56 PM EDT)
   - [x] Curiosity poke: verify x86 filter state across sink chunk boundaries and BCJ2 operands across pull refills (completed 2026-08-27 12:56 PM EDT)
-  - [ ] Reply to validate with the passing commit SHA and API/artifact notes
+  - [x] Reply to validate with pushed SHA `d495452` and API/artifact notes (completed 2026-08-27 01:32 PM EDT)
 - [ ] Add seekable/range-input verification API without breaking `verify([]const u8, ...)` (validate request, 2026-07-10 EDT)
   - [x] Add a failing chunked seekable-source test covering end-header reads, payload ranges, short reads, and substream CRC failure (completed 2026-08-27 01:12 PM EDT)
   - [x] Add `RangeSource` and `verifyRange()` while preserving `verify([]const u8, ...)` through a zero-copy slice adapter (completed 2026-08-27 01:12 PM EDT)
   - [x] Preserve resource limits, encrypted encoded headers, multi-folder handling, folder/substream CRC accounting, and output sink semantics (completed 2026-08-27 01:12 PM EDT)
   - [x] Curiosity poke: reject offset/length overflow, premature EOF, and callback failure without allocating the declared archive size (completed 2026-08-27 01:12 PM EDT)
   - [ ] Follow-up: stream packed input within a single solid folder; the first patch retains one packed folder at a time because codec inputs are slices
-  - [ ] Reply to validate with the passing commit SHA and consumption notes
+  - [x] Reply to validate with pushed SHA `d495452`, consumption notes, and the packed-folder limitation (completed 2026-08-27 01:32 PM EDT)
 - [ ] Streaming/deep validation surface for validate (requested 2026-07-08 EST)
   - [x] Add failing CRC-mismatch tests for payload/substream verification (completed 2026-07-08 04:42 PM EDT)
   - [x] Add metadata-only unpack-size stats and resource guardrail tests (completed 2026-07-08 04:42 PM EDT)
@@ -279,7 +279,7 @@
     - [x] Add codec output sink for Copy and wire `archive.verify()` through it (completed 2026-07-08 07:17 PM EDT)
     - [x] Implement LZMA2 streaming sink path, including multi-block dictionary-reset regression (completed 2026-07-08 07:17 PM EDT)
     - [x] Add `z7z verify (25x)` microbenchmark baseline over deterministic/random/semi-compressible datasets (completed 2026-07-08 07:17 PM EDT)
-    - [ ] Reply to validate with green implementation or concrete codec-pipeline blocker
+    - [x] Reply to validate with the green streaming implementation and pushed SHA `d495452` (completed 2026-08-27 01:32 PM EDT)
 - [ ] Actual i18n translations (30 languages) once textual UI is stable
 - [ ] `--simple` flag (suppress emoji + ANSI)
 - [ ] `--no-ansi`/`--no-color` flags
