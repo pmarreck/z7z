@@ -517,6 +517,85 @@ test "interop: 7zz BCJ+LZMA2 archive readable by z7z" {
 	try std.testing.expect(extraction_rejections > 0);
 }
 
+test "interop: 7zz BCJ2 archive passes extraction and streaming verification" {
+    const allocator = std.testing.allocator;
+
+    var tmp_dir = std.testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const fake_exe = try allocator.alloc(u8, 64 * 1024);
+    defer allocator.free(fake_exe);
+    @memset(fake_exe, 0x90);
+    var branch_pos: usize = 32;
+    while (branch_pos + 5 <= fake_exe.len) : (branch_pos += 64) {
+        fake_exe[branch_pos] = if ((branch_pos / 64) % 2 == 0) 0xE8 else 0xE9;
+        std.mem.writeInt(i32, fake_exe[branch_pos + 1 ..][0..4], @intCast(2048 - @as(i64, @intCast(branch_pos))), .little);
+    }
+
+    const src_file = try tmp_dir.dir.createFile(std.testing.io, "bcj2.bin", .{});
+    try src_file.writeStreamingAll(std.testing.io, fake_exe);
+    src_file.close(std.testing.io);
+
+    const dir_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, ".", allocator);
+    defer allocator.free(dir_path);
+    const src_path = try tmp_dir.dir.realPathFileAlloc(std.testing.io, "bcj2.bin", allocator);
+    defer allocator.free(src_path);
+    const archive_path = try std.fmt.allocPrint(allocator, "{s}/bcj2.7z", .{dir_path});
+    defer allocator.free(archive_path);
+
+    const result = run7zz(&.{ "7zz", "a", "-m0=BCJ2", "-m1=LZMA2", archive_path, src_path }, allocator) orelse
+        return error.SkipZigTest;
+    defer allocator.free(result.stdout);
+    defer allocator.free(result.stderr);
+    switch (result.term) {
+        .exited => |code| {
+            if (code != 0) {
+                std.debug.print("7zz BCJ2 creation failed (exit {d}):\nstdout: {s}\nstderr: {s}\n", .{ code, result.stdout, result.stderr });
+            }
+            try std.testing.expectEqual(@as(u8, 0), code);
+        },
+        else => return error.TestUnexpectedResult,
+    }
+
+    const archive_data = try tmp_dir.dir.readFileAlloc(std.testing.io, "bcj2.7z", allocator, .limited(1024 * 1024));
+    defer allocator.free(archive_data);
+
+    var contents = try archive.read(archive_data, allocator);
+    defer contents.deinit();
+    try std.testing.expectEqual(@as(usize, 1), contents.metadata.folders.len);
+    const bcj2_method = [_]u8{ 0x03, 0x03, 0x01, 0x1B };
+    var found_bcj2 = false;
+    for (contents.metadata.folders[0].coders) |coder| {
+        if (std.mem.eql(u8, coder.method_id, &bcj2_method)) found_bcj2 = true;
+    }
+    try std.testing.expect(found_bcj2);
+    try std.testing.expectEqualSlices(u8, fake_exe, contents.file_data[0]);
+
+    const stats = try archive.verify(archive_data, .{}, allocator);
+    try std.testing.expectEqual(@as(u64, fake_exe.len), stats.total_unpack_size);
+
+    const corrupted = try allocator.dupe(u8, archive_data);
+    defer allocator.free(corrupted);
+    const next_header_offset = std.mem.readInt(u64, archive_data[12..20], .little);
+    const packed_end: usize = sig_header.HEADER_SIZE + @as(usize, @intCast(next_header_offset));
+    try std.testing.expect(packed_end > sig_header.HEADER_SIZE);
+
+    var extraction_rejections: usize = 0;
+    for (sig_header.HEADER_SIZE..packed_end) |offset| {
+        corrupted[offset] ^= 0x80;
+        const extraction_accepted = if (archive.read(corrupted, allocator)) |value| accepted: {
+            var corrupted_contents = value;
+            corrupted_contents.deinit();
+            break :accepted true;
+        } else |_| false;
+        const streaming_accepted = if (archive.verify(corrupted, .{}, allocator)) |_| true else |_| false;
+        try std.testing.expectEqual(extraction_accepted, streaming_accepted);
+        if (!extraction_accepted) extraction_rejections += 1;
+        corrupted[offset] ^= 0x80;
+    }
+    try std.testing.expect(extraction_rejections > 0);
+}
+
 test "interop: 7zz encoded header archive readable by z7z" {
 	const allocator = std.testing.allocator;
 

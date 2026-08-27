@@ -81,7 +81,6 @@ pub fn decompressFolderToSink(
 	sink: *OutputSink,
 	allocator: std.mem.Allocator,
 ) StreamingError!void {
-	_ = pack_sizes;
 	if (folder.coders.len == 0) return CodecError.UnsupportedMethod;
 	if (folder.coders.len == 1) {
 		const coder = folder.coders[0];
@@ -113,7 +112,9 @@ pub fn decompressFolderToSink(
 			return CodecError.UnsupportedMethod;
 		}
 	}
-	if (bcj2_idx != null) return CodecError.UnsupportedMethod;
+    if (bcj2_idx != null) {
+        return decompressBcj2ToSink(folder, packed_data, pack_sizes, unpack_size, sink, allocator);
+    }
 
 	const comp_idx = compressor_idx orelse return CodecError.UnsupportedMethod;
 	var current_data = packed_data;
@@ -449,6 +450,491 @@ fn decompressBcj2Pipeline(
 	}
 
 	return out_buf;
+}
+
+const PullError = StreamingError || error{EndOfStream};
+
+const PullCollector = struct {
+    buffer: []u8,
+    len: usize = 0,
+    read_pos: usize = 0,
+
+    fn outputSink(self: *PullCollector) OutputSink {
+        return .{ .ptr = self, .writeFn = writeThunk };
+    }
+
+    fn writeThunk(ctx: *anyopaque, data: []const u8) SinkError!void {
+        const self: *PullCollector = @ptrCast(@alignCast(ctx));
+        if (data.len > self.buffer.len - self.len) return SinkError.StructuralError;
+        @memcpy(self.buffer[self.len .. self.len + data.len], data);
+        self.len += data.len;
+    }
+
+    fn reset(self: *PullCollector) void {
+        self.len = 0;
+        self.read_pos = 0;
+    }
+
+    fn readByte(self: *PullCollector) ?u8 {
+        if (self.read_pos == self.len) return null;
+        const byte = self.buffer[self.read_pos];
+        self.read_pos += 1;
+        return byte;
+    }
+};
+
+const Lzma2Pull = struct {
+    const max_chunk_output = 2 * 1024 * 1024;
+
+    reader: std.Io.Reader,
+    fake_allocating: std.Io.Writer.Allocating,
+    collector: PullCollector,
+    collector_sink: OutputSink,
+    accum: StreamingLzBuffer,
+    decoder: std.compress.lzma.Decode,
+    window: []u8,
+    n_read: u64 = 0,
+    packed_size: usize,
+    expected_size: u64,
+    done: bool = false,
+
+    fn create(
+        packed_data: []const u8,
+        unpack_size: u64,
+        properties: []const u8,
+        allocator: std.mem.Allocator,
+    ) StreamingError!*Lzma2Pull {
+        const dict_size = try lzma2DictSize(properties, unpack_size);
+        const self = allocator.create(Lzma2Pull) catch return CodecError.OutOfMemory;
+        errdefer allocator.destroy(self);
+        const window = allocator.alloc(u8, dict_size) catch return CodecError.OutOfMemory;
+        errdefer allocator.free(window);
+        const output_capacity: usize = @intCast(@max(
+            @as(u64, 1),
+            @min(unpack_size, max_chunk_output),
+        ));
+        const output = allocator.alloc(u8, output_capacity) catch return CodecError.OutOfMemory;
+        errdefer allocator.free(output);
+        const decoder = std.compress.lzma.Decode.init(allocator, .{ .lc = 0, .lp = 0, .pb = 0 }) catch
+            return CodecError.OutOfMemory;
+        errdefer {
+            var owned_decoder = decoder;
+            owned_decoder.deinit(allocator);
+        }
+
+        self.reader = .fixed(packed_data);
+        self.fake_allocating = .{
+            .allocator = allocator,
+            .writer = std.Io.Writer.failing,
+            .alignment = .of(u8),
+        };
+        self.collector = .{ .buffer = output };
+        self.collector_sink = self.collector.outputSink();
+        self.accum = StreamingLzBuffer.init(window, &self.collector_sink);
+        self.decoder = decoder;
+        self.window = window;
+        self.n_read = 0;
+        self.packed_size = packed_data.len;
+        self.expected_size = unpack_size;
+        self.done = false;
+        return self;
+    }
+
+    fn deinit(self: *Lzma2Pull, allocator: std.mem.Allocator) void {
+        self.decoder.deinit(allocator);
+        allocator.free(self.collector.buffer);
+        allocator.free(self.window);
+        allocator.destroy(self);
+    }
+
+    fn readByte(self: *Lzma2Pull) PullError!u8 {
+        if (self.collector.readByte()) |byte| return byte;
+        try self.refill();
+        return self.collector.readByte() orelse error.EndOfStream;
+    }
+
+    fn refill(self: *Lzma2Pull) PullError!void {
+        self.collector.reset();
+        while (self.collector.len == 0) {
+            if (self.done) return error.EndOfStream;
+            const status = self.reader.takeByte() catch return CodecError.DecompressFailed;
+            self.n_read += 1;
+            switch (status) {
+                0 => {
+                    self.accum.flush() catch |e| return mapStreamingLzma2Error(e);
+                    if (self.n_read != self.packed_size or self.accum.total_len != self.expected_size) {
+                        return CodecError.DecompressFailed;
+                    }
+                    self.done = true;
+                    if (self.collector.len == 0) return error.EndOfStream;
+                },
+                1 => self.n_read += parseLzma2Uncompressed(&self.reader, &self.accum, true) catch |e|
+                    return mapStreamingLzma2Error(e),
+                2 => self.n_read += parseLzma2Uncompressed(&self.reader, &self.accum, false) catch |e|
+                    return mapStreamingLzma2Error(e),
+                else => self.n_read += parseLzma2Compressed(
+                    &self.decoder,
+                    &self.reader,
+                    &self.fake_allocating,
+                    &self.accum,
+                    status,
+                ) catch |e| return mapStreamingLzma2Error(e),
+            }
+            self.accum.flush() catch |e| return mapStreamingLzma2Error(e);
+            if (self.accum.total_len > self.expected_size) return CodecError.DecompressFailed;
+        }
+    }
+};
+
+const LzmaPull = struct {
+    const step_output_capacity = 4096;
+
+    reader: std.Io.Reader,
+    fake_allocating: std.Io.Writer.Allocating,
+    collector: PullCollector,
+    collector_sink: OutputSink,
+    accum: StreamingLzBuffer,
+    decoder: std.compress.lzma.Decode,
+    range_decoder: std.compress.lzma.RangeDecoder,
+    window: []u8,
+    n_read: u64 = 0,
+    expected_size: u64,
+    done: bool = false,
+
+    fn create(
+        packed_data: []const u8,
+        unpack_size: u64,
+        properties: []const u8,
+        allocator: std.mem.Allocator,
+    ) StreamingError!*LzmaPull {
+        if (properties.len < 5 or unpack_size > std.math.maxInt(usize)) return CodecError.DecompressFailed;
+        const props_byte = properties[0];
+        if (props_byte >= 225) return CodecError.DecompressFailed;
+        const lc: u4 = @intCast(props_byte % 9);
+        const lp_pb = props_byte / 9;
+        const lp: u3 = @intCast(lp_pb % 5);
+        const pb: u3 = @intCast(lp_pb / 5);
+        if (@as(u8, lc) + @as(u8, lp) > 4) return CodecError.DecompressFailed;
+
+        const declared_dict_size = std.mem.readInt(u32, properties[1..5], .little);
+        const dict_size: usize = @intCast(@max(
+            @as(u64, 1),
+            @min(@as(u64, declared_dict_size), unpack_size),
+        ));
+        const self = allocator.create(LzmaPull) catch return CodecError.OutOfMemory;
+        errdefer allocator.destroy(self);
+        const window = allocator.alloc(u8, dict_size) catch return CodecError.OutOfMemory;
+        errdefer allocator.free(window);
+        const output = allocator.alloc(u8, step_output_capacity) catch return CodecError.OutOfMemory;
+        errdefer allocator.free(output);
+        const decoder = std.compress.lzma.Decode.init(allocator, .{ .lc = lc, .lp = lp, .pb = pb }) catch
+            return CodecError.OutOfMemory;
+        errdefer {
+            var owned_decoder = decoder;
+            owned_decoder.deinit(allocator);
+        }
+
+        self.reader = .fixed(packed_data);
+        self.fake_allocating = .{
+            .allocator = allocator,
+            .writer = std.Io.Writer.failing,
+            .alignment = .of(u8),
+        };
+        self.collector = .{ .buffer = output };
+        self.collector_sink = self.collector.outputSink();
+        self.accum = StreamingLzBuffer.init(window, &self.collector_sink);
+        self.decoder = decoder;
+        self.window = window;
+        self.n_read = 0;
+        self.expected_size = unpack_size;
+        self.done = false;
+        self.range_decoder = std.compress.lzma.RangeDecoder.initCounting(&self.reader, &self.n_read) catch
+            return CodecError.DecompressFailed;
+        return self;
+    }
+
+    fn deinit(self: *LzmaPull, allocator: std.mem.Allocator) void {
+        self.decoder.deinit(allocator);
+        allocator.free(self.collector.buffer);
+        allocator.free(self.window);
+        allocator.destroy(self);
+    }
+
+    fn readByte(self: *LzmaPull) PullError!u8 {
+        if (self.collector.readByte()) |byte| return byte;
+        try self.refill();
+        return self.collector.readByte() orelse error.EndOfStream;
+    }
+
+    fn refill(self: *LzmaPull) PullError!void {
+        self.collector.reset();
+        while (self.collector.len == 0) {
+            if (self.done) return error.EndOfStream;
+            if (self.accum.total_len == self.expected_size) {
+                self.done = true;
+                return error.EndOfStream;
+            }
+            const status = self.decoder.process(
+                &self.reader,
+                &self.fake_allocating,
+                &self.accum,
+                &self.range_decoder,
+                &self.n_read,
+            ) catch |e| return mapStreamingLzma2Error(e);
+            self.accum.flush() catch |e| return mapStreamingLzma2Error(e);
+            if (self.accum.total_len > self.expected_size or status == .finished) {
+                if (self.accum.total_len != self.expected_size) return CodecError.DecompressFailed;
+                self.done = true;
+            }
+        }
+    }
+};
+
+const Bcj2PullInput = union(enum) {
+    direct: struct { data: []const u8, pos: usize = 0 },
+    lzma2: *Lzma2Pull,
+    lzma: *LzmaPull,
+
+    fn deinit(self: *Bcj2PullInput, allocator: std.mem.Allocator) void {
+        switch (self.*) {
+            .direct => {},
+            .lzma2 => |decoder| decoder.deinit(allocator),
+            .lzma => |decoder| decoder.deinit(allocator),
+        }
+    }
+
+    fn readByte(self: *Bcj2PullInput) PullError!u8 {
+        return switch (self.*) {
+            .direct => |*stream| blk: {
+                if (stream.pos == stream.data.len) return error.EndOfStream;
+                const byte = stream.data[stream.pos];
+                stream.pos += 1;
+                break :blk byte;
+            },
+            .lzma2 => |decoder| decoder.readByte(),
+            .lzma => |decoder| decoder.readByte(),
+        };
+    }
+
+    fn readBe32(self: *Bcj2PullInput) PullError!u32 {
+        var bytes: [4]u8 = undefined;
+        for (&bytes) |*byte| byte.* = try self.readByte();
+        return std.mem.readInt(u32, &bytes, .big);
+    }
+};
+
+const Bcj2SinkOutput = struct {
+    const capacity = 16 * 1024;
+
+    downstream: *OutputSink,
+    expected_size: u64,
+    total: u64 = 0,
+    buffer: [capacity]u8 = undefined,
+    len: usize = 0,
+
+    fn writeByte(self: *Bcj2SinkOutput, byte: u8) StreamingError!void {
+        if (self.total >= self.expected_size) return CodecError.DecompressFailed;
+        if (self.len == self.buffer.len) try self.flush();
+        self.buffer[self.len] = byte;
+        self.len += 1;
+        self.total += 1;
+    }
+
+    fn writeLe32(self: *Bcj2SinkOutput, value: u32) StreamingError!void {
+        var bytes: [4]u8 = undefined;
+        std.mem.writeInt(u32, &bytes, value, .little);
+        for (bytes) |byte| try self.writeByte(byte);
+    }
+
+    fn flush(self: *Bcj2SinkOutput) StreamingError!void {
+        if (self.len == 0) return;
+        try self.downstream.write(self.buffer[0..self.len]);
+        self.len = 0;
+    }
+};
+
+fn initBcj2PullInput(
+    coder: anytype,
+    packed_data: []const u8,
+    unpack_size: u64,
+    allocator: std.mem.Allocator,
+) StreamingError!Bcj2PullInput {
+    const mid = coder.method_id;
+    if (mid.len == 1 and mid[0] == METHOD_COPY) {
+        if (@as(u64, @intCast(packed_data.len)) != unpack_size) return CodecError.DecompressFailed;
+        return .{ .direct = .{ .data = packed_data } };
+    }
+    if (mid.len == 1 and mid[0] == METHOD_LZMA2) {
+        return .{ .lzma2 = try Lzma2Pull.create(packed_data, unpack_size, coder.properties, allocator) };
+    }
+    if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) {
+        return .{ .lzma = try LzmaPull.create(packed_data, unpack_size, coder.properties, allocator) };
+    }
+    return CodecError.UnsupportedMethod;
+}
+
+fn mapPullError(err: PullError) StreamingError {
+    return switch (err) {
+        error.EndOfStream => CodecError.DecompressFailed,
+        error.UnsupportedMethod => CodecError.UnsupportedMethod,
+        error.DecompressFailed => CodecError.DecompressFailed,
+        error.OutOfMemory => CodecError.OutOfMemory,
+        error.ResourceLimitExceeded => SinkError.ResourceLimitExceeded,
+        error.ChecksumError => SinkError.ChecksumError,
+        error.StructuralError => SinkError.StructuralError,
+    };
+}
+
+fn bcj2RangeDecodePull(
+    prob: *u16,
+    range: *u32,
+    code: *u32,
+    rc_stream: *Bcj2PullInput,
+) PullError!u1 {
+    const bound: u32 = (range.* >> 11) *% @as(u32, prob.*);
+    if (code.* < bound) {
+        range.* = bound;
+        prob.* +%= @intCast((@as(u32, BCJ2_BIT_MODEL_TOTAL) - prob.*) >> BCJ2_NUM_MOVE_BITS);
+        if (range.* < BCJ2_TOP) {
+            range.* <<= 8;
+            code.* = (code.* << 8) | try rc_stream.readByte();
+        }
+        return 0;
+    }
+
+    range.* -= bound;
+    code.* -= bound;
+    prob.* -= @intCast(prob.* >> BCJ2_NUM_MOVE_BITS);
+    if (range.* < BCJ2_TOP) {
+        range.* <<= 8;
+        code.* = (code.* << 8) | try rc_stream.readByte();
+    }
+    return 1;
+}
+
+fn decompressBcj2ToSink(
+    folder: anytype,
+    packed_data: []const u8,
+    pack_sizes: []const u64,
+    unpack_size: u64,
+    sink: *OutputSink,
+    allocator: std.mem.Allocator,
+) StreamingError!void {
+    var bcj2_first_in: usize = 0;
+    var found_bcj2 = false;
+    var in_offset: usize = 0;
+    for (folder.coders) |coder| {
+        if (isBcj2Method(coder.method_id)) {
+            bcj2_first_in = in_offset;
+            found_bcj2 = true;
+        }
+        in_offset += @intCast(coder.num_in_streams);
+    }
+    if (!found_bcj2) return CodecError.UnsupportedMethod;
+
+    const pack_offsets = allocator.alloc(usize, pack_sizes.len) catch return CodecError.OutOfMemory;
+    defer allocator.free(pack_offsets);
+    var pack_off: usize = 0;
+    for (pack_sizes, 0..) |pack_size, i| {
+        pack_offsets[i] = pack_off;
+        pack_off = std.math.add(usize, pack_off, @intCast(pack_size)) catch return CodecError.DecompressFailed;
+    }
+    if (pack_off != packed_data.len) return CodecError.DecompressFailed;
+
+    var inputs: [4]?Bcj2PullInput = .{ null, null, null, null };
+    defer for (&inputs) |*maybe_input| {
+        if (maybe_input.*) |*input| input.deinit(allocator);
+    };
+
+    for (0..4) |local_in| {
+        const global_in = bcj2_first_in + local_in;
+        var source_out: ?usize = null;
+        for (folder.bind_pairs) |bind_pair| {
+            if (bind_pair.in_index == global_in) {
+                source_out = @intCast(bind_pair.out_index);
+                break;
+            }
+        }
+
+        if (source_out) |output_index| {
+            var output_offset: usize = 0;
+            var source_coder_idx: ?usize = null;
+            for (folder.coders, 0..) |coder, coder_idx| {
+                const output_count: usize = @intCast(coder.num_out_streams);
+                if (output_index >= output_offset and output_index < output_offset + output_count) {
+                    source_coder_idx = coder_idx;
+                    break;
+                }
+                output_offset += output_count;
+            }
+            const coder_idx = source_coder_idx orelse return CodecError.DecompressFailed;
+            const coder = folder.coders[coder_idx];
+            if (coder.num_in_streams != 1 or coder.num_out_streams != 1) return CodecError.UnsupportedMethod;
+
+            var coder_global_in: usize = 0;
+            for (0..coder_idx) |i| coder_global_in += @intCast(folder.coders[i].num_in_streams);
+            const pack_idx = findPackStreamIndex(folder, coder_global_in, pack_sizes.len) orelse
+                return CodecError.DecompressFailed;
+            if (pack_idx >= pack_sizes.len) return CodecError.DecompressFailed;
+            const start = pack_offsets[pack_idx];
+            const size: usize = @intCast(pack_sizes[pack_idx]);
+            const coder_unpack = if (coder_idx < folder.unpack_sizes.len) folder.unpack_sizes[coder_idx] else 0;
+            inputs[local_in] = try initBcj2PullInput(coder, packed_data[start .. start + size], coder_unpack, allocator);
+        } else {
+            const pack_idx = findPackStreamIndex(folder, global_in, pack_sizes.len) orelse
+                return CodecError.DecompressFailed;
+            if (pack_idx >= pack_sizes.len) return CodecError.DecompressFailed;
+            const start = pack_offsets[pack_idx];
+            const size: usize = @intCast(pack_sizes[pack_idx]);
+            inputs[local_in] = .{ .direct = .{ .data = packed_data[start .. start + size] } };
+        }
+    }
+
+    var probs: [BCJ2_NUM_PROBS]u16 = @splat(BCJ2_BIT_MODEL_TOTAL / 2);
+    var range: u32 = 0xFFFF_FFFF;
+    var code: u32 = 0;
+    _ = inputs[3].?.readByte() catch |e| return mapPullError(e);
+    for (0..4) |_| code = (code << 8) | (inputs[3].?.readByte() catch |e| return mapPullError(e));
+
+    var output = Bcj2SinkOutput{ .downstream = sink, .expected_size = unpack_size };
+    var prev_byte: u8 = 0;
+    while (true) {
+        const byte = inputs[0].?.readByte() catch |e| switch (e) {
+            error.EndOfStream => break,
+            else => return mapPullError(e),
+        };
+        try output.writeByte(byte);
+
+        var prob_idx: ?usize = null;
+        var use_call_stream = false;
+        if (byte == 0xE8) {
+            prob_idx = prev_byte;
+            use_call_stream = true;
+        } else if (byte == 0xE9) {
+            prob_idx = 256;
+        } else if (byte >= 0x80 and byte <= 0x8F and prev_byte == 0x0F) {
+            prob_idx = 257;
+        }
+
+        if (prob_idx) |idx| {
+            const bit = bcj2RangeDecodePull(&probs[idx], &range, &code, &inputs[3].?) catch |e|
+                return mapPullError(e);
+            if (bit == 1) {
+                const address = if (use_call_stream)
+                    inputs[1].?.readBe32() catch |e| return mapPullError(e)
+                else
+                    inputs[2].?.readBe32() catch |e| return mapPullError(e);
+                const relative = address -% @as(u32, @intCast(output.total + 4));
+                try output.writeLe32(relative);
+                prev_byte = @truncate(relative >> 24);
+                continue;
+            }
+        }
+        prev_byte = byte;
+    }
+
+    try output.flush();
+    if (output.total != unpack_size) return CodecError.DecompressFailed;
 }
 
 /// Find the pack stream index for a given global input stream.
@@ -1147,6 +1633,57 @@ const TestFolder = struct {
 	unpack_crc: ?u32 = null,
 };
 
+const TestMaxSingleAllocationAllocator = struct {
+    backing: std.mem.Allocator,
+    max_single_alloc: usize,
+    max_observed_alloc: usize = 0,
+
+    fn init(backing: std.mem.Allocator, max_single_alloc: usize) TestMaxSingleAllocationAllocator {
+        return .{ .backing = backing, .max_single_alloc = max_single_alloc };
+    }
+
+    fn allocator(self: *TestMaxSingleAllocationAllocator) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &vtable };
+    }
+
+    const vtable: std.mem.Allocator.VTable = .{
+        .alloc = alloc,
+        .resize = resize,
+        .remap = remap,
+        .free = free,
+    };
+
+    fn fromContext(ctx: *anyopaque) *TestMaxSingleAllocationAllocator {
+        return @ptrCast(@alignCast(ctx));
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self = fromContext(ctx);
+        self.max_observed_alloc = @max(self.max_observed_alloc, len);
+        if (len > self.max_single_alloc) return null;
+        return self.backing.rawAlloc(len, alignment, ret_addr);
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self = fromContext(ctx);
+        self.max_observed_alloc = @max(self.max_observed_alloc, new_len);
+        if (new_len > self.max_single_alloc) return false;
+        return self.backing.rawResize(memory, alignment, new_len, ret_addr);
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self = fromContext(ctx);
+        self.max_observed_alloc = @max(self.max_observed_alloc, new_len);
+        if (new_len > self.max_single_alloc) return null;
+        return self.backing.rawRemap(memory, alignment, new_len, ret_addr);
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self = fromContext(ctx);
+        self.backing.rawFree(memory, alignment, ret_addr);
+    }
+};
+
 test "codec: copy passthrough" {
 	const allocator = std.testing.allocator;
 	const input = "hello world";
@@ -1609,6 +2146,98 @@ test "codec: bcj2 multi-coder pipeline (BCJ2 + LZMA2)" {
 	for (expected[15..32]) |*b| b.* = 0x90;
 
 	try std.testing.expectEqualSlices(u8, &expected, output);
+
+    const Collector = struct {
+        buffer: []u8,
+        len: usize = 0,
+
+        fn outputSink(self: *@This()) OutputSink {
+            return .{ .ptr = self, .writeFn = writeThunk };
+        }
+
+        fn writeThunk(ctx: *anyopaque, data: []const u8) SinkError!void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            if (data.len > self.buffer.len - self.len) return SinkError.StructuralError;
+            @memcpy(self.buffer[self.len .. self.len + data.len], data);
+            self.len += data.len;
+        }
+    };
+    var streamed: [expected.len]u8 = undefined;
+    var collector = Collector{ .buffer = &streamed };
+    var sink = collector.outputSink();
+    try decompressFolderToSink(folder, pack_buf, &ps, expected.len, null, &sink, allocator);
+    try std.testing.expectEqual(expected.len, collector.len);
+    try std.testing.expectEqualSlices(u8, &expected, streamed[0..collector.len]);
+}
+
+test "codec: streaming BCJ2 output allocation stays bounded" {
+    const allocator = std.testing.allocator;
+    const output_len = 4 * 1024 * 1024;
+
+    const main_raw = try allocator.alloc(u8, output_len);
+    defer allocator.free(main_raw);
+    @memset(main_raw, 0x90);
+
+    const p = LevelParams.fromLevel(0);
+    const main_comp = try compressLzma2(main_raw, p.dict_size, p.nice_len, .{}, allocator);
+    defer allocator.free(main_comp);
+    const empty_lzma2 = [_]u8{0x00};
+    const rc_raw = [_]u8{ 0, 0, 0, 0, 0 };
+
+    const total_packed = main_comp.len + empty_lzma2.len * 2 + rc_raw.len;
+    const pack_buf = try allocator.alloc(u8, total_packed);
+    defer allocator.free(pack_buf);
+    var off: usize = 0;
+    @memcpy(pack_buf[off .. off + main_comp.len], main_comp);
+    off += main_comp.len;
+    @memcpy(pack_buf[off .. off + empty_lzma2.len], &empty_lzma2);
+    off += empty_lzma2.len;
+    @memcpy(pack_buf[off .. off + empty_lzma2.len], &empty_lzma2);
+    off += empty_lzma2.len;
+    @memcpy(pack_buf[off .. off + rc_raw.len], &rc_raw);
+
+    const pack_sizes = [_]u64{
+        @intCast(main_comp.len),
+        empty_lzma2.len,
+        empty_lzma2.len,
+        rc_raw.len,
+    };
+    const folder = TestFolder{
+        .coders = &.{
+            .{ .method_id = &.{METHOD_LZMA2}, .properties = &.{8}, .num_in_streams = 1, .num_out_streams = 1 },
+            .{ .method_id = &.{METHOD_LZMA2}, .properties = &.{8}, .num_in_streams = 1, .num_out_streams = 1 },
+            .{ .method_id = &.{METHOD_LZMA2}, .properties = &.{8}, .num_in_streams = 1, .num_out_streams = 1 },
+            .{ .method_id = &METHOD_BCJ2, .properties = &.{}, .num_in_streams = 4, .num_out_streams = 1 },
+        },
+        .bind_pairs = &.{
+            .{ .in_index = 3, .out_index = 0 },
+            .{ .in_index = 4, .out_index = 1 },
+            .{ .in_index = 5, .out_index = 2 },
+        },
+        .packed_indices = &.{ 0, 1, 2, 6 },
+        .unpack_sizes = &.{ output_len, 0, 0, output_len },
+    };
+
+    const CountingSink = struct {
+        count: usize = 0,
+
+        fn outputSink(self: *@This()) OutputSink {
+            return .{ .ptr = self, .writeFn = writeThunk };
+        }
+
+        fn writeThunk(ctx: *anyopaque, data: []const u8) SinkError!void {
+            const self: *@This() = @ptrCast(@alignCast(ctx));
+            for (data) |byte| if (byte != 0x90) return SinkError.ChecksumError;
+            self.count += data.len;
+        }
+    };
+    var counter = CountingSink{};
+    var sink = counter.outputSink();
+    var capped = TestMaxSingleAllocationAllocator.init(allocator, Lzma2Pull.max_chunk_output);
+
+    try decompressFolderToSink(folder, pack_buf, &pack_sizes, output_len, null, &sink, capped.allocator());
+    try std.testing.expectEqual(@as(usize, output_len), counter.count);
+    try std.testing.expect(capped.max_observed_alloc < output_len);
 }
 
 test "codec: unsupported method" {

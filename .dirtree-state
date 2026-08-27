@@ -11,9 +11,9 @@ annotate=[
 	flake.nix = Nix package/check/devshell for Zig 0.16; patches Linux executables and runs sandboxed tests
 	include/z7z.h = Public C FFI declarations and error codes for z7z
 	src/archive.zig = Archive create/read/verify orchestration with streaming payload verification.
-	src/codec.zig = 7z codec dispatch, bounded streaming decoders, and executable filters
+	src/codec.zig = 7z codec dispatch with bounded streaming LZMA/LZMA2, x86 BCJ, and BCJ2 pipelines
 	src/ffi.zig = C ABI wrapper around z7z core, dogfooded by CLI and FFI tests
-	src/interop_test.zig = 7zz-oracle extraction, streaming verification, and corruption differential tests
+	src/interop_test.zig = 7zz oracle interop for codecs, filters, encryption, and corruption parity
 	tests/benchmark/benchmark.log = Tracked hyperfine benchmark history for compression and verify timings.
 	tools/verify_bench.zig = Verify microbenchmark harness that repeatedly calls Zig archive.verify() on one loaded archive
 ]

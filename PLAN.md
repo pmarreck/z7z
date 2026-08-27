@@ -251,9 +251,9 @@
   - [x] Add a failing BCJ+LZMA2 streaming-verification regression that passes through retained extraction (completed 2026-08-27 12:40 PM EDT)
   - [x] Add differential verdict/CRC coverage and a packed-region corruption sweep against the extraction path (completed 2026-08-27 12:40 PM EDT)
   - [x] Stream x86 BCJ with four bytes of fixed boundary state and cover split branch operands (completed 2026-08-27 12:40 PM EDT)
-  - [ ] Stream supported fixed-state filters with bounded memory; preserve AES and multi-folder behavior
-  - [ ] Cover BCJ2 and every filter already supported by extraction, or document an extraction-side unsupported method explicitly
-  - [ ] Curiosity poke: verify filter state across sink chunk boundaries and branch operands split across chunks
+  - [x] Stream every filter supported by retained extraction with bounded memory; preserve AES and multi-folder behavior (completed 2026-08-27 12:56 PM EDT)
+  - [x] Stream BCJ2 through pull-based Copy/LZMA/LZMA2 inputs; cover a real 7zz folder graph, corruption parity, and capped allocation (completed 2026-08-27 12:56 PM EDT)
+  - [x] Curiosity poke: verify x86 filter state across sink chunk boundaries and BCJ2 operands across pull refills (completed 2026-08-27 12:56 PM EDT)
   - [ ] Reply to validate with the passing commit SHA and API/artifact notes
 - [ ] Add seekable/range-input verification API without breaking `verify([]const u8, ...)` (validate request, 2026-07-10 EDT)
   - [ ] Add a failing chunked seekable-source test covering end-header reads and payload ranges
