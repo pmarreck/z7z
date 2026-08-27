@@ -535,6 +535,7 @@ fn mapArchiveError(e: archive.ArchiveError) c_int {
 		error.PasswordRequired => Z7Z_ERR_PASSWORD_REQUIRED,
 		error.ResourceLimitExceeded => Z7Z_ERR_RESOURCE_LIMIT,
 		error.EndOfStream => Z7Z_ERR_TRUNCATED,
+		error.InputReadFailed => Z7Z_ERR_INTERNAL,
 	};
 }
 
@@ -572,6 +573,7 @@ test "ffi: error mapping covers all archive errors" {
 	try std.testing.expectEqual(Z7Z_ERR_TRUNCATED, mapArchiveError(error.EndOfStream));
 	try std.testing.expectEqual(Z7Z_ERR_PASSWORD_REQUIRED, mapArchiveError(error.PasswordRequired));
 	try std.testing.expectEqual(Z7Z_ERR_RESOURCE_LIMIT, mapArchiveError(error.ResourceLimitExceeded));
+	try std.testing.expectEqual(Z7Z_ERR_INTERNAL, mapArchiveError(error.InputReadFailed));
 	// create path (anyerror) must surface a missing password distinctly, not as STRUCTURAL/OOM
 	try std.testing.expectEqual(Z7Z_ERR_PASSWORD_REQUIRED, mapCreateError(error.PasswordRequired));
 }

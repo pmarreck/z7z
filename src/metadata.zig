@@ -9,12 +9,14 @@ const Reader = @import("reader.zig").Reader;
 const ReadError = @import("reader.zig").ReadError;
 const crc32 = @import("crc32.zig");
 const codec = @import("codec.zig");
+const range_source = @import("range_source.zig");
 
 pub const ParseError = error{
     StructuralError,
     UnsupportedFeature,
     EndOfStream,
     OutOfMemory,
+    ReadFailed,
 };
 
 // ============================================================================
@@ -137,7 +139,7 @@ pub const ArchiveMetadata = struct {
 /// Parse a next-header region starting with kHeader or kEncodedHeader.
 /// For kEncodedHeader, `full_archive` must be provided to access packed data.
 pub fn parseNextHeader(data: []const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
-    return parseNextHeaderFull(data, null, null, allocator);
+    return parseNextHeaderFromSource(data, null, null, allocator);
 }
 
 /// Parse next-header with access to the full archive (needed for encoded headers).
@@ -147,20 +149,29 @@ pub fn parseNextHeaderWithArchive(data: []const u8, full_archive: ?[]const u8, a
 
 /// Parse next-header with full archive and optional password (for encrypted headers).
 pub fn parseNextHeaderFull(data: []const u8, full_archive: ?[]const u8, password: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
+    if (full_archive) |archive_data| {
+        var slice_source = range_source.SliceSource{ .data = archive_data };
+        return parseNextHeaderFromSource(data, slice_source.source(), password, allocator);
+    }
+    return parseNextHeaderFromSource(data, null, password, allocator);
+}
+
+/// Parse a next header whose encoded-header pack stream can be fetched by range.
+pub fn parseNextHeaderFromSource(data: []const u8, source: ?range_source.RangeSource, password: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
     var r = Reader.init(data);
 
     const first_nid = r.readNid() catch return ParseError.EndOfStream;
 
     return switch (first_nid) {
         .header => parseHeaderBody(&r, allocator),
-        .encoded_header => decodeEncodedHeader(&r, full_archive, password, allocator),
+        .encoded_header => decodeEncodedHeader(&r, source, password, allocator),
         else => ParseError.StructuralError,
     };
 }
 
 /// Decode an encoded header: parse StreamsInfo, decompress, then parse as kHeader.
-fn decodeEncodedHeader(r: *Reader, full_archive: ?[]const u8, password: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
-    const archive_data = full_archive orelse return ParseError.UnsupportedFeature;
+fn decodeEncodedHeader(r: *Reader, maybe_source: ?range_source.RangeSource, password: ?[]const u8, allocator: std.mem.Allocator) ParseError!ArchiveMetadata {
+    const source = maybe_source orelse return ParseError.UnsupportedFeature;
 
     // Parse the StreamsInfo that describes the encoded header
     var hdr_meta = ArchiveMetadata{
@@ -196,12 +207,15 @@ fn decodeEncodedHeader(r: *Reader, full_archive: ?[]const u8, password: ?[]const
 
     const folder = hdr_meta.folders[0];
     const header_size = @import("header.zig").HEADER_SIZE;
-    const pack_start = header_size + @as(usize, @intCast(pi.pack_pos));
-    const pack_size: usize = if (pi.pack_sizes.len > 0) @intCast(pi.pack_sizes[0]) else 0;
-
-    if (pack_start + pack_size > archive_data.len) return ParseError.EndOfStream;
-
-    const packed_data = archive_data[pack_start .. pack_start + pack_size];
+    const pack_start = std.math.add(u64, header_size, pi.pack_pos) catch return ParseError.EndOfStream;
+    const pack_size: u64 = if (pi.pack_sizes.len > 0) pi.pack_sizes[0] else 0;
+    const packed_range = source.readRange(pack_start, pack_size, allocator) catch |err| switch (err) {
+        error.TruncatedInput => return ParseError.EndOfStream,
+        error.ReadFailed => return ParseError.ReadFailed,
+        error.OutOfMemory => return ParseError.OutOfMemory,
+    };
+    defer packed_range.deinit(allocator);
+    const packed_data = packed_range.bytes;
     const unpack_size: u64 = if (folder.unpack_sizes.len > 0)
         folder.unpack_sizes[folder.unpack_sizes.len - 1]
     else

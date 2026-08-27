@@ -15,7 +15,7 @@ A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives t
 - **Full metadata** — mtime, birthtime (fixes [7zz's long-standing bug](https://sourceforge.net/p/sevenzip/bugs/) of storing ctime instead), atime, POSIX permissions
 - **Extended attributes** — xattrs preserved on macOS and Linux, including `com.apple.ResourceFork` (resource forks); stored as custom property 0x7A, invisible to 7zz (`7zz t` validates clean). Ephemeral xattrs (`com.apple.quarantine`, etc.) are excluded. Use `--no-xattr` to skip
 - **Symlink support** — with path-traversal security
-- **Deep verification API** — Zig-native metadata stats, expansion guardrails, and streaming CRC verification without retaining extracted payloads
+- **Deep verification API** — Zig-native metadata stats, expansion guardrails, streaming CRC verification, and seekable range input without retaining extracted payloads
 - **Progress reporting** — rate/ETA on interactive terminals
 - **stdin/stdout** — pipe support via `-`/`@stdin`/`@stdout`
 - **i18n groundwork** — `--lang` flag, `Z7Z_LANG` env var (30-language translation ready)
@@ -27,7 +27,7 @@ A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives t
 CLI (C) ──► C FFI boundary ──► Zig core (pure logic, no I/O)
 ```
 
-All business logic lives in the Zig core with no I/O. The C FFI is exercised by the C CLI, so Zig consumers can import the Zig module directly when they need allocator-aware APIs such as `archive.inspect()` and `archive.verify()`.
+All business logic lives in the Zig core with no direct I/O. The C FFI is exercised by the C CLI, so Zig consumers can import the Zig module directly when they need allocator-aware APIs such as `archive.inspect()`, `archive.verify()`, and `archive.verifyRange()`.
 
 ## Performance
 

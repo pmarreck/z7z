@@ -12,8 +12,11 @@ const codec = @import("codec.zig");
 const aes_crypt = @import("aes_crypt.zig");
 const nid = @import("nid.zig");
 const varint = @import("varint.zig");
+const range_source = @import("range_source.zig");
 const Writer = @import("writer.zig").Writer;
 pub const ProgressContext = @import("progress.zig").ProgressContext;
+pub const RangeSource = range_source.RangeSource;
+pub const RangeReadError = range_source.RangeReadError;
 
 /// Zig 0.16: std.crypto.random was removed. Use io.randomSecure() with a
 /// process-wide single-threaded Io (safe per the bzip2z firsthand note in
@@ -53,6 +56,7 @@ pub const ArchiveError = error{
     OutOfMemory,
     PasswordRequired,
     ResourceLimitExceeded,
+    InputReadFailed,
 };
 
 /// Compression method for archive creation.
@@ -1274,6 +1278,45 @@ fn parseArchiveMetadata(archive_data: []const u8, password: ?[]const u8, allocat
         error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
         error.EndOfStream => return ArchiveError.EndOfStream,
         error.OutOfMemory => return ArchiveError.OutOfMemory,
+        error.ReadFailed => return ArchiveError.InputReadFailed,
+    };
+}
+
+fn mapRangeSourceError(err: range_source.Error) ArchiveError {
+    return switch (err) {
+        error.TruncatedInput => ArchiveError.TruncatedInput,
+        error.ReadFailed => ArchiveError.InputReadFailed,
+        error.OutOfMemory => ArchiveError.OutOfMemory,
+    };
+}
+
+fn parseArchiveMetadataRange(source: RangeSource, password: ?[]const u8, allocator: std.mem.Allocator) ArchiveError!meta.ArchiveMetadata {
+    var signature_bytes: [sig_header.HEADER_SIZE]u8 = undefined;
+    source.readExact(0, &signature_bytes) catch |err| return mapRangeSourceError(err);
+    const hdr = sig_header.parse(&signature_bytes) catch |err| switch (err) {
+        error.NotArchive => return ArchiveError.NotArchive,
+        error.ChecksumError => return ArchiveError.ChecksumError,
+        error.TruncatedInput => return ArchiveError.TruncatedInput,
+    };
+
+    const next_header_start = std.math.add(u64, sig_header.HEADER_SIZE, hdr.next_header_offset) catch
+        return ArchiveError.TruncatedInput;
+    const next_header_end = std.math.add(u64, next_header_start, hdr.next_header_size) catch
+        return ArchiveError.TruncatedInput;
+    if (next_header_end > source.len) return ArchiveError.TruncatedInput;
+
+    const next_header_range = source.readRange(next_header_start, hdr.next_header_size, allocator) catch |err|
+        return mapRangeSourceError(err);
+    defer next_header_range.deinit(allocator);
+    const next_header = next_header_range.bytes;
+    if (crc32.hash(next_header) != hdr.next_header_crc) return ArchiveError.ChecksumError;
+
+    return meta.parseNextHeaderFromSource(next_header, source, password, allocator) catch |err| switch (err) {
+        error.StructuralError => return ArchiveError.StructuralError,
+        error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
+        error.EndOfStream => return ArchiveError.EndOfStream,
+        error.OutOfMemory => return ArchiveError.OutOfMemory,
+        error.ReadFailed => return ArchiveError.InputReadFailed,
     };
 }
 
@@ -1310,7 +1353,7 @@ fn metadataStats(metadata: meta.ArchiveMetadata) ArchiveStats {
     return stats;
 }
 
-fn validateResourceLimits(stats: ArchiveStats, archive_len: usize, opts: VerifyOptions) ArchiveError!void {
+fn validateResourceLimits(stats: ArchiveStats, archive_len: u64, opts: VerifyOptions) ArchiveError!void {
     if (opts.max_total_unpack_size) |limit| {
         if (stats.total_unpack_size > limit) return ArchiveError.ResourceLimitExceeded;
     }
@@ -1321,7 +1364,7 @@ fn validateResourceLimits(stats: ArchiveStats, archive_len: usize, opts: VerifyO
         if (stats.max_file_unpack_size > limit) return ArchiveError.ResourceLimitExceeded;
     }
     if (opts.max_expansion_ratio) |ratio| {
-        const denominator: u64 = @max(1, @as(u64, @intCast(archive_len)));
+        const denominator: u64 = @max(1, archive_len);
         if (ratio == 0) return ArchiveError.ResourceLimitExceeded;
         if (stats.total_unpack_size > denominator *| ratio) return ArchiveError.ResourceLimitExceeded;
     }
@@ -1387,13 +1430,21 @@ pub fn inspect(archive_data: []const u8, password: ?[]const u8, allocator: std.m
 /// metadata limits before decompression and discards each folder immediately
 /// after CRC validation.
 pub fn verify(archive_data: []const u8, opts: VerifyOptions, allocator: std.mem.Allocator) ArchiveError!ArchiveStats {
-    var metadata = try parseArchiveMetadata(archive_data, opts.password, allocator);
+    var slice_source = range_source.SliceSource{ .data = archive_data };
+    return verifyRange(slice_source.source(), opts, allocator);
+}
+
+/// Deep-verify through bounded random-access reads. The callback may return
+/// short reads. Verification retains at most one packed folder at a time and
+/// streams decoded output through the same CRC/resource-limit sink as verify().
+pub fn verifyRange(source: RangeSource, opts: VerifyOptions, allocator: std.mem.Allocator) ArchiveError!ArchiveStats {
+    var metadata = try parseArchiveMetadataRange(source, opts.password, allocator);
     defer metadata.deinit();
 
     const stats = metadataStats(metadata);
-    try validateResourceLimits(stats, archive_data.len, opts);
+    try validateResourceLimits(stats, source.len, opts);
 
-    try verifyPayloadsStreaming(archive_data, metadata, opts, allocator);
+    try verifyPayloadsStreaming(source, metadata, opts, allocator);
     return stats;
 }
 
@@ -1548,7 +1599,7 @@ fn mapStreamingCodecError(err: codec.StreamingError) ArchiveError {
 }
 
 fn verifyPayloadsStreaming(
-    archive_data: []const u8,
+    source: RangeSource,
     metadata: meta.ArchiveMetadata,
     opts: VerifyOptions,
     allocator: std.mem.Allocator,
@@ -1574,21 +1625,24 @@ fn verifyPayloadsStreaming(
         const folder = metadata.folders[fi];
         const num_pack_streams = folderPackStreamCount(folder);
 
-        var folder_pack_size: usize = 0;
+        var folder_pack_size: u64 = 0;
         for (0..num_pack_streams) |pi_offset| {
             const idx = pack_stream_idx + pi_offset;
             if (idx < pi.pack_sizes.len) {
-                folder_pack_size += @intCast(pi.pack_sizes[idx]);
+                folder_pack_size = std.math.add(u64, folder_pack_size, pi.pack_sizes[idx]) catch
+                    return ArchiveError.TruncatedInput;
             }
         }
 
-        var pack_offset: usize = @intCast(pi.pack_pos);
+        var pack_offset = pi.pack_pos;
         for (0..pack_stream_idx) |prev| {
             if (prev < pi.pack_sizes.len) {
-                pack_offset += @intCast(pi.pack_sizes[prev]);
+                pack_offset = std.math.add(u64, pack_offset, pi.pack_sizes[prev]) catch
+                    return ArchiveError.TruncatedInput;
             }
         }
-        const pack_start = sig_header.HEADER_SIZE + pack_offset;
+        const pack_start = std.math.add(u64, sig_header.HEADER_SIZE, pack_offset) catch
+            return ArchiveError.TruncatedInput;
 
         const folder_pack_sizes = if (pack_stream_idx + num_pack_streams <= pi.pack_sizes.len)
             pi.pack_sizes[pack_stream_idx .. pack_stream_idx + num_pack_streams]
@@ -1598,29 +1652,31 @@ fn verifyPayloadsStreaming(
         pack_stream_idx += num_pack_streams;
 
         const unpack_size: u64 = folder.getFinalUnpackSize();
-        if (pack_start + folder_pack_size > archive_data.len) {
-            return ArchiveError.TruncatedInput;
+        {
+            const packed_range = source.readRange(pack_start, folder_pack_size, allocator) catch |err|
+                return mapRangeSourceError(err);
+            defer packed_range.deinit(allocator);
+            const packed_data = packed_range.bytes;
+
+            var sink_state = StreamingVerifySink{
+                .metadata = metadata,
+                .opts = opts,
+                .folder_idx = fi,
+                .folder_sub_count = if (fi < subs_per_folder.len) @intCast(subs_per_folder[fi]) else 1,
+                .unpack_size = unpack_size,
+                .digest_idx = &digest_idx,
+                .sub_idx = &sub_idx,
+                .file_idx = &file_idx,
+                .total_decoded = &total_decoded,
+            };
+            var sink = sink_state.outputSink();
+            codec.decompressFolderToSink(folder, packed_data, folder_pack_sizes, unpack_size, opts.password, &sink, allocator) catch |e| {
+                return mapStreamingCodecError(e);
+            };
+            try sink_state.finish();
         }
-        const packed_data = archive_data[pack_start .. pack_start + folder_pack_size];
 
-        var sink_state = StreamingVerifySink{
-            .metadata = metadata,
-            .opts = opts,
-            .folder_idx = fi,
-            .folder_sub_count = if (fi < subs_per_folder.len) @intCast(subs_per_folder[fi]) else 1,
-            .unpack_size = unpack_size,
-            .digest_idx = &digest_idx,
-            .sub_idx = &sub_idx,
-            .file_idx = &file_idx,
-            .total_decoded = &total_decoded,
-        };
-        var sink = sink_state.outputSink();
-        codec.decompressFolderToSink(folder, packed_data, folder_pack_sizes, unpack_size, opts.password, &sink, allocator) catch |e| {
-            return mapStreamingCodecError(e);
-        };
-        try sink_state.finish();
-
-        pack_bytes_done += @as(u64, @intCast(folder_pack_size));
+        pack_bytes_done += folder_pack_size;
         opts.progress.report(pack_bytes_done, total_pack_size);
     }
 }
@@ -1835,6 +1891,37 @@ const MaxSingleAllocationAllocator = struct {
     fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         const self = fromContext(ctx);
         self.backing.rawFree(memory, alignment, ret_addr);
+    }
+};
+
+const TestChunkedRangeSource = struct {
+    data: []const u8,
+    next_header_start: u64,
+    max_chunk: usize = 7,
+    calls: usize = 0,
+    saw_start_header: bool = false,
+    saw_payload: bool = false,
+    saw_next_header: bool = false,
+
+    fn readAt(ctx: *anyopaque, offset: u64, dest: []u8) RangeReadError!usize {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        self.calls += 1;
+        if (offset == 0) self.saw_start_header = true;
+        if (offset >= sig_header.HEADER_SIZE and offset < self.next_header_start) self.saw_payload = true;
+        if (offset >= self.next_header_start) self.saw_next_header = true;
+        if (offset >= self.data.len or dest.len == 0) return 0;
+        const start: usize = @intCast(offset);
+        const len = @min(self.max_chunk, @min(dest.len, self.data.len - start));
+        @memcpy(dest[0..len], self.data[start .. start + len]);
+        return len;
+    }
+
+    fn source(self: *@This()) RangeSource {
+        return .{
+            .ptr = self,
+            .len = self.data.len,
+            .readFn = readAt,
+        };
     }
 };
 
@@ -2505,6 +2592,55 @@ test "archive: streaming verify honors multi-file substream CRC boundaries" {
     try std.testing.expectError(ArchiveError.ChecksumError, verify(corrupted, .{}, allocator));
 }
 
+test "archive: range verify loops over short reads and preserves substream CRCs" {
+    const allocator = std.testing.allocator;
+    const files = [_]FileEntry{
+        .{ .name = "alpha.txt", .data = "alpha-alpha-alpha" },
+        .{ .name = "bravo.txt", .data = "bravo-bravo-bravo" },
+    };
+    const archive_data = try createWithMethod(&files, .copy, allocator);
+    defer allocator.free(archive_data);
+
+    const hdr = try sig_header.parse(archive_data);
+    const next_header_start = sig_header.HEADER_SIZE + hdr.next_header_offset;
+    var source_ctx = TestChunkedRangeSource{ .data = archive_data, .next_header_start = next_header_start };
+    const stats = try verifyRange(source_ctx.source(), .{}, allocator);
+    try std.testing.expectEqual(@as(u64, files[0].data.len + files[1].data.len), stats.total_unpack_size);
+    try std.testing.expect(source_ctx.calls > 3);
+    try std.testing.expect(source_ctx.saw_start_header);
+    try std.testing.expect(source_ctx.saw_payload);
+    try std.testing.expect(source_ctx.saw_next_header);
+
+    var limited_ctx = TestChunkedRangeSource{ .data = archive_data, .next_header_start = next_header_start };
+    try std.testing.expectError(
+        ArchiveError.ResourceLimitExceeded,
+        verifyRange(limited_ctx.source(), .{ .max_total_unpack_size = stats.total_unpack_size - 1 }, allocator),
+    );
+    try std.testing.expect(!limited_ctx.saw_payload);
+
+    const corrupted = try allocator.dupe(u8, archive_data);
+    defer allocator.free(corrupted);
+    corrupted[sig_header.HEADER_SIZE + files[0].data.len] ^= 0x33;
+    var corrupted_ctx = TestChunkedRangeSource{ .data = corrupted, .next_header_start = next_header_start };
+    try std.testing.expectError(ArchiveError.ChecksumError, verifyRange(corrupted_ctx.source(), .{}, allocator));
+
+    const FailedSource = struct {
+        fn readAt(ctx: *anyopaque, offset: u64, dest: []u8) RangeReadError!usize {
+            _ = ctx;
+            _ = offset;
+            _ = dest;
+            return error.ReadFailed;
+        }
+    };
+    var failed_ctx: u8 = 0;
+    const failed_source = RangeSource{
+        .ptr = &failed_ctx,
+        .len = archive_data.len,
+        .readFn = FailedSource.readAt,
+    };
+    try std.testing.expectError(ArchiveError.InputReadFailed, verifyRange(failed_source, .{}, allocator));
+}
+
 test "archive: inspect rejects overflowing next-header bounds" {
     const hdr = sig_header.encode(.{
         .major_version = 0,
@@ -2515,6 +2651,7 @@ test "archive: inspect rejects overflowing next-header bounds" {
     });
 
     try std.testing.expectError(ArchiveError.TruncatedInput, inspect(&hdr, null, std.testing.allocator));
+    try std.testing.expectError(ArchiveError.TruncatedInput, verify(&hdr, .{}, std.testing.allocator));
 }
 
 test "archive: createMultiFolder groups files into separate folders" {
@@ -2529,6 +2666,14 @@ test "archive: createMultiFolder groups files into separate folders" {
 
     const archive_data = try createMultiFolder(&files, .lzma2, null, LevelParams.DEFAULT_LEVEL, .{}, allocator);
     defer allocator.free(archive_data);
+
+    const range_header = try sig_header.parse(archive_data);
+    var range_ctx = TestChunkedRangeSource{
+        .data = archive_data,
+        .next_header_start = sig_header.HEADER_SIZE + range_header.next_header_offset,
+    };
+    const range_stats = try verifyRange(range_ctx.source(), .{}, allocator);
+    try std.testing.expectEqual(@as(u64, files[0].data.len + files[1].data.len + files[2].data.len), range_stats.total_unpack_size);
 
     // Read it back
     var contents = try read(archive_data, allocator);
@@ -2769,6 +2914,25 @@ test "archive: createWithOptions encrypted with header encryption roundtrip" {
     };
     const archive_data = try createWithOptions(&files, opts, allocator);
     defer allocator.free(archive_data);
+
+    const range_header = try sig_header.parse(archive_data);
+    const next_header_start = sig_header.HEADER_SIZE + range_header.next_header_offset;
+    var range_ctx = TestChunkedRangeSource{
+        .data = archive_data,
+        .next_header_start = next_header_start,
+        .max_chunk = 11,
+    };
+    const range_stats = try verifyRange(range_ctx.source(), .{ .password = password }, allocator);
+    try std.testing.expectEqual(@as(u64, content.len), range_stats.total_unpack_size);
+    try std.testing.expect(range_ctx.saw_payload);
+    try std.testing.expect(range_ctx.saw_next_header);
+
+    var no_password_ctx = TestChunkedRangeSource{
+        .data = archive_data,
+        .next_header_start = next_header_start,
+        .max_chunk = 11,
+    };
+    try std.testing.expectError(ArchiveError.UnsupportedFeature, verifyRange(no_password_ctx.source(), .{}, allocator));
 
     // Opening without password should fail
     const bad_result = read(archive_data, allocator);

@@ -256,9 +256,11 @@
   - [x] Curiosity poke: verify x86 filter state across sink chunk boundaries and BCJ2 operands across pull refills (completed 2026-08-27 12:56 PM EDT)
   - [ ] Reply to validate with the passing commit SHA and API/artifact notes
 - [ ] Add seekable/range-input verification API without breaking `verify([]const u8, ...)` (validate request, 2026-07-10 EDT)
-  - [ ] Add a failing chunked seekable-source test covering end-header reads and payload ranges
-  - [ ] Preserve resource limits, encryption behavior, folder/substream CRC accounting, and output sink semantics
-  - [ ] Curiosity poke: reject offset/length overflow and short reads without allocating the declared archive size
+  - [x] Add a failing chunked seekable-source test covering end-header reads, payload ranges, short reads, and substream CRC failure (completed 2026-08-27 01:12 PM EDT)
+  - [x] Add `RangeSource` and `verifyRange()` while preserving `verify([]const u8, ...)` through a zero-copy slice adapter (completed 2026-08-27 01:12 PM EDT)
+  - [x] Preserve resource limits, encrypted encoded headers, multi-folder handling, folder/substream CRC accounting, and output sink semantics (completed 2026-08-27 01:12 PM EDT)
+  - [x] Curiosity poke: reject offset/length overflow, premature EOF, and callback failure without allocating the declared archive size (completed 2026-08-27 01:12 PM EDT)
+  - [ ] Follow-up: stream packed input within a single solid folder; the first patch retains one packed folder at a time because codec inputs are slices
   - [ ] Reply to validate with the passing commit SHA and consumption notes
 - [ ] Streaming/deep validation surface for validate (requested 2026-07-08 EST)
   - [x] Add failing CRC-mismatch tests for payload/substream verification (completed 2026-07-08 04:42 PM EDT)

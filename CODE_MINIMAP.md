@@ -59,7 +59,8 @@ Archive-level create and read operations.
 - `computeWinAttrib()` — derives win_attrib from FileEntry type (dir/symlink/file), sets POSIX mode bits
 - `LevelParams` — re-export from codec.zig (dict_size + nice_len per level 0-9)
 - `inspect()` — parse archive metadata and return `ArchiveStats` without decompressing payloads
-- `verify()` — deep-verify archive payloads folder-by-folder, streaming Copy/LZMA2 output into a CRC sink instead of retaining decompressed buffers
+- `verify()` — slice-backed deep verification adapter over `verifyRange()`
+- `verifyRange()` — deep-verify through caller-supplied seekable reads, retaining at most one packed folder and streaming decoded Copy/LZMA/LZMA2/filter output into a CRC sink
 - `StreamingVerifySink` — splits decoded folder bytes into substreams, enforces total/folder/file limits, and checks folder/substream CRCs incrementally
 - `create()` / `createWithMethod()` / `createWithMethodAndPassword()` — archive creation (Copy, LZMA2, LZMA2+AES)
 - `createWithLevel()` — archive creation with explicit compression level (0-9)
@@ -84,6 +85,11 @@ Archive-level create and read operations.
 - `decodeEncodedHeader()` — decompresses LZMA/LZMA2-compressed headers
 - `getFinalUnpackSize()` — finds unbound output stream in multi-coder pipelines
 
+## src/range_source.zig
+Bounded random-access input abstraction used by archive verification and encoded-header parsing.
+- `RangeSource` — caller-owned length plus short-read-capable `readFn`; optional `borrowFn` permits zero-copy slice adapters
+- `SliceSource` — zero-copy adapter preserving `verify([]const u8, ...)` allocation behavior
+
 ## src/nid.zig
 7z property ID enum (NID constants from the 7z specification).
 - `Nid` enum — all standard property IDs (header, pack_info, folder, etc.)
@@ -99,7 +105,7 @@ Archive-level create and read operations.
 ## src/codec.zig
 Codec dispatch: decompress packed data for a folder's coder pipeline.
 - `decompressFolder()` — handles single-coder and multi-coder pipelines
-- `OutputSink` / `decompressFolderToSink()` — streaming verification path for single-coder Copy and LZMA2 folders
+- `OutputSink` / `decompressFolderToSink()` — streaming verification path for Copy, LZMA, LZMA2, x86 BCJ, AES chains, and BCJ2 folder graphs
 - `StreamingLzBuffer` — rolling-window LZMA2 accumulator that writes decoded bytes to a sink while preserving dictionary semantics across resets
 - `decompressMultiCoderPipeline()` — BCJ+LZMA2, AES+LZMA2, AES+BCJ+LZMA2
 - `decompressBcj2Pipeline()` — BCJ2 multi-stream DAG (4 sub-streams: main/call/jump/rc)
