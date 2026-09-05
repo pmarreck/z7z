@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -u
 
 # z7z test runner — runs all test suites
 # Exit code = number of failed suites (0 = all pass)

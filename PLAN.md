@@ -1,5 +1,135 @@
 # z7z — Implementation Plan
 
+## Active Roadmap: Complete 7z Verification and Oracle Removal (2026-09-04 EDT)
+
+- [x] Integrate the verified Zig 0.16 stdlib Deflate decoder into retained extraction, sink/range verification, and supported coder chains; use failing tests and record performance (completed 2026-09-04 09:58 PM EDT; tests/benchmark/2026-09-04-deflate.md). Ship through exact-commit Mechatron CI.
+- [x] Repair the pre-existing nondeterministic CLI compression-level fixture exposed by the baseline run; replace random/clock input with deterministic data and let ./test accumulate failures (completed 2026-09-04 09:53 PM EDT; 196/196 Zig and 178/178 CLI checks pass).
+- [x] Integrate ordinary Deflate through std.compress.flate into extraction, sink/range verification, BCJ, BCJ2, and AES pipelines. Permanent oracle fixtures, malformed/truncated inputs, allocation failures, and sink failures pass; ./build and all five ./build_all targets pass (completed 2026-09-04 09:53 PM EDT).
+- [x] Lay out a reviewable, ordered plan for complete feature coverage and eventual oracle removal (completed 2026-09-04 09:06 PM EDT).
+- [x] Incorporate verification-first scope for ../validate and ../validate_gui, with ZIP handled separately and RAR owned by ../rarz (completed 2026-09-04 09:06 PM EDT).
+- [x] Inspect ~/Code projects for an existing Zig Deflate decoder/encoder and assess reuse in 7z verification (completed 2026-09-04 09:10 PM EDT; source inspection only).
+- [x] Trace ../validate Deflate handling and its dependencies as a reuse lead (completed 2026-09-04 09:10 PM EDT; source inspection only).
+- [x] Investigate Zig decoder correctness with independent fixtures, historical stdlib regression cases, Deflate64 distinctions, and bzip2z integration constraints (completed 2026-09-04 09:25 PM EDT; see docs/research/2026-09-04-decoder-reuse.md).
+
+Peter clarified that deflate_fingerprint is an incomplete attempt to reproduce
+original ZIP encoder output byte-for-byte when restoring Office documents from a
+different archive representation. Its forensic identity requirement must not be
+confused with z7z's need to decode and verify existing Deflate streams.
+
+### Contract and Completion Criteria
+
+The codec and archive implementation remains pure Zig, developed from format
+specifications and black-box behavior. Reference executables are temporary
+development tools. They must never become production dependencies. Retain the
+oracle until the entire agreed current-feature inventory passes compatibility
+checks; completing individual codecs does not authorize early oracle removal.
+Keep independently obtained fixtures and expected results after removal.
+
+The official release baseline on 2026-09-04 is 7-Zip 26.03 (2026-09-03), verified
+against https://www.7-zip.org/ and https://www.7-zip.org/history.txt. Pin the actual
+oracle binary version and hash when building the matrix. Reconcile newer releases
+before declaring completion, so a stale baseline cannot satisfy "current."
+
+The target is complete reading and deep verification of current 7z archive
+features, primarily as a library for ../validate and ../validate_gui. ZIP has a
+separate handler; RAR belongs to ../rarz. Other archive containers, the 7-Zip GUI,
+shell integration, and full archive-editing/encoder parity are outside this
+milestone. Existing creation and extraction behavior must keep working.
+Deflate inside a 7z coder pipeline remains in scope even though ZIP is handled
+elsewhere. Inspect the existing pure-Zig Deflate API for reuse before duplicating
+it; preserve allocator ownership, cleanroom provenance, and dependency boundaries.
+No currently supported feature is excluded merely because its algorithm is old.
+Any obsolete exclusion requires documented evidence and Peter's agreement.
+
+### 1. Establish a Falsifiable Inventory
+
+- [x] Record the scope decision and reconcile PROJECT_OVERVIEW.md and README.md with it (completed 2026-09-04 09:53 PM EDT).
+- [ ] Create a machine-readable feature matrix from the pinned binary's capabilities, official user documentation, format specifications, and observed behavior. Do not consult reference implementation source.
+- [ ] Record method/property IDs, valid parameter ranges, decode/inspect/verify support, platform restrictions, test IDs, fixture provenance, and measured status for each row. Track existing write support separately as regression coverage.
+- [ ] Separate implemented, independently verified, missing, and explicitly excluded states. Unknown or skipped coverage blocks completion.
+- [ ] Run the existing suite and a deterministic ReleaseFast baseline before implementation; record wall time, CPU time, memory, compressed size, hardware, and commit.
+- [ ] Audit existing oracle references, fixture provenance, production linkage, and Nix dependencies. Resolve provenance gaps before claiming cleanroom completion.
+- [ ] Curiosity poke: can a passing test exercise an identity filter or skip a missing oracle? Require transformed-data witnesses and fail missing required oracle checks during this phase.
+
+### 2. Establish Permanent Compatibility Evidence
+
+- [ ] Build a versioned fixture corpus with seeded text, random and partially compressible data, architecture-specific branch instructions, empty files, boundary-sized inputs, and multi-file trees.
+- [ ] Capture oracle-generated archives, exact payloads or hashes, metadata, creation commands, oracle version/hash, and expected validity. Include deliberately malformed fixtures with specified rejection reasons.
+- [ ] For every supported operation, test z7z reading oracle output and the oracle reading z7z output where writing is supported. Compare content and metadata; do not require compressed bytes to match when multiple encodings are valid.
+- [ ] Wire retained extraction, sink verification, range verification, Zig APIs, and the dogfooded C ABI/CLI into applicable matrix rows.
+- [ ] Add classifier-set coverage, truncation sweeps, corruption tests paired with valid archives, and seeded property/metamorphic tests. Keep fuzzing and timing benchmarks outside ./test.
+- [ ] Curiosity poke: a z7z-only round trip can preserve matching encoder/decoder bugs. Keep independent vectors and previously validated encoder-output evidence alongside it.
+
+### 3. Complete Codecs and Filters in Small TDD Units
+
+The following gaps come from the existing dispatch code and the earlier inventory;
+recheck their decoding capabilities against 26.03 before marking matrix rows.
+
+- [ ] Implement Delta and Swap2/Swap4 with property validation and split-buffer tests.
+- [ ] Implement ARM64 and RISC-V filters, then ARM, Thumb, PowerPC, SPARC, and IA64. Exercise real transform cases, offsets, alignment, wraparound, and instruction splits.
+- [x] Evaluate Deflate reuse candidates with independent fixtures: pinned Zig 0.16 passes 90 comparisons, short-input tests, and the original #24963 ZIP; fingerprint inspection accepts an invalid backreference (completed 2026-09-04 09:25 PM EDT).
+- [x] Add failing 7z Deflate archive/sink/range regressions, then integrate std.compress.flate with allocator-owned buffers, strict output limits, and before/after measurements (completed 2026-09-04 09:58 PM EDT).
+- [ ] Implement Deflate64 separately; its long-distance witness is incompatible with ordinary Deflate.
+- [x] Evaluate local bzip2z: 2 MiB oracle payload passes, partial sink writes lose output, and repeated-data expansion grows buffers before the sink sees bytes (completed 2026-09-04 09:25 PM EDT).
+- [ ] Integrate a verified green bzip2z revision with all-or-error sink writes, preserved resource/input/cancellation errors, and allocator-enforced limits. Cover multi-block decoding, integrity checks, and legacy encodings still accepted by the current oracle. The investigated sibling worktree contains uncommitted changes.
+- [ ] Implement PPMd with the exact variant and property semantics used by 7z; exercise model resets, memory limits, and truncation.
+- [ ] Audit LZMA, LZMA2, BCJ, BCJ2, and AES across retained extraction, sink verification, and range verification. Close decoding and verification gaps without requiring new encoders for this milestone.
+- [ ] Preserve existing Zstd extension behavior and determine its status separately from official 7-Zip 7z capabilities.
+- [ ] Integrate each codec through archive, verification, C ABI, and CLI paths before declaring that feature complete. Require failing tests first, then full suite/build and measured performance.
+- [ ] Curiosity poke: support legal parameter combinations and tail conditions, not just each method's defaults.
+
+Reuse findings (2026-09-04 EDT, inspected source; no builds/tests run):
+
+- ../deflate_fingerprint/src/encoder.zig provides our own parameterized raw-Deflate encoder, exported through the deflate_fingerprint Zig module. src/inspect.zig:inspectTokens parses stored/fixed/dynamic blocks into an allocated token trace. src/blocks.zig:reconstructFromTokens expands a different token representation into a full output buffer. These are useful primitives, but the inspected APIs do not provide bounded streaming verification or Deflate64 support; they require contract/provenance review before reuse.
+- ../validate/src/core/archive_validators.zig calls zlib.inflateRawWithCrc for ZIP and zlib.validateGzipBodyStream for gzip. src/core/zlib.zig wraps C zlib through @cImport; build.zig.zon pins allyourcodebase/zlib 1.3.2. Its inflateStream callback API also calls C zlib. It is not an existing pure-Zig decoder to import into z7z.
+- validate's source comments cite historical std.compress.flate failures (ziglang/zig#24963); this inspection does not establish their status in the pinned Zig 0.16 toolchain. Reproduce the relevant cases before judging current stdlib reuse.
+- ../blar/src/zip.zig uses std.compress.flate.Decompress in raw mode with retained output; src/zlib_io.zig uses zlib framing. Its src/deflate_emit.zig calls C zlib for encoding. ../pdfz, ../tiffz, and ../c0 Deflate adapters also wrap C zlib. ../zigimg carries Zig encoder code, but the inspected compression directory did not expose a decoder.
+- ../bzip2z/src/bzip2.zig exposes allocator-owned Decompressor state and reader/writer decompression, plus retained-output convenience APIs. validate already imports bzip2z. Treat it as the first BZip2 integration candidate; audit framing, limits, and current tests.
+
+### 4. Complete Archive Structures and Bounded Streaming
+
+- [ ] Exercise and implement valid coder graphs, binding order, multiple packed streams, filter chains, and encrypted combinations, including BCJ2. Reject cycles, invalid bindings, and inconsistent sizes.
+- [ ] Complete plain, encoded, and encrypted headers; external metadata streams where supported; substream defaults; optional CRCs; empty-stream flags; Unicode names; timestamps; attributes; and unknown-property handling.
+- [ ] Cover solid/non-solid/multi-folder archives, zero-length entries, large sizes and offsets, archive prefixes/SFX, trailing data, and split volumes according to observed reference semantics.
+- [ ] Complete packed-input streaming within a single solid folder, including decryption and multi-stream pipelines; account for codec dictionary/model memory explicitly.
+- [ ] Verify slice, short-read range, retained extraction, and sink paths give equivalent content/integrity results under injected read and allocation failures.
+- [ ] Curiosity poke: distinguish malformed input, unsupported features, password errors, resource-limit failures, and valid archives larger than a configured policy permits.
+
+### 5. Integrate the Verification Consumers
+
+- [ ] Inspect ../validate and ../validate_gui consumer contracts; identify the actual library/adaptor ownership before editing either consumer. Keep RAR dispatch delegated to ../rarz and ZIP to its existing handler.
+- [ ] Cover metadata inspection, deep verification, seekable/range reads, split-volume input adapters, password supply, cancellation, and progress where required by those consumers. Keep filesystem I/O in adapters.
+- [ ] Return distinct outcomes for corrupt data, unsupported methods, missing/wrong passwords when distinguishable, missing volumes, input failure, cancellation, and resource limits. An encrypted archive without a password cannot be reported as deeply verified.
+- [ ] Report verification strength when checksums are absent: successful structural decoding cannot prove integrity of every payload byte. Specify treatment of unverifiable/ambiguous cases in consumer tests.
+- [ ] Retain allocator-aware direct Zig APIs while the C CLI continues exercising the C ABI. Test allocation failure and ownership across both boundaries.
+- [ ] Add consumer regressions for the reported RESET archive and representative new methods, plus concurrent verification under caller-provided memory limits. Preserve C CLI verification coverage.
+- [ ] Run relevant runtime tests on supported operating systems; cross-compilation alone does not verify runtime behavior.
+- [ ] Curiosity poke: verify hostile filenames and metadata in memory without creating archive-controlled filesystem paths; callers must not confuse verification with safe extraction.
+
+### 6. Validate the Complete Feature Set
+
+- [ ] Require all applicable matrix cells to pass with no unapproved exclusions, unknowns, or silently skipped tests. Publish counts and evidence by exact commit.
+- [ ] Sweep valid parameter boundaries and feature combinations; exhaust finite small domains and document the sampling strategy for larger combinations.
+- [ ] Run independent acceptance review from specifications and the matrix, plus differential fuzzing and representative real-world archives. Convert every discovered defect into a permanent regression.
+- [ ] Measure ReleaseFast verify performance on deterministic mixed data, recording CPU/wall time, peak memory, and allocations. Retain create/extract regression benchmarks for changed shared code. Investigate regressions before accepting baselines.
+- [ ] Pass ./test, ./build, ./build_all, runtime platform checks, and exact-commit Mechatron CI. Reconcile the pinned inventory with the latest official release.
+- [ ] Curiosity poke: finite testing cannot prove every possible archive correct. Report actual feature/parameter/combination coverage and remaining uncertainty without calling a sample exhaustive.
+
+### 7. Remove the Development Oracle
+
+- [ ] After full parity acceptance, replace remaining live-oracle test/benchmark needs with retained independent fixtures, reference measurements, contract checks, and seeded property tests.
+- [ ] Remove oracle executables and dependencies from the development shell, test runners, benchmarks, CI, and build inputs. Preserve useful provenance and historical measurements.
+- [ ] Run the entire required workflow in an environment with no oracle executable available. Assert test counts so disappearance of differential tests cannot silently reduce coverage.
+- [ ] Verify production and development dependency closures, then commit, push, and confirm Mechatron passes for that exact commit.
+- [ ] Curiosity poke: fixtures preserve past compatibility evidence but cannot independently validate every future encoder output. Future format/encoder changes need fresh independent evidence, with temporary oracle use when required.
+
+Execution order: inventory and permanent evidence first; codecs/filters can then
+proceed independently against agreed interfaces while archive/CLI integration is
+kept incremental. Each completed unit gets its own green commit. Existing packed
+input streaming work remains in scope under step 4. This roadmap supersedes broad
+"Complete" headings below as evidence of overall feature parity; those sections
+record historical delivery of an implemented subset.
+
 ## Phase 1: Foundation (Complete)
 - [x] flake.nix with Zig 0.15.x, 7zz oracle, hyperfine
 - [x] build.zig with test step, ReleaseFast default
@@ -29,7 +159,7 @@
 - [x] C CLI that dogfoods the FFI
 - [x] CLI tests via shell scripts (21 tests)
 
-## Phase 5: Compression Codecs (Complete)
+## Phase 5: Initial Compression Codecs (Delivered Subset)
 - [x] LZMA2 decode (wrapping std.compress.lzma2)
 - [x] LZMA decode (wrapping std.compress.lzma)
 - [x] Encoded header support (kEncodedHeader → decompress → parse)

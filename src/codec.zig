@@ -37,6 +37,7 @@ pub const OutputSink = struct {
 const METHOD_COPY: u8 = 0x00;
 const METHOD_LZMA2: u8 = 0x21;
 const METHOD_LZMA: [3]u8 = .{ 0x03, 0x01, 0x01 };
+const METHOD_DEFLATE: [3]u8 = .{ 0x04, 0x01, 0x08 };
 const METHOD_BCJ_X86: [4]u8 = .{ 0x03, 0x03, 0x01, 0x03 };
 const METHOD_BCJ2: [4]u8 = .{ 0x03, 0x03, 0x01, 0x1B };
 const METHOD_7ZAES: [4]u8 = .{ 0x06, 0xF1, 0x07, 0x01 };
@@ -160,6 +161,8 @@ fn decompressSingleCoderToSink(
 		return decodeLzma2ToSink(packed_data, unpack_size, coder.properties, sink, allocator);
 	} else if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) {
 		return decodeLzmaToSink(packed_data, unpack_size, coder.properties, sink, allocator);
+	} else if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) {
+		return decodeDeflateToSink(packed_data, unpack_size, coder.properties, sink, allocator);
 	}
 	return CodecError.UnsupportedMethod;
 }
@@ -216,7 +219,7 @@ const BcjX86Sink = struct {
 	}
 };
 
-/// Decompress with a single coder (Copy, LZMA2, LZMA, or ZSTD).
+/// Decompress with a single coder (Copy, LZMA2, LZMA, Deflate, or ZSTD).
 fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u64, allocator: std.mem.Allocator) CodecError![]u8 {
 	const mid = coder.method_id;
 	if (mid.len == 1 and mid[0] == METHOD_COPY) {
@@ -225,6 +228,14 @@ fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u
 		return decodeLzma2(packed_data, unpack_size, allocator);
 	} else if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) {
 		return decodeLzma(packed_data, unpack_size, coder.properties, allocator);
+	} else if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) {
+		const size = std.math.cast(usize, unpack_size) orelse return CodecError.DecompressFailed;
+		const decoder = try DeflatePull.create(packed_data, unpack_size, coder.properties, allocator);
+		defer decoder.deinit(allocator);
+		const output = allocator.alloc(u8, size) catch return CodecError.OutOfMemory;
+		errdefer allocator.free(output);
+		if (try decoder.read(output) != size) return CodecError.DecompressFailed;
+		return output;
 	} else if (mid.len == 4 and std.mem.eql(u8, mid, &METHOD_ZSTD)) {
 		return decodeZstd(packed_data, unpack_size, allocator);
 	}
@@ -694,12 +705,14 @@ const Bcj2PullInput = union(enum) {
     direct: struct { data: []const u8, pos: usize = 0 },
     lzma2: *Lzma2Pull,
     lzma: *LzmaPull,
+    deflate: *DeflatePull,
 
     fn deinit(self: *Bcj2PullInput, allocator: std.mem.Allocator) void {
         switch (self.*) {
             .direct => {},
             .lzma2 => |decoder| decoder.deinit(allocator),
             .lzma => |decoder| decoder.deinit(allocator),
+            .deflate => |decoder| decoder.deinit(allocator),
         }
     }
 
@@ -713,6 +726,7 @@ const Bcj2PullInput = union(enum) {
             },
             .lzma2 => |decoder| decoder.readByte(),
             .lzma => |decoder| decoder.readByte(),
+            .deflate => |decoder| decoder.readByte(),
         };
     }
 
@@ -769,6 +783,9 @@ fn initBcj2PullInput(
     }
     if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) {
         return .{ .lzma = try LzmaPull.create(packed_data, unpack_size, coder.properties, allocator) };
+    }
+    if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) {
+        return .{ .deflate = try DeflatePull.create(packed_data, unpack_size, coder.properties, allocator) };
     }
     return CodecError.UnsupportedMethod;
 }
@@ -974,6 +991,7 @@ fn findPackStreamIndex(folder: anytype, global_in: usize, max_pack: usize) ?usiz
 fn isCompressorMethod(mid: []const u8) bool {
 	if (mid.len == 1 and mid[0] == METHOD_LZMA2) return true;
 	if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) return true;
+	if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) return true;
 	if (mid.len == 1 and mid[0] == METHOD_COPY) return true;
 	if (mid.len == 4 and std.mem.eql(u8, mid, &METHOD_ZSTD)) return true;
 	return false;
@@ -997,6 +1015,69 @@ fn is7zAesMethod(mid: []const u8) bool {
 
 fn decodeCopy(data: []const u8, allocator: std.mem.Allocator) CodecError![]u8 {
 	return allocator.dupe(u8, data) catch return CodecError.OutOfMemory;
+}
+
+// Heap ownership keeps the stdlib decoder's input/window pointers stable when
+// this reader is held in a BCJ2 input union or used through a sink adapter.
+const DeflatePull = struct {
+    input: std.Io.Reader,
+    decoder: std.compress.flate.Decompress,
+    window: [std.compress.flate.max_window_len]u8,
+    expected_size: u64,
+    total: u64 = 0,
+
+    fn create(data: []const u8, size: u64, properties: []const u8, allocator: std.mem.Allocator) CodecError!*DeflatePull {
+        if (properties.len != 0) return CodecError.DecompressFailed;
+        const self = allocator.create(DeflatePull) catch return CodecError.OutOfMemory;
+        errdefer allocator.destroy(self);
+        self.input = .fixed(data);
+        self.decoder = .init(&self.input, .raw, &self.window);
+        self.expected_size = size;
+        self.total = 0;
+        if (size == 0) try self.finish();
+        return self;
+    }
+
+    fn deinit(self: *DeflatePull, allocator: std.mem.Allocator) void {
+        allocator.destroy(self);
+    }
+
+    fn finish(self: *DeflatePull) CodecError!void {
+        if (self.total != self.expected_size) return CodecError.DecompressFailed;
+        if (self.decoder.reader.takeByte()) |_| {
+            return CodecError.DecompressFailed;
+        } else |err| switch (err) {
+            error.EndOfStream => {},
+            else => return CodecError.DecompressFailed,
+        }
+        if (self.input.bufferedLen() != 0) return CodecError.DecompressFailed;
+    }
+
+    fn read(self: *DeflatePull, output: []u8) CodecError!usize {
+        const n = self.decoder.reader.readSliceShort(output) catch return CodecError.DecompressFailed;
+        if (n > self.expected_size - self.total) return CodecError.DecompressFailed;
+        self.total += n;
+        if (n == 0 or self.total == self.expected_size) try self.finish();
+        return n;
+    }
+
+    fn readByte(self: *DeflatePull) PullError!u8 {
+        var byte: [1]u8 = undefined;
+        if (try self.read(&byte) == 0) return error.EndOfStream;
+        return byte[0];
+    }
+};
+
+fn decodeDeflateToSink(data: []const u8, size: u64, properties: []const u8, sink: *OutputSink, allocator: std.mem.Allocator) StreamingError!void {
+    const decoder = try DeflatePull.create(data, size, properties, allocator);
+    defer decoder.deinit(allocator);
+    const buffer = allocator.alloc(u8, 16 * 1024) catch return CodecError.OutOfMemory;
+    defer allocator.free(buffer);
+    while (true) {
+        const n = try decoder.read(buffer);
+        if (n == 0) break;
+        try sink.write(buffer[0..n]);
+    }
 }
 
 fn decodeLzma(packed_data: []const u8, unpack_size: u64, properties: []const u8, allocator: std.mem.Allocator) CodecError![]u8 {
@@ -1699,6 +1780,80 @@ test "codec: copy passthrough" {
 	const output = try decompressFolder(folder, input, &.{11}, 11, null, allocator);
 	defer allocator.free(output);
 	try std.testing.expectEqualStrings("hello world", output);
+}
+
+const DeflateTestSink = struct {
+    count: usize = 0,
+    failure: ?SinkError = null,
+
+    fn write(ctx: *anyopaque, bytes: []const u8) SinkError!void {
+        const self: *@This() = @ptrCast(@alignCast(ctx));
+        if (self.failure) |err| return err;
+        self.count += bytes.len;
+    }
+
+    fn sink(self: *@This()) OutputSink {
+        return .{ .ptr = self, .writeFn = write };
+    }
+};
+
+test "codec: Deflate decodes raw data and rejects malformed framing and sizes" {
+    const allocator = std.testing.allocator;
+    const coder = meta.Coder{ .method_id = &.{ 4, 1, 8 }, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+    const hello = [_]u8{ 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00 };
+    const decoded = try decompressSingleCoder(coder, &hello, 5, allocator);
+    defer allocator.free(decoded);
+    try std.testing.expectEqualStrings("hello", decoded);
+    var state = DeflateTestSink{};
+    var sink = state.sink();
+    try decompressSingleCoderToSink(coder, &hello, 5, &sink, allocator);
+    try std.testing.expectEqual(@as(usize, 5), state.count);
+    for ([_]u64{ 0, 4, 6 }) |size| {
+        state.count = 0;
+        try std.testing.expectError(error.DecompressFailed, decompressSingleCoder(coder, &hello, size, allocator));
+        try std.testing.expectError(error.DecompressFailed, decompressSingleCoderToSink(coder, &hello, size, &sink, allocator));
+        try std.testing.expect(state.count <= size);
+    }
+    for (0..hello.len) |n| {
+        try std.testing.expectError(error.DecompressFailed, decompressSingleCoder(coder, hello[0..n], 5, allocator));
+        try std.testing.expectError(error.DecompressFailed, decompressSingleCoderToSink(coder, hello[0..n], 5, &sink, allocator));
+    }
+    for ([_][]const u8{ &.{0x07}, &.{ 0x03, 0x02, 0x00 }, &(hello ++ .{0}) }) |invalid| {
+        try std.testing.expectError(error.DecompressFailed, decompressSingleCoder(coder, invalid, 5, allocator));
+        try std.testing.expectError(error.DecompressFailed, decompressSingleCoderToSink(coder, invalid, 5, &sink, allocator));
+    }
+    const empty = try decompressSingleCoder(coder, &.{ 3, 0 }, 0, allocator);
+    defer allocator.free(empty);
+    try std.testing.expectEqual(@as(usize, 0), empty.len);
+    try decompressSingleCoderToSink(coder, &.{ 3, 0 }, 0, &sink, allocator);
+    var invalid_props = coder;
+    invalid_props.properties = &.{1};
+    try std.testing.expectError(error.DecompressFailed, decompressSingleCoder(invalid_props, &hello, 5, allocator));
+    try std.testing.expectError(error.DecompressFailed, decompressSingleCoderToSink(invalid_props, &hello, 5, &sink, allocator));
+    var deflate64 = coder;
+    deflate64.method_id = &.{ 4, 1, 9 };
+    try std.testing.expectError(error.UnsupportedMethod, decompressSingleCoder(deflate64, &hello, 5, allocator));
+}
+
+fn deflateAllocationProbe(allocator: std.mem.Allocator) !void {
+    const coder = meta.Coder{ .method_id = &.{ 4, 1, 8 }, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+    const hello = [_]u8{ 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00 };
+    const decoded = try decompressSingleCoder(coder, &hello, 5, allocator);
+    defer allocator.free(decoded);
+    var state = DeflateTestSink{};
+    var sink = state.sink();
+    try decompressSingleCoderToSink(coder, &hello, 5, &sink, allocator);
+}
+
+test "codec: Deflate propagates allocation and sink failures" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, deflateAllocationProbe, .{});
+    const coder = meta.Coder{ .method_id = &.{ 4, 1, 8 }, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 };
+    const hello = [_]u8{ 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00 };
+    for ([_]SinkError{ error.OutOfMemory, error.ResourceLimitExceeded, error.ChecksumError, error.StructuralError }) |err| {
+        var state = DeflateTestSink{ .failure = err };
+        var sink = state.sink();
+        try std.testing.expectError(err, decompressSingleCoderToSink(coder, &hello, 5, &sink, std.testing.allocator));
+    }
 }
 
 test "codec: lzma2 decompress" {

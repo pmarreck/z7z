@@ -8,18 +8,25 @@ close=[
 
 annotate=[
 	.mechatron-prime/targets = Exact-commit Mechatron targets for native tests and five release builds
+	PLAN.md = Ordered 7z verification roadmap, feature inventory, and oracle removal gates
+	PROJECT_OVERVIEW.md = Pure-Zig 7z architecture and verification scope for validate consumers
 	README.md = Project overview, Mechatron badge, features, build commands, and usage
 	bm = Hyperfine benchmark suite for compression and z7z verify microbenchmarks over deterministic datasets
 	build_all = Five-target ReleaseFast cross-build entry point
 	cli/main.c = C CLI dogfooding the FFI with cross-platform metadata and extraction adapters
+	docs/research/2026-09-04-decoder-reuse.md = Measured Deflate and BZip2 reuse findings, provenance, and integration constraints
+	docs/research/decoder-reuse-probe.zig = Standalone candidate suitability experiment; two known diagnostic failures
 	flake.nix = Nix package/check/devshell with five explicit Mechatron cross-build outputs
 	include/z7z.h = Public C FFI declarations and error codes for z7z
 	src/archive.zig = Archive create/read plus slice and range-backed streaming verification orchestration
-	src/codec.zig = 7z codec dispatch with bounded streaming LZMA/LZMA2, x86 BCJ, and BCJ2 pipelines
+	src/codec.zig = 7z codec dispatch with allocator-owned stdlib Deflate and bounded LZMA/BCJ pipelines
 	src/ffi.zig = C ABI wrapper around z7z core, dogfooded by CLI and FFI tests
+	src/fixtures/deflate = Independent 7-Zip 26.00 Deflate pipeline fixtures and provenance
 	src/interop_test.zig = 7zz oracle interop for codecs, filters, encryption, and corruption parity
 	src/metadata.zig = 7z header parser with range-backed encoded-header decoding
 	src/range_source.zig = Bounded short-read random-access source with optional zero-copy borrowing
+	tests/benchmark/2026-09-04-deflate.json = Raw hyperfine wall/CPU samples including initial outliers and pinned controls
+	tests/benchmark/2026-09-04-deflate.md = Deflate throughput and LZMA2 before/after controls, caveats, and reproduction
 	tests/benchmark/benchmark.log = Tracked hyperfine benchmark history for compression and verify timings.
 	tools/verify_bench.zig = Verify microbenchmark harness that repeatedly calls Zig archive.verify() on one loaded archive
 ]

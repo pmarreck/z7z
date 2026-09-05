@@ -3,7 +3,7 @@
 [![Mechatron Prime CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fthelio-nixos.tail66c90.ts.net%2Fbadges%2Fz7z.json&style=for-the-badge)](https://thelio-nixos.tail66c90.ts.net/mechatron-prime/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives that are fully interoperable with the reference `7-Zip` implementation.
+A cleanroom 7z archive implementation in Zig. Creates, extracts, and verifies archives using the methods listed below. Complete current 7z verification coverage for `validate` and `validate_gui` is the goal; remaining codecs and archive features are tracked in [PLAN.md](PLAN.md). ZIP and RAR containers belong to separate libraries.
 
 ## Features
 
@@ -15,6 +15,7 @@ A cleanroom 7z archive implementation in Zig. Creates and extracts 7z archives t
 - **Extended attributes** — xattrs preserved on macOS and Linux, including `com.apple.ResourceFork` (resource forks); stored as custom property 0x7A, invisible to 7zz (`7zz t` validates clean). Ephemeral xattrs (`com.apple.quarantine`, etc.) are excluded. Use `--no-xattr` to skip
 - **Symlink support** — with path-traversal security
 - **Deep verification API** — Zig-native metadata stats, expansion guardrails, streaming CRC verification, and seekable range input without retaining extracted payloads
+- **Deflate decoding** via Zig 0.16's standard library, including BCJ, BCJ2, and encrypted pipelines. Deflate64 remains a separate pending codec.
 - **Progress reporting** — rate/ETA on interactive terminals
 - **stdin/stdout** — pipe support via `-`/`@stdin`/`@stdout`
 - **i18n groundwork** — `--lang` flag, `Z7Z_LANG` env var (30-language translation ready)

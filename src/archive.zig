@@ -2530,6 +2530,54 @@ test "archive: verify copy payload does not allocate full folder output" {
     try std.testing.expect(capped.max_observed_alloc < large.len);
 }
 
+test "archive: Deflate fixtures extract and verify through bounded range input" {
+    const allocator = std.testing.allocator;
+    const fixtures = [_][]const u8{
+        @embedFile("fixtures/deflate/plain.7z"),
+        @embedFile("fixtures/deflate/bcj.7z"),
+        @embedFile("fixtures/deflate/bcj2.7z"),
+        @embedFile("fixtures/deflate/encrypted.7z"),
+    };
+    const expected_a = "Deflate fixture: " ** 16384;
+    const expected_b = [_]u8{ 0x90, 0xe8, 0x10, 0, 0, 0, 0xe9, 0x20, 0, 0, 0 } ** 8192;
+    for (fixtures) |bytes| {
+        var contents = try readWithPassword(bytes, "fixture-password", allocator);
+        defer contents.deinit();
+        try std.testing.expectEqual(@as(usize, 2), contents.file_data.len);
+        try std.testing.expectEqualSlices(u8, expected_a, contents.file_data[0]);
+        try std.testing.expectEqualSlices(u8, &expected_b, contents.file_data[1]);
+
+        var capped = MaxSingleAllocationAllocator.init(allocator, 96 * 1024);
+        const opts = VerifyOptions{ .password = "fixture-password" };
+        const stats = try verify(bytes, opts, capped.allocator());
+        try std.testing.expectEqual(@as(u64, expected_a.len + expected_b.len), stats.total_unpack_size);
+        try std.testing.expect(capped.max_observed_alloc < expected_a.len);
+
+        const sig = try sig_header.parse(bytes);
+        var input = TestChunkedRangeSource{ .data = bytes, .next_header_start = sig.nextHeaderAbsoluteOffset() };
+        const ranged = try verifyRange(input.source(), opts, capped.allocator());
+        try std.testing.expectEqual(stats.total_unpack_size, ranged.total_unpack_size);
+        try std.testing.expect(input.calls > 3);
+        try std.testing.expectError(ArchiveError.ResourceLimitExceeded, verify(bytes, .{
+            .password = "fixture-password", .max_total_unpack_size = stats.total_unpack_size - 1,
+        }, allocator));
+    }
+}
+
+test "archive: Deflate corruption is rejected by extraction and verification" {
+    const allocator = std.testing.allocator;
+    const original = @embedFile("fixtures/deflate/plain.7z");
+    const bytes = try allocator.dupe(u8, original);
+    defer allocator.free(bytes);
+    bytes[sig_header.HEADER_SIZE] |= 0x06; // Reserved Deflate block type.
+    if (read(bytes, allocator)) |result| {
+        var contents = result;
+        contents.deinit();
+        return error.TestUnexpectedResult;
+    } else |_| {}
+    if (verify(bytes, .{}, allocator)) |_| return error.TestUnexpectedResult else |_| {}
+}
+
 test "archive: verify lzma2 payload is bounded by decoder window, not folder output" {
     const allocator = std.testing.allocator;
 

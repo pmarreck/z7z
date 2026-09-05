@@ -1260,7 +1260,7 @@ echo "--- compression levels ---"
 # Mix repetitive text with some entropy so levels actually diverge.
 mkdir -p "$TMPDIR/leveldata"
 for i in $(seq 1 200); do
-	echo "Line $i: The quick brown fox jumps over the lazy dog. Random=$RANDOM padding=$(date +%N 2>/dev/null || echo $i)" >> "$TMPDIR/leveldata/comptest.txt"
+	printf 'Line %d: The quick brown fox jumps over the lazy dog. Sample=%d padding=%09d\n' "$i" "$((i * 7919 % 32768))" "$((i * i))" >> "$TMPDIR/leveldata/comptest.txt"
 done
 
 # Test -mx=0 (fastest) roundtrip
@@ -1367,6 +1367,23 @@ if command -v 7zz > /dev/null 2>&1; then
 else
 	echo "  SKIP: stdin epoch-ctime checks (7zz not available)"
 fi
+
+# ============================================================================
+# Deflate fixtures exercise the C ABI without requiring a live oracle.
+# ============================================================================
+echo "--- Deflate decoding ---"
+for kind in plain bcj bcj2 encrypted; do
+	if DEFLATE_OUT=$($Z7Z test --password fixture-password "src/fixtures/deflate/$kind.7z" 2>&1); then
+		pass "Deflate: $kind verifies through C CLI"
+	else
+		fail "Deflate: $kind verifies through C CLI ($DEFLATE_OUT)"
+	fi
+	if DEFLATE_OUT=$($Z7Z extract --password fixture-password "src/fixtures/deflate/$kind.7z" "$TMPDIR/deflate_$kind" 2>&1); then
+		pass "Deflate: $kind extracts through C CLI"
+	else
+		fail "Deflate: $kind extracts through C CLI ($DEFLATE_OUT)"
+	fi
+done
 
 # ============================================================================
 # Summary
