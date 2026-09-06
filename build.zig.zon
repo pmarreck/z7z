@@ -4,6 +4,10 @@
     .fingerprint = 0x86f00c8217ae42ae,
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
+        .bzip2z = .{
+            .url = "https://github.com/pmarreck/bzip2z/archive/6113a10a9073c4076a5be5409868b1c868192b38.tar.gz",
+            .hash = "bzip2z-0.1.0-m5NdluccCAAHOlMkmGvJHFqYCFjK6KlL6qSL3UDrirUY",
+        },
         .libmagic = .{
             .url = "https://github.com/pmarreck/libmagic/archive/refs/tags/zig-0.16.0.tar.gz",
             .hash = "libmagic-5.46.0-RysxHIBfCACiotJjtfnDqQ6tBCd8-7SfHvT4Z2TlvEUm",

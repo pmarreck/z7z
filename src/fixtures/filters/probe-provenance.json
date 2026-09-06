@@ -1,0 +1,3041 @@
+{
+  "oracle": "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+  "oracle_sha256": "eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac",
+  "format": "https://github.com/ip7z/7zip/blob/main/DOC/7zFormat.txt",
+  "cases": [
+    {
+      "name": "props-delta-none",
+      "method": "delta",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-none/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "c20e30b900790afc5fad870e720c39318756f22e7439a54c08a876a5613fa4fe"
+    },
+    {
+      "name": "props-delta-one",
+      "method": "delta",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-one/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 1031,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "archive_sha256": "4ab47d41044ce43bac23d292e8305f44da2243086b0fda8a2fb1279a5509a176"
+    },
+    {
+      "name": "props-delta-two",
+      "method": "delta",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "99d1cdefeb6f69c9e888e00252f9421c83f57d03be7e6ded26ebe36ae608cf81"
+    },
+    {
+      "name": "props-delta-three",
+      "method": "delta",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "e958b4611d32bd580aa36d39264d75100f235c9f21c9de41c113c8d91955e359"
+    },
+    {
+      "name": "props-delta-zero",
+      "method": "delta",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-zero/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "b28ed9f309521999689c98bd9090c2f6db024fc4db34614ecbb4a6568c8fcc36"
+    },
+    {
+      "name": "props-delta-unaligned",
+      "method": "delta",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "f9db08f1c7e51d2d249dbdd7859b6c1b717fbb8dd6089a56b8a729c749d7bf8a"
+    },
+    {
+      "name": "props-delta-halfword",
+      "method": "delta",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "511cb786bc50465247ff1027f22df840b40505a682c92ed07b8ac4c1c2a409c2"
+    },
+    {
+      "name": "props-delta-page",
+      "method": "delta",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-page/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "4bcb8dcf495601bb43215ffc9b7352f803af8b289b6a8844e790e6046280bbd7"
+    },
+    {
+      "name": "props-delta-wrap",
+      "method": "delta",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-wrap/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "f810d70a78881de52754e463a2fe280f7db22a65205fa6ccf2783a4921f7408f"
+    },
+    {
+      "name": "props-delta-five",
+      "method": "delta",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-delta-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "639ea862290b5d90705187f49ee680a37164c03a1132af70fecbd4a98d38a4d0"
+    },
+    {
+      "name": "tail-delta-1",
+      "method": "delta",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-delta-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "68981f1735a57cce37de69e1216e820d0c7e29c1aed39425df6f58190642c1b4",
+      "plain_sha256": "9894872072e513ab21159326dbbfc76ad9b88e8ed3796f9bd7e1e0f5f29e452a",
+      "archive_sha256": "ae79e1b83b603070612a7798545289848eae6053c567189ba3c8395c08042a65"
+    },
+    {
+      "name": "tail-delta-2",
+      "method": "delta",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-delta-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "fcffa1e6823ac77b85871149da4b44fbc24634744e89950ce013d9c873a745c5",
+      "plain_sha256": "68d142ac9dd2d4ba2e73b5cd93df0ec7644a1d84ce9f688c20cfe11b0bccd324",
+      "archive_sha256": "59dc63037233e0b0009bc246bff689b25c66270a56bc7e02a457fd81d99dc8cb"
+    },
+    {
+      "name": "tail-delta-3",
+      "method": "delta",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-delta-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "894482c98bb04c572d9e3feda8f19b4829a174b35aac3025b6851b7fa0dc484b",
+      "plain_sha256": "24d2333518f4d3c5287bfb846ea76c32d8d935bfd55c0d424bd56a6a06e79dc7",
+      "archive_sha256": "52b10fbce9346521fe136596494fb3e03f6ec5bde872726a9de70c80e0140ade"
+    },
+    {
+      "name": "props-swap2-none",
+      "method": "swap2",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 1031,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "archive_sha256": "57902d73d51159516d9e59c847ade85ea73bc608f8af0ba9be417995fe7b2d8c"
+    },
+    {
+      "name": "props-swap2-one",
+      "method": "swap2",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "dbf5e22efb95b1c8fa5fef8af97138706e73ad397059b616d0387ce413af426f"
+    },
+    {
+      "name": "props-swap2-two",
+      "method": "swap2",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "7860752ecb34655a9a6b34f8fc92ef557db2ac9e00dcc6e930d529a9c0188324"
+    },
+    {
+      "name": "props-swap2-three",
+      "method": "swap2",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "82ab6b0dbedba544b015746bb5e3bb7d2cf697aa571c27eb366de8aa4275710e"
+    },
+    {
+      "name": "props-swap2-zero",
+      "method": "swap2",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-zero/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "49482b40c560f8c409dba2d2b631f538d789f5e0c34e787eca17a54f0e82695b"
+    },
+    {
+      "name": "props-swap2-unaligned",
+      "method": "swap2",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "db5b927e39e1bba4324b2753d7a8b433b8abc5b73199502d42bd823e61a0b598"
+    },
+    {
+      "name": "props-swap2-halfword",
+      "method": "swap2",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "96f02f353f1b397181f0ff9196e63a010e1f5254782a8643685109ac95a901aa"
+    },
+    {
+      "name": "props-swap2-page",
+      "method": "swap2",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-page/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "e97f949fa0e174fceff5f3f124a3923c76a5e6a86168bbdb28c4dae4efeb4d47"
+    },
+    {
+      "name": "props-swap2-wrap",
+      "method": "swap2",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-wrap/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "8166d67b95d8cf7b37cc8b883704e9ddad5fcdc126403d8056cf24ca8d681347"
+    },
+    {
+      "name": "props-swap2-five",
+      "method": "swap2",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap2-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "99fbc608267511e5c2d2a450cd59d8837e27e599c1f3cdf37274270708334d80"
+    },
+    {
+      "name": "tail-swap2-1",
+      "method": "swap2",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-swap2-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "ab724578354daf40cae8c5e9c8355fdf1770c0f000d949f3d4379b29c4174e39",
+      "plain_sha256": "ec90cd6a6068dbbf70bfc45a4869ebd7df1e534f5cf47c1e109467245e95783e",
+      "archive_sha256": "134c654ef86e7a0a5fa5cb527056222788f0d63a2dfa796ca6bb2f1d7fae53b1"
+    },
+    {
+      "name": "tail-swap2-2",
+      "method": "swap2",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-swap2-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "0ff89b1a211cdcf4ad94955317c474f05664cea1672e3a53f5579d8c17e8e56b",
+      "plain_sha256": "68d142ac9dd2d4ba2e73b5cd93df0ec7644a1d84ce9f688c20cfe11b0bccd324",
+      "archive_sha256": "372f0cb7fabc12e903563d7e5455713dc36157efec938621ffd985df25579c0c"
+    },
+    {
+      "name": "tail-swap2-3",
+      "method": "swap2",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-swap2-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "0f3f6964eb4d2f3c8ac1a6a4236c6d699151e4a84501bd308505f4d67714bcb4",
+      "plain_sha256": "acaa19a77715dc22760819969961633e6e93ab0ae73ed6bfcc6c3e160fb5f99c",
+      "archive_sha256": "0d4e59a86f0f46410e5bddf08a784c77455a086ac34a86858c78fe6855f71eae"
+    },
+    {
+      "name": "props-swap4-none",
+      "method": "swap4",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 1031,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "archive_sha256": "428c7ac9c1aa4f2916b9cf094c82da65917b11f0855e0a32205447e7920458ec"
+    },
+    {
+      "name": "props-swap4-one",
+      "method": "swap4",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "c8077ed211857b9acb6b9a1f30bf26426febd4c25114d6819fbe22e31d8f5132"
+    },
+    {
+      "name": "props-swap4-two",
+      "method": "swap4",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "629ef9312d5e4beecdfc57acad0cf9857f719eefd513ba816562bd115de54a4d"
+    },
+    {
+      "name": "props-swap4-three",
+      "method": "swap4",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "354d294a25bbd3f254f553000e448409bf55cf20c1388bc00d794ccf0c58388c"
+    },
+    {
+      "name": "props-swap4-zero",
+      "method": "swap4",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-zero/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "0ad807a7ecaf42c603c6e57921d36f9ca13b2da78e8d4eec8107a3e510bd830e"
+    },
+    {
+      "name": "props-swap4-unaligned",
+      "method": "swap4",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "b9bd45273f2ff786ff0227135b2c295490a7b7ecf56f7d3ea95707e7841f4168"
+    },
+    {
+      "name": "props-swap4-halfword",
+      "method": "swap4",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "04f14f673bb455894df9deb718265b73f1d6c00544a916fd658f0dcffd4722e3"
+    },
+    {
+      "name": "props-swap4-page",
+      "method": "swap4",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-page/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "e300c228443f98c09ba790b9fca58f775493102f16fad67a925d13c54b64bf73"
+    },
+    {
+      "name": "props-swap4-wrap",
+      "method": "swap4",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-wrap/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "677bc9470a5f3bacfbb4f2ef59b39a199e7abad0f7f57b5fee7708c2339844a0"
+    },
+    {
+      "name": "props-swap4-five",
+      "method": "swap4",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-swap4-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1031,
+      "decoded_bytes": 0,
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "da26eab2ca0b1c260c796d11f6f477665e977ba02ef4019282ccc95ef947f195"
+    },
+    {
+      "name": "tail-swap4-1",
+      "method": "swap4",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-swap4-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "ef78aab7705f548fa8d01c0372abfbceeb7aff7344a75644d6ca09c8d9e252ea",
+      "plain_sha256": "1789cb3f83369f1dc9e0209a78b07148cd8c7130515d54c1716f065ed05f075d",
+      "archive_sha256": "a0124cd6c02db79df19ab6a7591f8cedc9948de99e8032042bca04dab921f96d"
+    },
+    {
+      "name": "tail-swap4-2",
+      "method": "swap4",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-swap4-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "5eb63291fa3505f98a6b19e0525f617d37f62e3b66c5c4bd6d4d49f4a47fbf21",
+      "plain_sha256": "9c87c4fab029df83ef35237d9e308e4a4aab3e70cb953992f5127f638884dec8",
+      "archive_sha256": "390befb3636d7ab669f831e6263ddd039b8c7e76b9c1a09f1aad9fd18aa5ec11"
+    },
+    {
+      "name": "tail-swap4-3",
+      "method": "swap4",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-swap4-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "154573f83cf030f3aedd18bd3211f7942c44e3f26470fc956cc7cb9de21841ca",
+      "plain_sha256": "a2f729318f7b9bb6086a4e6439982174505b350fb746e7dc677a93b151c70389",
+      "archive_sha256": "6035e2e4755dc4724abfe7205e916a2a67d08963bca7bfab9efe20cfbd8d533b"
+    },
+    {
+      "name": "props-arm-none",
+      "method": "arm",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "72d551c973632d08f2a146f6b9a418a5c5a921f811dc398a3b5f03ac97a438ff",
+      "archive_sha256": "ffbcb6841dd99dbe74a0ec36efd1a3b4086916a0edc85a610f4c85400640ce15"
+    },
+    {
+      "name": "props-arm-one",
+      "method": "arm",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "b38c2199af6025e86368230ae06f2506dc366baa3a8e9a9da003f6f2edc4fdef"
+    },
+    {
+      "name": "props-arm-two",
+      "method": "arm",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "c110a06ed6765f7cc31a3a76464169531d1c9508a28450970a521e4b5431ee3d"
+    },
+    {
+      "name": "props-arm-three",
+      "method": "arm",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "c06deca5fad42caa42833b49123e0bec95b310d35ebfb3c1b5feb5272a8758b9"
+    },
+    {
+      "name": "props-arm-zero",
+      "method": "arm",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-zero/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "bbec5993a824a4cf9c636f036b180b8a74d43417773aaa72fdb5c859ce512c53"
+    },
+    {
+      "name": "props-arm-unaligned",
+      "method": "arm",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "8c40c5f8bb7c6cfe97aecbfa787146b1055f8d37e4377d005f8835a056026f03"
+    },
+    {
+      "name": "props-arm-halfword",
+      "method": "arm",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "caada9a63bf297d4436c2dbe66b1b0c8ffd951cfabd8347bc68cadd46b66349c"
+    },
+    {
+      "name": "props-arm-page",
+      "method": "arm",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-page/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "70b3bb738034afe0c50c1c7c558554d882d1d16b6a153b31085cd0300c8e7f37"
+    },
+    {
+      "name": "props-arm-wrap",
+      "method": "arm",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-wrap/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "63ed1025482b306638947aff9e98b7d665b29b7ebce5cab0fb97a0cc9b2e4e5b"
+    },
+    {
+      "name": "props-arm-five",
+      "method": "arm",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "50e7bd96cb0238bcea2bfd701fe7748f12e50e96511286c72dc0dc2ed4fa5365"
+    },
+    {
+      "name": "tail-arm-1",
+      "method": "arm",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-arm-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "4e0e7afc38a10a0767e714feae795137588acd74cd6023a1a3778996f2f470ab",
+      "plain_sha256": "d8d5e49d9da391908e93f86c3d770a29aec7c08c3de106d20c5738bbf7e4eec2",
+      "archive_sha256": "62463cd2125277cf6195a28a538586bcf7fba37507e2ceab31d49f033a436f0d"
+    },
+    {
+      "name": "tail-arm-2",
+      "method": "arm",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-arm-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "56eb66b0a3dec589c7d481453c77198bef113c32304b21e802599b4e670339c7",
+      "plain_sha256": "edfb95a7984017aece85fb102618724f7ebc225c970809cd9de6b6859738c1c8",
+      "archive_sha256": "84e3b2a6301eef6dc8d8f2a71a02b956602015864d6537b777a030ec36ff471c"
+    },
+    {
+      "name": "tail-arm-3",
+      "method": "arm",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-arm-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "0f6e2bf02ea7634e26483483c67fee49bf75134d26f9d021d01ab1a574a5c7d3",
+      "plain_sha256": "e4426dc6aac462807d8b8b6653ae5786f597da12d972404d907711d9ed124469",
+      "archive_sha256": "849653cde8d9f0ed0f1710179b8b9a124e019f802c9825bf42783becdf447f1c"
+    },
+    {
+      "name": "props-armt-none",
+      "method": "armt",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 83,
+      "decoded_bytes": 83,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "2e7c41835c52387121cc24f70a434463a1a122f242c4ac95ae9c075adc96c499",
+      "archive_sha256": "134835199cdcfd32875aaa2a12bf54219d1219c60cd69bf5dd2c55b87e17760d"
+    },
+    {
+      "name": "props-armt-one",
+      "method": "armt",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "b88df1f901eea7775e2d889c1f657e480e5fa7c1846f4348eb8266f8a6a58572"
+    },
+    {
+      "name": "props-armt-two",
+      "method": "armt",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "769ca073c057f0617cc2c515d611c14ad43426de6c0ea6ee57f69856f0a58568"
+    },
+    {
+      "name": "props-armt-three",
+      "method": "armt",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "89002fb86d4ae532ebc324e53c2dac56af7829fc043c2b32ba51fe3b48983bb3"
+    },
+    {
+      "name": "props-armt-zero",
+      "method": "armt",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-zero/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "14c32769a07178af066e6c507c363f188b58db29b206994c2ffebf61aad837b2"
+    },
+    {
+      "name": "props-armt-unaligned",
+      "method": "armt",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "4a3d9267f39d9de1769523f6f7a2cc217f2007e2c85b55697e30a180f0f20719"
+    },
+    {
+      "name": "props-armt-halfword",
+      "method": "armt",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "c22851165df17bee37ab40dff765038a469caf4231f130b7f6e594c103a24ca3"
+    },
+    {
+      "name": "props-armt-page",
+      "method": "armt",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-page/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "97d92b84d99d3c2ad8224e15a80ae96b01808047d4212c6042a08db9f50faa29"
+    },
+    {
+      "name": "props-armt-wrap",
+      "method": "armt",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-wrap/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "ae358cc46666af4fe32a1a6ea06aec79bfd89e3392d82c052dbfdc4695f76c0c"
+    },
+    {
+      "name": "props-armt-five",
+      "method": "armt",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-armt-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 83,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "621f9f08173f7259b4e6bf199c7de78ab677386f2feb03559119144ff307b660"
+    },
+    {
+      "name": "tail-armt-1",
+      "method": "armt",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-armt-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "c1be6d5d286305feae7a809086c3a32a30ae80a689d2b8044636cc52295b3bda",
+      "plain_sha256": "abd20a57a8de4895ac2247c070a5ec4a0dea4cfe08fed5c4b16ce62ee8782b00",
+      "archive_sha256": "95cc14b9c0c7ca8eedbf7784d1f4f71bea85a04bc3576722c1bc3595de17af2c"
+    },
+    {
+      "name": "tail-armt-2",
+      "method": "armt",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-armt-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "00a07dd115cceae5dca30ed23906f69651a78309d2d77d5b6f28a8a5a590c264",
+      "plain_sha256": "4fb4dcd5dfe573c43568cabf41499f85f56ec79da3bedb6f4da8a3f494b7c893",
+      "archive_sha256": "af30e48a3fc1fcc51fbd9ad76ce27b913ba22223d6cd92e7f9f041df5e69b16a"
+    },
+    {
+      "name": "tail-armt-3",
+      "method": "armt",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-armt-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "9f15ea338208b0533cbca382c57310dd72930807b685340251b548e8e4a31b1b",
+      "plain_sha256": "947a06f668cfeb0e7c386b13f64bee90b4ad190d03f685610185d6fd33026cd2",
+      "archive_sha256": "b78a6c160c60e4d618fe084cc6097a41954d7f4a55f7664244ff1fce638c8000"
+    },
+    {
+      "name": "props-ppc-none",
+      "method": "ppc",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "72bb6b02b3231b38078cfe6a4d599ffbe977d97e7b88112b4c45b73a4cbce595",
+      "archive_sha256": "62b0436d84b46efff46bb51aa22f123faca8ea13074b3977ff277e3cf4d13ab4"
+    },
+    {
+      "name": "props-ppc-one",
+      "method": "ppc",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "61641392254f0a6b80d7b988c64112c64835c553dac9126b3ef2dae8bb848b07"
+    },
+    {
+      "name": "props-ppc-two",
+      "method": "ppc",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "fe261a0c0e2a071bac443c6f4159e379afdc45ec0a260ddcca5bb214620bec5f"
+    },
+    {
+      "name": "props-ppc-three",
+      "method": "ppc",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "6c27d58d9b3759de662e3faf80cfe90ee8c5b5471762fdd6a3aa117f173e9176"
+    },
+    {
+      "name": "props-ppc-zero",
+      "method": "ppc",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-zero/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "67ed90a51982e985991e695818aeaa2408e6a3a7c6ed67404db8cb79aab88b30"
+    },
+    {
+      "name": "props-ppc-unaligned",
+      "method": "ppc",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "e9f8a7203b3e807f15121fdb3e662eb6a733989b7d881bca76cefa4ae341a7cc"
+    },
+    {
+      "name": "props-ppc-halfword",
+      "method": "ppc",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "f5cf8ea52103629f3cd6b1c168077641ee161d14e464ff9a53c5527ca459be19"
+    },
+    {
+      "name": "props-ppc-page",
+      "method": "ppc",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-page/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "caa81ac0698c00185d5a6344dbd3e97cbfb77688380a96aa5aae9fe74b1369a1"
+    },
+    {
+      "name": "props-ppc-wrap",
+      "method": "ppc",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-wrap/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "905a2c9895578ae7293efdc5f148a4fef141b2a0c4cb9047986715c783704402"
+    },
+    {
+      "name": "props-ppc-five",
+      "method": "ppc",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ppc-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "4d4563c0c1940a34659f3ae6106940c9c741aee9cdcb5f72b46130873c3e83ae"
+    },
+    {
+      "name": "tail-ppc-1",
+      "method": "ppc",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ppc-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "00fe39feecdeb5a1487a428b912f5d98e83e28e2ee2e9b656700600099c04422",
+      "plain_sha256": "7700cdcd653dcb86450f10d42b07376aa7e120bd956e70576d529464f3eaf6df",
+      "archive_sha256": "dc018c72bbc0154c1a8313668d913a91076a9ad941350be4cc5dc2ba7c3cf7ad"
+    },
+    {
+      "name": "tail-ppc-2",
+      "method": "ppc",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ppc-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "2ddbee9c88432de9fbb5a4b25ba516b2b99dc2bc11dab3da3b2a2470f4d8a966",
+      "plain_sha256": "2ec5a5a3efb2c4f1707c0c382ee17dce709eab3b96d2bd29f6ceba294f6a76fb",
+      "archive_sha256": "66f671f6c479dca747e8a89135af760c668f02a21c11e01e961a7d3bece246b0"
+    },
+    {
+      "name": "tail-ppc-3",
+      "method": "ppc",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ppc-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "8916cd65ee21e836121b6a736e28b1b8c8ceb04fcad34a47512eb5b8df7cb8c1",
+      "plain_sha256": "6c414d9baf6a96517a1163cc1b30ab0f13fb5bef622ab42aed1a1e7a7eb28ccb",
+      "archive_sha256": "66b281d8dab2b3f4862e222436fb3d0aed2670fb6dd73060f214719ecf283b3d"
+    },
+    {
+      "name": "props-sparc-none",
+      "method": "sparc",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "d79100183ed250ef3375bd7755d02a72e1935ee5a25e76b78ff1b93b7b6897e3",
+      "archive_sha256": "845504f9f3605a3941f6eace0d8236722f78df7365d71b89403404608291fed2"
+    },
+    {
+      "name": "props-sparc-one",
+      "method": "sparc",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "5527c31ff9678ec31414aa0f784e28d5ce41249f887ad64d722f1a247758c785"
+    },
+    {
+      "name": "props-sparc-two",
+      "method": "sparc",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "0b9b5e18413fef88be576cbf3f8f693987480c0fd5c1f6b4427c740077aedc9c"
+    },
+    {
+      "name": "props-sparc-three",
+      "method": "sparc",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "b97bbdfa45d2c48d802b40e4cf45f8786eb5216b5b732f949791539d859b0376"
+    },
+    {
+      "name": "props-sparc-zero",
+      "method": "sparc",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-zero/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "984883deae88b5dad4c9db8085c72772e0323831802b4ebfae239948836adc6b"
+    },
+    {
+      "name": "props-sparc-unaligned",
+      "method": "sparc",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "e0efe7996f76678af7230feee934d7f1ba971ee3f330ef1468b4e23ec94804d8"
+    },
+    {
+      "name": "props-sparc-halfword",
+      "method": "sparc",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "e32dd9d93732882d11515f30c6da99178aa9d5266ee66a971f8eac824d812c4b"
+    },
+    {
+      "name": "props-sparc-page",
+      "method": "sparc",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-page/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "16cfd3c248fb35ea1a86868a78c008117fcfd750a4cc8ca91a9ca10b60b29bf4"
+    },
+    {
+      "name": "props-sparc-wrap",
+      "method": "sparc",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-wrap/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "f394a4cacce2cc48a0d1bf1f0066a00f512770b621cebcff7274c954c47e4f51"
+    },
+    {
+      "name": "props-sparc-five",
+      "method": "sparc",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-sparc-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "6738c21c4ee34b1e656fbe16c3fefaddfe42856b85a582a6af77f69136476d8f"
+    },
+    {
+      "name": "tail-sparc-1",
+      "method": "sparc",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-sparc-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "16fdb225bcf7fb28c807e97a9f709e7ded23c90ff1b8fd1a8a8efb9ad1170504",
+      "plain_sha256": "1118e357ff7c5ca7babfa206769e6d2dbf3bd282df36c97ad64edf6ad4c27b2d",
+      "archive_sha256": "b2c652e7a5d156ac8cd329747fe8ab54cf170ef18baf540c101afb69fecdffe3"
+    },
+    {
+      "name": "tail-sparc-2",
+      "method": "sparc",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-sparc-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "ffe4e70f399d206a3ced31b72a6eeb6b5b489d3143ec967bf4f03c9dc57643e6",
+      "plain_sha256": "e9195fb7b72d2e2f16a5d6f55cd39b0209b792bbfc3ef3b378f4f048a0349699",
+      "archive_sha256": "1e2da10c0c3d78044c9333802a04dd61f305f6839dd5be410e25ff284d4947ce"
+    },
+    {
+      "name": "tail-sparc-3",
+      "method": "sparc",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-sparc-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "d71f4be5603bbd119654d2cb163930966d6db722ae3c28e2fe35c5e86f38ef53",
+      "plain_sha256": "afb0808dd75e94125f56bf325886bb8e128449dbc7c1bc7d30c21c320b2e5659",
+      "archive_sha256": "d29fd7a47291f14365d5fbc9140d7cdce16637b0666eb4bbe13adc3141224e2f"
+    },
+    {
+      "name": "props-arm64-none",
+      "method": "arm64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "3bf68839c25d6fb30066e6afd383b7c846d4abb70fdf412637e45c9ebf339441",
+      "archive_sha256": "a10b98fee177d419dbaccc7a2b96320f8510b6742b73565a37b2d2d19080a12e"
+    },
+    {
+      "name": "props-arm64-one",
+      "method": "arm64",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "117553263c8ed971e2b1e05015eaff2cb607f44e1750f1542ee580df746c599f"
+    },
+    {
+      "name": "props-arm64-two",
+      "method": "arm64",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "bfca6b65403dd3e303c625f43f7a724ac7379b24409aadfd777cce8e2a80bed5"
+    },
+    {
+      "name": "props-arm64-three",
+      "method": "arm64",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "40af04374c92ad53466db698740cd62b5954475354d48311bcc02501496cd4ce"
+    },
+    {
+      "name": "props-arm64-zero",
+      "method": "arm64",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-zero/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "3bf68839c25d6fb30066e6afd383b7c846d4abb70fdf412637e45c9ebf339441",
+      "archive_sha256": "2bd1fa146d52a06fe9bd9438941d10fb5bcab86fdf8c0b6716aae5733cfe9635"
+    },
+    {
+      "name": "props-arm64-unaligned",
+      "method": "arm64",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "4eaf8f9e60832594db65d711b2eb06e3159acbfca803e62288cecee39ea13677"
+    },
+    {
+      "name": "props-arm64-halfword",
+      "method": "arm64",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "0606094a39baeee89b7cf04530b3073b175ec2a340903684c624c3046f37266d"
+    },
+    {
+      "name": "props-arm64-page",
+      "method": "arm64",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-page/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "279b308b4f2873c9555f9406d936f9e339a584b9ccef90ec3ce935282d13e3c2",
+      "archive_sha256": "60e554f6a7426c09245186dc52e0ea27310423e8fa2a253a12d93bd0f160b3b4"
+    },
+    {
+      "name": "props-arm64-wrap",
+      "method": "arm64",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-wrap/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "da03dff090188704330e439e23cc035263251f3ddc52fcf92a9366c10fccebf9",
+      "archive_sha256": "df8966394bdafdcd5a6c0658f7cf31e6c629db94436642e61028306c821d2859"
+    },
+    {
+      "name": "props-arm64-five",
+      "method": "arm64",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-arm64-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "daadad4d81909e868e933da377e225b575bcab4566e61a9e3f0f6f96c13d4bc6"
+    },
+    {
+      "name": "tail-arm64-1",
+      "method": "arm64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-arm64-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "bbb0f3c1aa44e4bb9e2132d69159ada1e7f6ffd06fd8641f3ba00229e713f699",
+      "plain_sha256": "4af1e3f2dccf227948de7df87e2fb355e2e830540040dc4fdf01062849bf92ba",
+      "archive_sha256": "9cf49531c3d55a14b752be49dd60575452cdea872fcbb0839f881997531d555f"
+    },
+    {
+      "name": "tail-arm64-2",
+      "method": "arm64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-arm64-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "f4c4f9f09aee1883de5c041466d5f93f9870ecad76928da2e8189bc2a364cee8",
+      "plain_sha256": "1154525b90c0c2401042a202b1c501ed36df0fd56c7845aa4074ab97b04f8ffc",
+      "archive_sha256": "a784d3c6154f54d756f88a54fd69ae5c92cdac88fd4a221c138c1b176ac73cde"
+    },
+    {
+      "name": "tail-arm64-3",
+      "method": "arm64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-arm64-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "26ffa1e60f3843c758628cea01a820a551781fe00f42e3514a9ad56fe37f84b8",
+      "plain_sha256": "9b06f294b8f3d49ccaf47fc24c18d763d025e5853156ad0f2e30c80ec4907015",
+      "archive_sha256": "dd30143f27d5233eb41e3ff8cdf549b9614ef643cc2b2d52dfdf28b0b3bcd9c3"
+    },
+    {
+      "name": "props-ia64-none",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 1539,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "c3bc3f01b0dda04f6ff495b62afef0a18155028c8c315b55fb094cde4ff2f93e",
+      "archive_sha256": "c033b23e94339c5ca2dada27fc7dff34edb7871c0dafeab87072391594e208ff"
+    },
+    {
+      "name": "props-ia64-one",
+      "method": "ia64",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "4389a33fec8e43b9d57e4ae3c22ad87a525d2305fb0cb97af20c8eaa9ada20cf"
+    },
+    {
+      "name": "props-ia64-two",
+      "method": "ia64",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "cb7ffe67e8e54989f418958a5237370077a51154ceab0d8e79640be795b3debf"
+    },
+    {
+      "name": "props-ia64-three",
+      "method": "ia64",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "29eb46151d4f9786334dc326baba77d38cd56fcc7014d26811f20c6f7d55b87f"
+    },
+    {
+      "name": "props-ia64-zero",
+      "method": "ia64",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-zero/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "e03fcf61027c0a448e71f5c4ddbc81a5c11d92b54976b5475a0a659ee2ec3deb"
+    },
+    {
+      "name": "props-ia64-unaligned",
+      "method": "ia64",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "8a376242f06885b0a0033ac06cd905fa873c065f88c15d21b99d903f6c416c24"
+    },
+    {
+      "name": "props-ia64-halfword",
+      "method": "ia64",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-halfword/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "3063419f52a83758a94e2300f396264fd269455d1bd3eb89a9b2f9258e56480b"
+    },
+    {
+      "name": "props-ia64-page",
+      "method": "ia64",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-page/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "141f3001af0520730998a3cdea61e8f3bbde9009a7ccc70b70c6a8790cb9610b"
+    },
+    {
+      "name": "props-ia64-wrap",
+      "method": "ia64",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-wrap/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "072861ce5131ed4abb91535abc45d2be77a5f3135a6e4a01a2f6b44701327ae0"
+    },
+    {
+      "name": "props-ia64-five",
+      "method": "ia64",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-ia64-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 1539,
+      "decoded_bytes": 0,
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "88bfa755cadb857c3b6da993ea2a03f65d305b90cfa0cc02c09594991ca4b4a7"
+    },
+    {
+      "name": "tail-ia64-1",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "adc4461a9519fbd1ec45c679a5515ce59d9f2ed232892068312ec4e9c5d0d3ac",
+      "plain_sha256": "adc4461a9519fbd1ec45c679a5515ce59d9f2ed232892068312ec4e9c5d0d3ac",
+      "archive_sha256": "d80688b3d7999940938a037af937f8684a8b235c9b2070282b4e66685a5f02d4"
+    },
+    {
+      "name": "tail-ia64-2",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "669b4ac622e7b89a635e506f94a428f72dc889603810758e8cafa63877386f7d",
+      "plain_sha256": "669b4ac622e7b89a635e506f94a428f72dc889603810758e8cafa63877386f7d",
+      "archive_sha256": "e26f15f1787a5f1f6428c20de5bfeecd72bc6e2b39814c4e936d63e8fc4758c4"
+    },
+    {
+      "name": "tail-ia64-3",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "694b43099409c5ca92d47646a37f3f6d7fc9fa97862d72246c98a7cced55c2b9",
+      "plain_sha256": "694b43099409c5ca92d47646a37f3f6d7fc9fa97862d72246c98a7cced55c2b9",
+      "archive_sha256": "631fa1d5ad437f747da85442513c3d32e88ecff1eb4f25f1906bab54cfae9b43"
+    },
+    {
+      "name": "tail-ia64-4",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-4/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 36,
+      "decoded_bytes": 36,
+      "encoded_sha256": "67ba1ff81f3e89e2c3a28edfe198732741c21648fde902e39e67f5c584dced62",
+      "plain_sha256": "67ba1ff81f3e89e2c3a28edfe198732741c21648fde902e39e67f5c584dced62",
+      "archive_sha256": "8a7b26ba05d08ce132519abb60d18e5483dbc831439cdf2d0101dc0e4defd7e4"
+    },
+    {
+      "name": "tail-ia64-5",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-5/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 37,
+      "decoded_bytes": 37,
+      "encoded_sha256": "fa42bd1e59934b48ba075fb3ccf3281944eae2f00b6620b979f52ef77094fc84",
+      "plain_sha256": "fa42bd1e59934b48ba075fb3ccf3281944eae2f00b6620b979f52ef77094fc84",
+      "archive_sha256": "42b0f2a22bb2af95f3b612aa04c4346fd9e8013025da52b8b577b44793d0fa71"
+    },
+    {
+      "name": "tail-ia64-6",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-6/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 38,
+      "decoded_bytes": 38,
+      "encoded_sha256": "99954ac8a314bdcb57148848a0dd063af4d493bab39d661bbff7716ae25226d8",
+      "plain_sha256": "99954ac8a314bdcb57148848a0dd063af4d493bab39d661bbff7716ae25226d8",
+      "archive_sha256": "caf2fe3f69b14225b8960806888deeb4ffc2e2dd0ae914908cbe1e11b735bf77"
+    },
+    {
+      "name": "tail-ia64-7",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-7/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 39,
+      "decoded_bytes": 39,
+      "encoded_sha256": "1d1906e9c42a65a7e2583ca36219f8c8b6cb6ea3fc024b997d6066b4898d4a71",
+      "plain_sha256": "1d1906e9c42a65a7e2583ca36219f8c8b6cb6ea3fc024b997d6066b4898d4a71",
+      "archive_sha256": "ec6d24ea6951385a8cedf271980d67a71778a38b4382b4f21c26407eb450e4ba"
+    },
+    {
+      "name": "tail-ia64-8",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-8/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 40,
+      "decoded_bytes": 40,
+      "encoded_sha256": "6e686bf0773b1c726894eb1ac59fc9a2dd19c0d760944d1626f303fd4a4b215d",
+      "plain_sha256": "6e686bf0773b1c726894eb1ac59fc9a2dd19c0d760944d1626f303fd4a4b215d",
+      "archive_sha256": "7bea0a2601960b38a1a01ce7985b2c15ab597c7cddb3bbcd5f10b556dd636b2c"
+    },
+    {
+      "name": "tail-ia64-9",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-9/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 41,
+      "decoded_bytes": 41,
+      "encoded_sha256": "e3c163886ea41d622daeefc0a7f34c156a8a6ef6deebc985e29f055b61dbfe22",
+      "plain_sha256": "e3c163886ea41d622daeefc0a7f34c156a8a6ef6deebc985e29f055b61dbfe22",
+      "archive_sha256": "a4edd29872b90e4e6b0422c526074338eb961cc820e6e68a094a21c9a9fac7e7"
+    },
+    {
+      "name": "tail-ia64-10",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-10/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 42,
+      "decoded_bytes": 42,
+      "encoded_sha256": "f08d5920c643b3e98f96e8790b75953705527a7b03afdb51026322c9d09bff8b",
+      "plain_sha256": "f08d5920c643b3e98f96e8790b75953705527a7b03afdb51026322c9d09bff8b",
+      "archive_sha256": "ddeea2737622c2ea1d2f17a82eb7483269fc839c17f2e6e347521bc233fbd52a"
+    },
+    {
+      "name": "tail-ia64-11",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-11/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 43,
+      "decoded_bytes": 43,
+      "encoded_sha256": "4e2fccc464d226bbd9756bcc92dddaac3b765135810497d9272b1dd06f948ae4",
+      "plain_sha256": "4e2fccc464d226bbd9756bcc92dddaac3b765135810497d9272b1dd06f948ae4",
+      "archive_sha256": "35890f7e7b1ee36041050e9232a02a50103bad01d803e24b51c56751d8086763"
+    },
+    {
+      "name": "tail-ia64-12",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-12/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 44,
+      "decoded_bytes": 44,
+      "encoded_sha256": "999927bd4a13b5a8483c5b64c02f3ec8e47399897d70421d2c10169740ce4834",
+      "plain_sha256": "999927bd4a13b5a8483c5b64c02f3ec8e47399897d70421d2c10169740ce4834",
+      "archive_sha256": "bcc20fa3a1ca4903d344926ccd5ab0777686ac001ed2988fcb4234d994c0bfed"
+    },
+    {
+      "name": "tail-ia64-13",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-13/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 45,
+      "decoded_bytes": 45,
+      "encoded_sha256": "a1a48e458d49a503ec05504e7ecabe68229f611e0ae82597dbcf8090da072c2f",
+      "plain_sha256": "a1a48e458d49a503ec05504e7ecabe68229f611e0ae82597dbcf8090da072c2f",
+      "archive_sha256": "46e1f05126bdf2fa912b35cae9ecc5140b26c9098b0cf7a948198d2667566fb4"
+    },
+    {
+      "name": "tail-ia64-14",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-14/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 46,
+      "decoded_bytes": 46,
+      "encoded_sha256": "138aba14444411723fa4e1565ea7e18a69022f611d76f90631aca059b5afd78f",
+      "plain_sha256": "138aba14444411723fa4e1565ea7e18a69022f611d76f90631aca059b5afd78f",
+      "archive_sha256": "2f443a0049432a9f0aeead08aa9b7bf78040a15346caffbb8a48e9ff2acbca3c"
+    },
+    {
+      "name": "tail-ia64-15",
+      "method": "ia64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-ia64-15/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 47,
+      "decoded_bytes": 47,
+      "encoded_sha256": "77173ee92978fbd6940d8ea8edf2e9214626cadbbb570db57cdaec4636ab88f8",
+      "plain_sha256": "77173ee92978fbd6940d8ea8edf2e9214626cadbbb570db57cdaec4636ab88f8",
+      "archive_sha256": "1bd9ffb0a7c41f532a244d4ee07070be3acda372c2c18886d3d0f3576c27a2ce"
+    },
+    {
+      "name": "props-riscv-none",
+      "method": "riscv",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-none/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "292908a2f306b28cea55c79664ba44cd5f68f1f2bcd8ea01724f1c220ce734f2",
+      "archive_sha256": "d45f722967cd16efd565c0736dced39a8d7d3c5beff2ec6c685ed7717044ff1f"
+    },
+    {
+      "name": "props-riscv-one",
+      "method": "riscv",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-one/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "a61f38096cedb624d7ed66487576ad968bcd5689685314fd4f20150092dadb58"
+    },
+    {
+      "name": "props-riscv-two",
+      "method": "riscv",
+      "properties": [
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-two/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "0084d0dae4a716b8c740484a0114243ec3ab035cd47c2185707a93d0044bacc6"
+    },
+    {
+      "name": "props-riscv-three",
+      "method": "riscv",
+      "properties": [
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-three/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "15fad277236e643dfdbf35201c47cf9042ff0ca6c6be4139c4b02382838e94df"
+    },
+    {
+      "name": "props-riscv-zero",
+      "method": "riscv",
+      "properties": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-zero/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "292908a2f306b28cea55c79664ba44cd5f68f1f2bcd8ea01724f1c220ce734f2",
+      "archive_sha256": "22972f8fa221d3d9f4915124edcdd8249fbc5be22470b492c25f17afe4403622"
+    },
+    {
+      "name": "props-riscv-unaligned",
+      "method": "riscv",
+      "properties": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-unaligned/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "41059cf42f57ece261e5f6ce51277414eeb8babc21399c525715f48a8899d023"
+    },
+    {
+      "name": "props-riscv-halfword",
+      "method": "riscv",
+      "properties": [
+        2,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-halfword/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "1bb48dce292571cebac6003846e856881fcc00716fbfbaf7a9c408f4b28657b8",
+      "archive_sha256": "75e5ad95f8f2ab0d8e73e7251c53712224fd43c7e1b2e23874ca34681886a5ef"
+    },
+    {
+      "name": "props-riscv-page",
+      "method": "riscv",
+      "properties": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-page/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "8ba9f36a8762699830bdf4766baf778689faf74afbc2fd6079839fac243417c6",
+      "archive_sha256": "732e9218eb835c600a44e1998ff54184a6663c156011d931c4a13e31a278896e"
+    },
+    {
+      "name": "props-riscv-wrap",
+      "method": "riscv",
+      "properties": [
+        240,
+        255,
+        255,
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-wrap/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 323,
+      "decoded_bytes": 323,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "43d0b4c90fe996a3ae7963cb33d7f47f748eb7eaa5ba4c06dcf6c075a2b25011",
+      "archive_sha256": "660599f20b393bd7238821bef864a25047aed6032e99f6c8dd961a4fd7aff52c"
+    },
+    {
+      "name": "props-riscv-five",
+      "method": "riscv",
+      "properties": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/props-riscv-five/probe.7z"
+      ],
+      "status": 2,
+      "stderr": "ERROR: Unsupported Method : x\n",
+      "encoded_bytes": 323,
+      "decoded_bytes": 0,
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "plain_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archive_sha256": "c3a83ff354cd3192aadcec0ec44caa0766b4202171b25c7d47df75296907c610"
+    },
+    {
+      "name": "tail-riscv-1",
+      "method": "riscv",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-riscv-1/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 33,
+      "decoded_bytes": 33,
+      "encoded_sha256": "5f23b46303ccabfe38238a69d528170ccddb354690fd7b272540b013afe0b29c",
+      "plain_sha256": "780ab32703101358bdcb12694766753f939f4f748caa26b793eb19537e685afc",
+      "archive_sha256": "4b2f23a6212bdcc1f7bc4c82bde462c2eb3b08b9c3233b50649c6e21c6d6c5e5"
+    },
+    {
+      "name": "tail-riscv-2",
+      "method": "riscv",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-riscv-2/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 34,
+      "decoded_bytes": 34,
+      "encoded_sha256": "09d84c22e0b5387e2c8dc51957646aba132d9f90f47f60549a2d3e5b02b56923",
+      "plain_sha256": "902e05f9128199159a5dae19d2aa24b9cbc6ff2031ea0a8b9a4144d9222fac72",
+      "archive_sha256": "f8cbd24c37297e68326d877f77a6335830d3b075776f1a1ec0b7c2240b649fb8"
+    },
+    {
+      "name": "tail-riscv-3",
+      "method": "riscv",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-riscv-3/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 35,
+      "decoded_bytes": 35,
+      "encoded_sha256": "aba43066f6ff722d4d66b2aa2e3867b2d0e29300729642a1f85052ce7982e77d",
+      "plain_sha256": "6522e691bb4218054a7c6c635a6c7542228f9b58be6a7a3026b5abe896ec13bd",
+      "archive_sha256": "233656a8f36b30fc3656b7a052ad26e1417eb4bc2f6935a2be4e6c7cf70bb437"
+    },
+    {
+      "name": "tail-riscv-4",
+      "method": "riscv",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-riscv-4/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 36,
+      "decoded_bytes": 36,
+      "encoded_sha256": "a5aef085eb2da0d49fa6267b898098a87e8b28d1685ab4e4f0a363a5fb3fa4b7",
+      "plain_sha256": "24ed4845194d71d01d08beebe7a02f16c07c1948162f81b8cba881f01a695d2b",
+      "archive_sha256": "fffd86aa000fb80431b4e64cae380c47b168c2f53a5c48dd8b85dfce8ec8bf1d"
+    },
+    {
+      "name": "tail-riscv-5",
+      "method": "riscv",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-riscv-5/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 37,
+      "decoded_bytes": 37,
+      "encoded_sha256": "efcbd22790a47e4ed31cf9e7d3010c49bfc2c3f74b34f5aa66927af05a3e38bc",
+      "plain_sha256": "6a09c1a6dd13de8bc0adfb500faaa2c97008094d0f915d8e2b3014c68690f9c7",
+      "archive_sha256": "35c1a39e9a309ad6e6032ee98ae9bceb2ea6307a0ecd9943438db9e6e4bdb06d"
+    },
+    {
+      "name": "tail-riscv-6",
+      "method": "riscv",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-riscv-6/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 38,
+      "decoded_bytes": 38,
+      "encoded_sha256": "4ae3395584493bc8c628cc03898ddab5cd594008f133c2ac878131bf1da1ee96",
+      "plain_sha256": "36268d039c5dfddf80c3bc82d6a25814b0d3c4d14b8926512cdefedaed44eb65",
+      "archive_sha256": "d596a5adb45e8cef2769df3ec6660db6edcc3e3b242bda6df72dcc63a751823b"
+    },
+    {
+      "name": "tail-riscv-7",
+      "method": "riscv",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "x",
+        "-so",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/tail-riscv-7/probe.7z"
+      ],
+      "status": 0,
+      "stderr": "",
+      "encoded_bytes": 39,
+      "decoded_bytes": 39,
+      "encoded_sha256": "b3457ea784dfa2002eaab0093f876f19598f05a70d5adfcf5ba610bc7f52a3e1",
+      "plain_sha256": "5702abafb28124c416d7e6afc137f3fcd7d6d48a39d3fd6a2757c79dc0bd377e",
+      "archive_sha256": "8738d0b9bc2c870506df63ca08397b15a34393ad53d56e6205b6bb1c580be29a"
+    }
+  ]
+}

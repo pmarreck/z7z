@@ -7,12 +7,16 @@ const std = @import("std");
 const meta = @import("metadata.zig");
 const lzma2_enc = @import("lzma2_encoder.zig");
 const aes = @import("aes_crypt.zig");
+const deflate64 = @import("deflate64.zig");
+const filters = @import("filters.zig");
+const bzip2 = @import("bzip2_adapter.zig");
 const ProgressContext = @import("progress.zig").ProgressContext;
 
 pub const CodecError = error{
 	UnsupportedMethod,
 	DecompressFailed,
 	OutOfMemory,
+	ResourceLimitExceeded,
 };
 
 pub const SinkError = error{
@@ -38,6 +42,8 @@ const METHOD_COPY: u8 = 0x00;
 const METHOD_LZMA2: u8 = 0x21;
 const METHOD_LZMA: [3]u8 = .{ 0x03, 0x01, 0x01 };
 const METHOD_DEFLATE: [3]u8 = .{ 0x04, 0x01, 0x08 };
+const METHOD_DEFLATE64: [3]u8 = .{ 0x04, 0x01, 0x09 };
+const METHOD_BZIP2: [3]u8 = .{ 0x04, 0x02, 0x02 };
 const METHOD_BCJ_X86: [4]u8 = .{ 0x03, 0x03, 0x01, 0x03 };
 const METHOD_BCJ2: [4]u8 = .{ 0x03, 0x03, 0x01, 0x1B };
 const METHOD_7ZAES: [4]u8 = .{ 0x06, 0xF1, 0x07, 0x01 };
@@ -61,8 +67,8 @@ pub fn decompressFolder(
 		// Single-coder 7zAES (encrypted header without compression)
 		if (is7zAesMethod(coder.method_id)) {
 			const pw = password orelse return CodecError.UnsupportedMethod;
-			return aes.decrypt7zAes(packed_data, coder.properties, pw, unpack_size, allocator) catch
-				return CodecError.DecompressFailed;
+			return aes.decrypt7zAes(packed_data, coder.properties, pw, unpack_size, allocator) catch |err|
+				return mapAesError(err);
 		}
 		return decompressSingleCoder(coder, packed_data, unpack_size, allocator);
 	} else if (folder.coders.len >= 2) {
@@ -87,58 +93,45 @@ pub fn decompressFolderToSink(
 		const coder = folder.coders[0];
 		if (is7zAesMethod(coder.method_id)) {
 			const pw = password orelse return CodecError.UnsupportedMethod;
-			const decrypted = aes.decrypt7zAes(packed_data, coder.properties, pw, unpack_size, allocator) catch
-				return CodecError.DecompressFailed;
+			const decrypted = aes.decrypt7zAes(packed_data, coder.properties, pw, unpack_size, allocator) catch |err|
+				return mapAesError(err);
 			defer allocator.free(decrypted);
 			return sink.write(decrypted);
 		}
 		return decompressSingleCoderToSink(coder, packed_data, unpack_size, sink, allocator);
 	}
 
-	var aes_idx: ?usize = null;
-	var compressor_idx: ?usize = null;
-	var filter_idx: ?usize = null;
-	var bcj2_idx: ?usize = null;
-	for (folder.coders, 0..) |coder, i| {
-		const mid = coder.method_id;
-		if (is7zAesMethod(mid)) {
-			aes_idx = i;
-		} else if (isBcj2Method(mid)) {
-			bcj2_idx = i;
-		} else if (isCompressorMethod(mid)) {
-			compressor_idx = i;
-		} else if (isFilterMethod(mid)) {
-			filter_idx = i;
-		} else {
-			return CodecError.UnsupportedMethod;
-		}
-	}
-    if (bcj2_idx != null) {
+	const stages = try classifyPipeline(folder.coders);
+    if (stages.bcj2_idx != null) {
         return decompressBcj2ToSink(folder, packed_data, pack_sizes, unpack_size, sink, allocator);
     }
 
-	const comp_idx = compressor_idx orelse return CodecError.UnsupportedMethod;
 	var current_data = packed_data;
 	var decrypted_buf: ?[]u8 = null;
 	defer if (decrypted_buf) |buf| allocator.free(buf);
-	if (aes_idx) |ai| {
+	if (stages.aes_idx) |ai| {
 		const pw = password orelse return CodecError.UnsupportedMethod;
 		const aes_unpack = if (ai < folder.unpack_sizes.len)
 			folder.unpack_sizes[ai]
 		else
 			@as(u64, @intCast(packed_data.len));
-		decrypted_buf = aes.decrypt7zAes(packed_data, folder.coders[ai].properties, pw, aes_unpack, allocator) catch
-			return CodecError.DecompressFailed;
+		decrypted_buf = aes.decrypt7zAes(packed_data, folder.coders[ai].properties, pw, aes_unpack, allocator) catch |err|
+			return mapAesError(err);
 		current_data = decrypted_buf.?;
 	}
 
+	const comp_idx = stages.compressor_idx orelse {
+		const fi = stages.filter_idx orelse return CodecError.UnsupportedMethod;
+		return decodeFilterToSink(folder.coders[fi], current_data, unpack_size, sink, allocator);
+	};
 	const comp_unpack = if (comp_idx < folder.unpack_sizes.len)
 		folder.unpack_sizes[comp_idx]
 	else
 		unpack_size;
-	if (filter_idx) |fi| {
-		if (!isBcjX86Method(folder.coders[fi].method_id)) return CodecError.UnsupportedMethod;
-		var filter = BcjX86Sink.init(sink);
+	if (comp_unpack != unpack_size) return CodecError.DecompressFailed;
+	if (stages.filter_idx) |fi| {
+		const filter = try FilterSink.create(folder.coders[fi], sink, allocator);
+		defer allocator.destroy(filter);
 		var filter_output = filter.outputSink();
 		try decompressSingleCoderToSink(folder.coders[comp_idx], current_data, comp_unpack, &filter_output, allocator);
 		return filter.finish();
@@ -163,8 +156,174 @@ fn decompressSingleCoderToSink(
 		return decodeLzmaToSink(packed_data, unpack_size, coder.properties, sink, allocator);
 	} else if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) {
 		return decodeDeflateToSink(packed_data, unpack_size, coder.properties, sink, allocator);
+	} else if (std.mem.eql(u8, mid, &METHOD_DEFLATE64)) {
+		return decodePullToSink(deflate64.Decoder, packed_data, unpack_size, coder.properties, sink, allocator);
+	} else if (std.mem.eql(u8, mid, &METHOD_BZIP2)) {
+		// Keep BZip2's larger decoder frame out of the shared dispatcher.
+		return @call(.never_inline, decodeBzip2ToSink, .{ packed_data, unpack_size, coder.properties, sink, allocator, bzip2.default_decoder_memory_limit });
+	} else if (isFilterMethod(mid)) {
+		return decodeFilterToSink(coder, packed_data, unpack_size, sink, allocator);
 	}
 	return CodecError.UnsupportedMethod;
+}
+
+fn decodeBzip2ToSink(data: []const u8, size: u64, properties: []const u8, sink: *OutputSink, allocator: std.mem.Allocator, memory_limit: usize) StreamingError!void {
+	if (properties.len != 0) return CodecError.DecompressFailed;
+	_ = bzip2.decodeToSink(allocator, data, .{ .expected_size = size, .memory_limit = memory_limit }, sink) catch |err| return switch (err) {
+		error.OutOfMemory => error.OutOfMemory,
+		error.ResourceLimitExceeded => error.ResourceLimitExceeded,
+		error.ChecksumError => error.ChecksumError,
+		error.StructuralError => error.StructuralError,
+		else => error.DecompressFailed,
+	};
+}
+
+const PipelineStages = struct {
+	aes_idx: ?usize = null,
+	compressor_idx: ?usize = null,
+	filter_idx: ?usize = null,
+	bcj2_idx: ?usize = null,
+};
+
+fn classifyPipeline(coders: anytype) CodecError!PipelineStages {
+	var stages: PipelineStages = .{};
+	var compressors: usize = 0;
+	for (coders, 0..) |coder, i| {
+		const mid = coder.method_id;
+		if (is7zAesMethod(mid)) {
+			if (stages.aes_idx != null) return CodecError.UnsupportedMethod;
+			stages.aes_idx = i;
+		} else if (isBcj2Method(mid)) {
+			if (stages.bcj2_idx != null) return CodecError.UnsupportedMethod;
+			stages.bcj2_idx = i;
+		} else if (isCompressorMethod(mid)) {
+			stages.compressor_idx = i;
+			compressors += 1;
+		} else if (isFilterMethod(mid)) {
+			if (stages.filter_idx != null) return CodecError.UnsupportedMethod;
+			stages.filter_idx = i;
+		} else return CodecError.UnsupportedMethod;
+	}
+	if (stages.bcj2_idx != null) {
+		if (stages.aes_idx != null or stages.filter_idx != null) return CodecError.UnsupportedMethod;
+	} else if (compressors > 1 or (compressors == 0 and stages.filter_idx == null)) {
+		return CodecError.UnsupportedMethod;
+	}
+	return stages;
+}
+
+const BufferedFilterOutput = struct {
+	downstream: *OutputSink,
+	buffer: [16 * 1024]u8 = undefined,
+	len: usize = 0,
+
+	pub fn write(self: *@This(), data: []const u8) SinkError!void {
+		var pos: usize = 0;
+		while (pos < data.len) {
+			const n = @min(self.buffer.len - self.len, data.len - pos);
+			@memcpy(self.buffer[self.len..][0..n], data[pos..][0..n]);
+			self.len += n;
+			pos += n;
+			if (self.len == self.buffer.len) try self.flush();
+		}
+	}
+
+	fn flush(self: *@This()) SinkError!void {
+		if (self.len == 0) return;
+		try self.downstream.write(self.buffer[0..self.len]);
+		self.len = 0;
+	}
+
+	fn outputSink(self: *@This()) OutputSink {
+		return .{ .ptr = self, .writeFn = writeThunk };
+	}
+
+	fn writeThunk(ctx: *anyopaque, data: []const u8) SinkError!void {
+		const self: *@This() = @ptrCast(@alignCast(ctx));
+		return self.write(data);
+	}
+};
+
+// Heap ownership keeps the x86 downstream pointer stable and bounds buffering
+// independently of stream length. Other filters emit units of only 1-16 bytes.
+const FilterSink = struct {
+	decoder: union(enum) { x86: BcjX86Sink, other: filters.Decoder },
+	buffered: BufferedFilterOutput,
+	buffered_sink: OutputSink = undefined,
+
+	fn create(coder: anytype, downstream: *OutputSink, allocator: std.mem.Allocator) CodecError!*FilterSink {
+		const self = allocator.create(FilterSink) catch return CodecError.OutOfMemory;
+		errdefer allocator.destroy(self);
+		self.buffered = .{ .downstream = downstream };
+		self.buffered_sink = self.buffered.outputSink();
+		if (isBcjX86Method(coder.method_id)) {
+			self.decoder = .{ .x86 = BcjX86Sink.init(&self.buffered_sink) };
+		} else {
+			self.decoder = .{ .other = filters.Decoder.init(coder.method_id, coder.properties) catch |err| switch (err) {
+				error.UnsupportedMethod => return CodecError.UnsupportedMethod,
+				else => return CodecError.DecompressFailed,
+			} };
+		}
+		return self;
+	}
+
+	fn outputSink(self: *FilterSink) OutputSink {
+		return .{ .ptr = self, .writeFn = writeThunk };
+	}
+
+	fn writeThunk(ctx: *anyopaque, data: []const u8) SinkError!void {
+		const self: *FilterSink = @ptrCast(@alignCast(ctx));
+		return self.write(data);
+	}
+
+	fn write(self: *FilterSink, data: []const u8) SinkError!void {
+		switch (self.decoder) {
+			.x86 => |*decoder| try decoder.write(data),
+			.other => |*decoder| decoder.write(data, &self.buffered) catch |err| return mapFilterSinkError(err),
+		}
+	}
+
+	fn finish(self: *FilterSink) SinkError!void {
+		switch (self.decoder) {
+			.x86 => |*decoder| try decoder.finish(),
+			.other => |*decoder| decoder.finish(&self.buffered) catch |err| return mapFilterSinkError(err),
+		}
+		try self.buffered.flush();
+	}
+};
+
+fn mapFilterSinkError(err: anyerror) SinkError {
+	return switch (err) {
+		error.OutOfMemory => error.OutOfMemory,
+		error.ResourceLimitExceeded => error.ResourceLimitExceeded,
+		error.ChecksumError => error.ChecksumError,
+		else => error.StructuralError,
+	};
+}
+
+fn decodeFilterToSink(coder: anytype, data: []const u8, size: u64, sink: *OutputSink, allocator: std.mem.Allocator) StreamingError!void {
+	if (data.len != size) return CodecError.DecompressFailed;
+	const filter = try FilterSink.create(coder, sink, allocator);
+	defer allocator.destroy(filter);
+	try filter.write(data);
+	try filter.finish();
+}
+
+fn applyFilter(coder: anytype, data: []u8, allocator: std.mem.Allocator) CodecError!void {
+	if (isBcjX86Method(coder.method_id)) {
+		bcjX86Decode(data);
+		return;
+	}
+	// Filter output never advances past consumed input, so retained data can be
+	// overwritten in place while the adapter buffers complete output chunks.
+	var collector = PullCollector{ .buffer = data };
+	var sink = collector.outputSink();
+	decodeFilterToSink(coder, data, data.len, &sink, allocator) catch |err| switch (err) {
+		error.OutOfMemory => return CodecError.OutOfMemory,
+		error.UnsupportedMethod => return CodecError.UnsupportedMethod,
+		else => return CodecError.DecompressFailed,
+	};
+	if (collector.len != data.len) return CodecError.DecompressFailed;
 }
 
 const BcjX86Sink = struct {
@@ -219,7 +378,7 @@ const BcjX86Sink = struct {
 	}
 };
 
-/// Decompress with a single coder (Copy, LZMA2, LZMA, Deflate, or ZSTD).
+/// Decompress with a single compressor or size-preserving filter.
 fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u64, allocator: std.mem.Allocator) CodecError![]u8 {
 	const mid = coder.method_id;
 	if (mid.len == 1 and mid[0] == METHOD_COPY) {
@@ -229,12 +388,21 @@ fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u
 	} else if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) {
 		return decodeLzma(packed_data, unpack_size, coder.properties, allocator);
 	} else if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) {
-		const size = std.math.cast(usize, unpack_size) orelse return CodecError.DecompressFailed;
-		const decoder = try DeflatePull.create(packed_data, unpack_size, coder.properties, allocator);
-		defer decoder.deinit(allocator);
-		const output = allocator.alloc(u8, size) catch return CodecError.OutOfMemory;
+		return decodePull(DeflatePull, packed_data, unpack_size, coder.properties, allocator);
+	} else if (std.mem.eql(u8, mid, &METHOD_DEFLATE64)) {
+		return decodePull(deflate64.Decoder, packed_data, unpack_size, coder.properties, allocator);
+	} else if (std.mem.eql(u8, mid, &METHOD_BZIP2)) {
+		if (coder.properties.len != 0) return CodecError.DecompressFailed;
+		return bzip2.decode(allocator, packed_data, .{ .expected_size = unpack_size }) catch |err| return switch (err) {
+			error.OutOfMemory => error.OutOfMemory,
+			error.ResourceLimitExceeded => error.ResourceLimitExceeded,
+			else => error.DecompressFailed,
+		};
+	} else if (isFilterMethod(mid)) {
+		if (packed_data.len != unpack_size) return CodecError.DecompressFailed;
+		const output = try decodeCopy(packed_data, allocator);
 		errdefer allocator.free(output);
-		if (try decoder.read(output) != size) return CodecError.DecompressFailed;
+		try applyFilter(coder, output, allocator);
 		return output;
 	} else if (mid.len == 4 and std.mem.eql(u8, mid, &METHOD_ZSTD)) {
 		return decodeZstd(packed_data, unpack_size, allocator);
@@ -252,37 +420,19 @@ fn decompressMultiCoderPipeline(
 	password: ?[]const u8,
 	allocator: std.mem.Allocator,
 ) CodecError![]u8 {
-	// Classify coders
-	var aes_idx: ?usize = null;
-	var compressor_idx: ?usize = null;
-	var filter_idx: ?usize = null;
-	var bcj2_idx: ?usize = null;
-
-	for (folder.coders, 0..) |coder, i| {
-		const mid = coder.method_id;
-		if (is7zAesMethod(mid)) {
-			aes_idx = i;
-		} else if (isBcj2Method(mid)) {
-			bcj2_idx = i;
-		} else if (isCompressorMethod(mid)) {
-			compressor_idx = i;
-		} else if (isFilterMethod(mid)) {
-			filter_idx = i;
-		}
-	}
+	const stages = try classifyPipeline(folder.coders);
 
 	// BCJ2 pipeline: multi-stream DAG (separate code path)
-	if (bcj2_idx != null) {
+	if (stages.bcj2_idx != null) {
 		return decompressBcj2Pipeline(folder, packed_data, pack_sizes, unpack_size, allocator);
 	}
 
-	const comp_idx = compressor_idx orelse return CodecError.UnsupportedMethod;
 	var current_data: []const u8 = packed_data;
 	var decrypted_buf: ?[]u8 = null;
 	defer if (decrypted_buf) |b| allocator.free(b);
 
 	// Step 1: If encrypted, decrypt first
-	if (aes_idx) |ai| {
+	if (stages.aes_idx) |ai| {
 		const pw = password orelse return CodecError.UnsupportedMethod;
 		const aes_coder = folder.coders[ai];
 		// The AES coder's unpack_size tells us how many bytes of decrypted
@@ -297,7 +447,7 @@ fn decompressMultiCoderPipeline(
 			pw,
 			aes_unpack,
 			allocator,
-		) catch return CodecError.DecompressFailed;
+		) catch |err| return mapAesError(err);
 		decrypted_buf = dec;
 		current_data = dec;
 	}
@@ -305,20 +455,16 @@ fn decompressMultiCoderPipeline(
 	// Step 2: Decompress with the compressor
 	// Use the compressor's own unpack_size from the folder, not the passed-in one
 	// (which may be the last entry and could correspond to a different coder).
-	const comp_unpack: u64 = if (comp_idx < folder.unpack_sizes.len)
-		folder.unpack_sizes[comp_idx]
-	else
-		unpack_size;
-	const decompressed = try decompressSingleCoder(folder.coders[comp_idx], current_data, comp_unpack, allocator);
+	const decompressed = if (stages.compressor_idx) |comp_idx| blk: {
+		const comp_unpack: u64 = if (comp_idx < folder.unpack_sizes.len) folder.unpack_sizes[comp_idx] else unpack_size;
+		if (comp_unpack != unpack_size) return CodecError.DecompressFailed;
+		break :blk try decompressSingleCoder(folder.coders[comp_idx], current_data, comp_unpack, allocator);
+	} else try decodeCopy(current_data, allocator);
 	errdefer allocator.free(decompressed);
+	if (decompressed.len != unpack_size) return CodecError.DecompressFailed;
 
 	// Step 3: Apply filter decode in-place (if present)
-	if (filter_idx) |fi| {
-		const filt_mid = folder.coders[fi].method_id;
-		if (isBcjX86Method(filt_mid)) {
-			bcjX86Decode(decompressed);
-		}
-	}
+	if (stages.filter_idx) |fi| try applyFilter(folder.coders[fi], decompressed, allocator);
 
 	return decompressed;
 }
@@ -706,6 +852,7 @@ const Bcj2PullInput = union(enum) {
     lzma2: *Lzma2Pull,
     lzma: *LzmaPull,
     deflate: *DeflatePull,
+    deflate64: *deflate64.Decoder,
 
     fn deinit(self: *Bcj2PullInput, allocator: std.mem.Allocator) void {
         switch (self.*) {
@@ -713,6 +860,7 @@ const Bcj2PullInput = union(enum) {
             .lzma2 => |decoder| decoder.deinit(allocator),
             .lzma => |decoder| decoder.deinit(allocator),
             .deflate => |decoder| decoder.deinit(allocator),
+            .deflate64 => |decoder| decoder.deinit(allocator),
         }
     }
 
@@ -727,6 +875,7 @@ const Bcj2PullInput = union(enum) {
             .lzma2 => |decoder| decoder.readByte(),
             .lzma => |decoder| decoder.readByte(),
             .deflate => |decoder| decoder.readByte(),
+            .deflate64 => |decoder| decoder.readByte(),
         };
     }
 
@@ -786,6 +935,9 @@ fn initBcj2PullInput(
     }
     if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) {
         return .{ .deflate = try DeflatePull.create(packed_data, unpack_size, coder.properties, allocator) };
+    }
+    if (std.mem.eql(u8, mid, &METHOD_DEFLATE64)) {
+        return .{ .deflate64 = try deflate64.Decoder.create(packed_data, unpack_size, coder.properties, allocator) };
     }
     return CodecError.UnsupportedMethod;
 }
@@ -950,6 +1102,17 @@ fn decompressBcj2ToSink(
         prev_byte = byte;
     }
 
+    // BCJ2 may never request a side stream. Its compressed framing still has
+    // to be validated, matching retained decoding's eager Deflate64 checks.
+    for (inputs) |input| {
+        switch (input.?) {
+            .deflate64 => |decoder| {
+                var byte: [1]u8 = undefined;
+                while (try decoder.read(&byte) != 0) {}
+            },
+            else => {},
+        }
+    }
     try output.flush();
     if (output.total != unpack_size) return CodecError.DecompressFailed;
 }
@@ -992,13 +1155,15 @@ fn isCompressorMethod(mid: []const u8) bool {
 	if (mid.len == 1 and mid[0] == METHOD_LZMA2) return true;
 	if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) return true;
 	if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) return true;
+	if (std.mem.eql(u8, mid, &METHOD_DEFLATE64)) return true;
+	if (std.mem.eql(u8, mid, &METHOD_BZIP2)) return true;
 	if (mid.len == 1 and mid[0] == METHOD_COPY) return true;
 	if (mid.len == 4 and std.mem.eql(u8, mid, &METHOD_ZSTD)) return true;
 	return false;
 }
 
 fn isFilterMethod(mid: []const u8) bool {
-	return isBcjX86Method(mid);
+	return isBcjX86Method(mid) or filters.supports(mid);
 }
 
 fn isBcj2Method(mid: []const u8) bool {
@@ -1011,6 +1176,10 @@ fn isBcjX86Method(mid: []const u8) bool {
 
 fn is7zAesMethod(mid: []const u8) bool {
 	return mid.len == 4 and std.mem.eql(u8, mid, &METHOD_7ZAES);
+}
+
+fn mapAesError(err: aes.AesError) CodecError {
+	return if (err == error.OutOfMemory) CodecError.OutOfMemory else CodecError.DecompressFailed;
 }
 
 fn decodeCopy(data: []const u8, allocator: std.mem.Allocator) CodecError![]u8 {
@@ -1069,7 +1238,21 @@ const DeflatePull = struct {
 };
 
 fn decodeDeflateToSink(data: []const u8, size: u64, properties: []const u8, sink: *OutputSink, allocator: std.mem.Allocator) StreamingError!void {
-    const decoder = try DeflatePull.create(data, size, properties, allocator);
+	return decodePullToSink(DeflatePull, data, size, properties, sink, allocator);
+}
+
+fn decodePull(comptime Decoder: type, data: []const u8, size: u64, properties: []const u8, allocator: std.mem.Allocator) CodecError![]u8 {
+	const length = std.math.cast(usize, size) orelse return CodecError.DecompressFailed;
+	const decoder = try Decoder.create(data, size, properties, allocator);
+	defer decoder.deinit(allocator);
+	const output = allocator.alloc(u8, length) catch return CodecError.OutOfMemory;
+	errdefer allocator.free(output);
+	if (try decoder.read(output) != length) return CodecError.DecompressFailed;
+	return output;
+}
+
+fn decodePullToSink(comptime Decoder: type, data: []const u8, size: u64, properties: []const u8, sink: *OutputSink, allocator: std.mem.Allocator) StreamingError!void {
+	const decoder = try Decoder.create(data, size, properties, allocator);
     defer decoder.deinit(allocator);
     const buffer = allocator.alloc(u8, 16 * 1024) catch return CodecError.OutOfMemory;
     defer allocator.free(buffer);
@@ -1705,6 +1888,104 @@ fn bcjX86Decode(data: []u8) void {
 // Tests
 // ============================================================================
 
+const bzip2_test_data = @embedFile("fixtures/bzip2/small.bz2");
+const bzip2_test_plain = "BZip2 from independent 7-Zip 26.03.\nBinary: \x00\x01\x7f\xff\n";
+
+test "codec: BZip2 standalone retained and sink oracle payload" {
+	const folder = TestFolder{ .coders = &.{integrationCoder(&.{ 4, 2, 2 }, &.{})} };
+	try checkIntegrationFolder(folder, bzip2_test_data, &.{bzip2_test_data.len}, bzip2_test_plain, null);
+	const repeated = try std.testing.allocator.alloc(u8, 1_200_000);
+	defer std.testing.allocator.free(repeated);
+	@memset(repeated, 'A');
+	const data = @embedFile("fixtures/bzip2/rle-expansion.bz2");
+	try checkIntegrationFolder(folder, data, &.{data.len}, repeated, null);
+}
+
+test "codec: BZip2 rejects properties sizes trailing bytes and corrupt CRC" {
+	const coder = integrationCoder(&.{ 4, 2, 2 }, &.{});
+	var state = DeflateTestSink{};
+	var sink = state.sink();
+	for ([_][]const u8{ &.{0}, &.{1}, &.{9}, &.{ 0, 0 } }) |props| {
+		const invalid = integrationCoder(coder.method_id, props);
+		try std.testing.expectError(error.DecompressFailed, decompressSingleCoder(invalid, bzip2_test_data, bzip2_test_plain.len, std.testing.allocator));
+		try std.testing.expectError(error.DecompressFailed, decompressSingleCoderToSink(invalid, bzip2_test_data, bzip2_test_plain.len, &sink, std.testing.allocator));
+	}
+	try std.testing.expectEqual(0, state.count);
+	for ([_]u64{ 0, bzip2_test_plain.len - 1, bzip2_test_plain.len + 1 }) |size| {
+		try std.testing.expectError(error.DecompressFailed, decompressSingleCoder(coder, bzip2_test_data, size, std.testing.allocator));
+		try std.testing.expectError(error.DecompressFailed, decompressSingleCoderToSink(coder, bzip2_test_data, size, &sink, std.testing.allocator));
+	}
+	var corrupt: [bzip2_test_data.len]u8 = bzip2_test_data.*;
+	corrupt[10] ^= 1;
+	for ([_][]const u8{ bzip2_test_data[0 .. bzip2_test_data.len - 1], bzip2_test_data ++ "B", &corrupt }) |invalid| {
+		try std.testing.expectError(error.DecompressFailed, decompressSingleCoder(coder, invalid, bzip2_test_plain.len, std.testing.allocator));
+		try std.testing.expectError(error.DecompressFailed, decompressSingleCoderToSink(coder, invalid, bzip2_test_plain.len, &sink, std.testing.allocator));
+	}
+}
+
+test "codec: BZip2 classification over method sets" {
+	const methods = [_][]const u8{ &.{ 4, 2, 2 }, &.{ 4, 2, 1 }, &.{ 4, 2, 2, 0 }, &.{0}, &.{0x21}, &.{3}, &.{ 2, 3, 4 }, &METHOD_7ZAES };
+	const expected = [_]bool{ true, false, false, true, true, false, false, false };
+	var actual: [methods.len]bool = undefined;
+	for (methods, 0..) |method, i| actual[i] = isCompressorMethod(method);
+	try std.testing.expectEqualSlices(bool, &expected, &actual);
+}
+
+test "codec: BZip2 filter and AES filter pipeline oracle bytes" {
+	const encoded = @embedFile("fixtures/filters/swap4/encoded.bin");
+	const plain = @embedFile("fixtures/filters/swap4/plain.bin");
+	const compressed = @embedFile("fixtures/bzip2/filter-swap4.bz2");
+	try checkFilterPipelineVariants(encoded, plain, integrationCoder(&.{ 2, 3, 4 }, &.{}), compressed, integrationCoder(&.{ 4, 2, 2 }, &.{}));
+}
+
+test "codec: BZip2 preserves downstream and retained resource errors" {
+	const coder = integrationCoder(&.{ 4, 2, 2 }, &.{});
+	for ([_]SinkError{ error.OutOfMemory, error.ResourceLimitExceeded, error.ChecksumError, error.StructuralError }) |failure| {
+		var state = DeflateTestSink{ .failure = failure };
+		var sink = state.sink();
+		try std.testing.expectError(failure, decompressSingleCoderToSink(coder, bzip2_test_data, bzip2_test_plain.len, &sink, std.testing.allocator));
+		const compressed = @embedFile("fixtures/bzip2/filter-swap4.bz2");
+		const filtered = TestFolder{ .coders = &.{ coder, integrationCoder(&.{ 2, 3, 4 }, &.{}) }, .unpack_sizes = &.{ 1031, 1031 } };
+		try std.testing.expectError(failure, decompressFolderToSink(filtered, compressed, &.{compressed.len}, 1031, null, &sink, std.testing.allocator));
+	}
+	try std.testing.expectError(error.ResourceLimitExceeded, decompressSingleCoder(coder, bzip2_test_data, std.math.maxInt(usize), std.testing.allocator));
+}
+
+fn bzip2DispatchAllocationCase(allocator: std.mem.Allocator) !void {
+	const folder = TestFolder{ .coders = &.{integrationCoder(&.{ 4, 2, 2 }, &.{})} };
+	const output = try decompressFolder(folder, bzip2_test_data, &.{bzip2_test_data.len}, bzip2_test_plain.len, null, allocator);
+	defer allocator.free(output);
+	try std.testing.expectEqualSlices(u8, bzip2_test_plain, output);
+	var state = DeflateTestSink{};
+	var sink = state.sink();
+	try decompressFolderToSink(folder, bzip2_test_data, &.{bzip2_test_data.len}, bzip2_test_plain.len, null, &sink, allocator);
+}
+
+test "codec: BZip2 allocation failure ownership" {
+	try std.testing.checkAllAllocationFailures(std.testing.allocator, bzip2DispatchAllocationCase, .{});
+}
+
+test "codec: BZip2 explicit sink budget is enforced before emission" {
+	var state = DeflateTestSink{};
+	var sink = state.sink();
+	try std.testing.expectError(error.ResourceLimitExceeded, decodeBzip2ToSink(@embedFile("fixtures/bzip2/rle-expansion.bz2"), 1_200_000, &.{}, &sink, std.testing.allocator, 6_000_000));
+	try std.testing.expectEqual(0, state.count);
+}
+
+test "codec: BZip2 BCJ2 sink remains explicitly unsupported" {
+	const compressed = bzip2_test_data ++ "\x00\x00\x00\x00\x00";
+	const folder = TestFolder{
+		.coders = &.{ integrationCoder(&.{ 4, 2, 2 }, &.{}), .{ .method_id = &METHOD_BCJ2, .properties = &.{}, .num_in_streams = 4, .num_out_streams = 1 } },
+		.bind_pairs = &.{.{ .in_index = 1, .out_index = 0 }},
+		.packed_indices = &.{ 0, 2, 3, 4 },
+		.unpack_sizes = &.{ bzip2_test_plain.len, bzip2_test_plain.len },
+	};
+	var state = DeflateTestSink{};
+	var sink = state.sink();
+	try std.testing.expectError(error.UnsupportedMethod, decompressFolderToSink(folder, compressed, &.{ bzip2_test_data.len, 0, 0, 5 }, bzip2_test_plain.len, null, &sink, std.testing.allocator));
+	try std.testing.expectEqual(0, state.count);
+}
+
 /// Test helper: minimal folder-like struct that works with comptime data.
 const TestFolder = struct {
 	coders: []const meta.Coder,
@@ -1830,9 +2111,301 @@ test "codec: Deflate decodes raw data and rejects malformed framing and sizes" {
     invalid_props.properties = &.{1};
     try std.testing.expectError(error.DecompressFailed, decompressSingleCoder(invalid_props, &hello, 5, allocator));
     try std.testing.expectError(error.DecompressFailed, decompressSingleCoderToSink(invalid_props, &hello, 5, &sink, allocator));
-    var deflate64 = coder;
-    deflate64.method_id = &.{ 4, 1, 9 };
-    try std.testing.expectError(error.UnsupportedMethod, decompressSingleCoder(deflate64, &hello, 5, allocator));
+    var coder64 = coder;
+    coder64.method_id = &.{ 4, 1, 9 };
+    const decoded64 = try decompressSingleCoder(coder64, &hello, 5, allocator);
+    defer allocator.free(decoded64);
+    try std.testing.expectEqualStrings("hello", decoded64);
+}
+
+const CodecIntegrationSink = struct {
+	expected: []const u8,
+	count: usize = 0,
+	calls: usize = 0,
+	max_write: usize = 0,
+	failure: ?SinkError = null,
+
+	fn write(ctx: *anyopaque, bytes: []const u8) SinkError!void {
+		const self: *@This() = @ptrCast(@alignCast(ctx));
+		if (self.failure) |err| return err;
+		if (bytes.len > self.expected.len - self.count) return error.StructuralError;
+		if (!std.mem.eql(u8, bytes, self.expected[self.count..][0..bytes.len])) return error.StructuralError;
+		self.count += bytes.len;
+		self.calls += 1;
+		self.max_write = @max(self.max_write, bytes.len);
+	}
+
+	fn sink(self: *@This()) OutputSink {
+		return .{ .ptr = self, .writeFn = write };
+	}
+};
+
+fn integrationCoder(method: []const u8, properties: []const u8) meta.Coder {
+	return .{ .method_id = method, .properties = properties, .num_in_streams = 1, .num_out_streams = 1 };
+}
+
+fn checkIntegrationFolder(folder: TestFolder, data: []const u8, pack_sizes: []const u64, expected: []const u8, password: ?[]const u8) !void {
+	const output = try decompressFolder(folder, data, pack_sizes, expected.len, password, std.testing.allocator);
+	defer std.testing.allocator.free(output);
+	try std.testing.expectEqualSlices(u8, expected, output);
+	var state = CodecIntegrationSink{ .expected = expected };
+	var sink = state.sink();
+	try decompressFolderToSink(folder, data, pack_sizes, expected.len, password, &sink, std.testing.allocator);
+	try std.testing.expectEqual(expected.len, state.count);
+}
+
+test "codec: integration Deflate64 retained and sink oracle fixtures" {
+	const folder = TestFolder{ .coders = &.{integrationCoder(&.{ 4, 1, 9 }, &.{})} };
+	inline for (.{ "fixed", "stored", "dynamic", "history49152", "extended-65535", "distance65536" }) |name| {
+		const data = @embedFile("fixtures/deflate64/" ++ name ++ ".raw");
+		const expected = @embedFile("fixtures/deflate64/" ++ name ++ ".plain");
+		try checkIntegrationFolder(folder, data, &.{data.len}, expected, null);
+	}
+	const data = @embedFile("fixtures/deflate64/fixed.raw");
+	for ([_]u64{ 0, 16, 18 }) |size| {
+		try std.testing.expectError(error.DecompressFailed, decompressFolder(folder, data, &.{data.len}, size, null, std.testing.allocator));
+		var state = DeflateTestSink{};
+		var sink = state.sink();
+		try std.testing.expectError(error.DecompressFailed, decompressFolderToSink(folder, data, &.{data.len}, size, null, &sink, std.testing.allocator));
+	}
+}
+
+test "codec: integration Deflate64 BCJ2 retained and sink" {
+	const data = @embedFile("fixtures/deflate64/fixed.raw") ++ "\x03\x00\x03\x00\x00\x00\x00\x00\x00";
+	const expected = @embedFile("fixtures/deflate64/fixed.plain");
+	const folder = TestFolder{
+		.coders = &.{
+			integrationCoder(&.{ 4, 1, 9 }, &.{}), integrationCoder(&.{ 4, 1, 9 }, &.{}), integrationCoder(&.{ 4, 1, 9 }, &.{}),
+			.{ .method_id = &METHOD_BCJ2, .properties = &.{}, .num_in_streams = 4, .num_out_streams = 1 },
+		},
+		.bind_pairs = &.{ .{ .in_index = 3, .out_index = 0 }, .{ .in_index = 4, .out_index = 1 }, .{ .in_index = 5, .out_index = 2 } },
+		.packed_indices = &.{ 0, 1, 2, 6 },
+		.unpack_sizes = &.{ expected.len, 0, 0, expected.len },
+	};
+	try checkIntegrationFolder(folder, data, &.{ data.len - 9, 2, 2, 5 }, expected, null);
+}
+
+test "codec: integration all filters retained and sink oracle property matrix" {
+	for (@import("fixtures/filters/probes.zig").cases) |c| {
+		const folder = TestFolder{ .coders = &.{integrationCoder(c.method, c.props)} };
+		if (c.accepted) {
+			try checkIntegrationFolder(folder, c.encoded, &.{c.encoded.len}, c.plain, null);
+		} else {
+			try std.testing.expectError(error.DecompressFailed, decompressFolder(folder, c.encoded, &.{c.encoded.len}, c.encoded.len, null, std.testing.allocator));
+			var state = DeflateTestSink{};
+			var sink = state.sink();
+			try std.testing.expectError(error.DecompressFailed, decompressFolderToSink(folder, c.encoded, &.{c.encoded.len}, c.encoded.len, null, &sink, std.testing.allocator));
+		}
+	}
+}
+
+fn filterPipelineCase(comptime name: []const u8, method: []const u8, properties: []const u8) !void {
+	const data = @embedFile("fixtures/filters/" ++ name ++ "/encoded.bin");
+	const expected = @embedFile("fixtures/filters/" ++ name ++ "/plain.bin");
+	const compressed = try compressLzma2(data, 4096, 32, .{}, std.testing.allocator);
+	defer std.testing.allocator.free(compressed);
+	const filter = integrationCoder(method, properties);
+	const compressor = integrationCoder(&.{0x21}, &.{0});
+	try checkFilterPipelineVariants(data, expected, filter, compressed, compressor);
+}
+
+fn checkFilterPipelineVariants(data: []const u8, expected: []const u8, filter: meta.Coder, compressed: []const u8, compressor: meta.Coder) !void {
+	const folder = TestFolder{
+		.coders = &.{ compressor, filter },
+		.bind_pairs = &.{.{ .in_index = 1, .out_index = 0 }},
+		.unpack_sizes = &.{ expected.len, expected.len },
+	};
+	try checkIntegrationFolder(folder, compressed, &.{compressed.len}, expected, null);
+
+	// AES wire wrapping uses existing tested CBC; filter expectations remain oracle bytes.
+	const aes_props = try aes.parseProperties(&.{0x3f});
+	const key = aes.deriveKey("integration", aes_props);
+	for ([_]bool{ false, true }) |with_compressor| {
+		const input = if (with_compressor) compressed else data;
+		const encrypted = try std.testing.allocator.alloc(u8, std.mem.alignForward(usize, input.len, 16));
+		defer std.testing.allocator.free(encrypted);
+		@memset(encrypted, 0);
+		@memcpy(encrypted[0..input.len], input);
+		try aes.encryptCbc(encrypted, key, aes_props.iv);
+		const aes_coder = integrationCoder(&METHOD_7ZAES, &.{0x3f});
+		const coders = [_]meta.Coder{ aes_coder, compressor, filter };
+		const direct_coders = [_]meta.Coder{ aes_coder, filter };
+		const aes_folder = TestFolder{
+			.coders = if (with_compressor) &coders else &direct_coders,
+			.bind_pairs = if (with_compressor) &.{ .{ .in_index = 1, .out_index = 0 }, .{ .in_index = 2, .out_index = 1 } } else &.{.{ .in_index = 1, .out_index = 0 }},
+			.unpack_sizes = if (with_compressor) &.{ input.len, expected.len, expected.len } else &.{ input.len, expected.len },
+		};
+		try checkIntegrationFolder(aes_folder, encrypted, &.{encrypted.len}, expected, "integration");
+	}
+}
+
+test "codec: integration filters after compressor and AES with and without compressor" {
+	try filterPipelineCase("delta3", &.{3}, &.{2});
+	try filterPipelineCase("swap2", &.{ 2, 3, 2 }, &.{});
+	try filterPipelineCase("swap4", &.{ 2, 3, 4 }, &.{});
+	try filterPipelineCase("arm", &.{ 3, 3, 5, 1 }, &.{});
+	try filterPipelineCase("armt", &.{ 3, 3, 7, 1 }, &.{});
+	try filterPipelineCase("ppc", &.{ 3, 3, 2, 5 }, &.{});
+	try filterPipelineCase("sparc", &.{ 3, 3, 8, 5 }, &.{});
+	try filterPipelineCase("arm64", &.{10}, &.{});
+	try filterPipelineCase("ia64", &.{ 3, 3, 4, 1 }, &.{});
+	try filterPipelineCase("riscv", &.{11}, &.{});
+}
+
+test "codec: integration unknown and duplicate filters never silently no-op" {
+	const copy = integrationCoder(&.{0}, &.{});
+	const swap = integrationCoder(&.{ 2, 3, 2 }, &.{});
+	const delta = integrationCoder(&.{3}, &.{0});
+	for ([_][]const meta.Coder{
+		&.{ copy, integrationCoder(&.{ 3, 3, 99, 99 }, &.{}) },
+		&.{ copy, swap, delta },
+		&.{ copy, copy, swap },
+	}) |coders| {
+		const folder = TestFolder{ .coders = coders, .unpack_sizes = &.{ 4, 4, 4 } };
+		const output = decompressFolder(folder, "abcd", &.{4}, 4, null, std.testing.allocator);
+		if (output) |bytes| {
+			std.testing.allocator.free(bytes);
+			return error.TestExpectedError;
+		} else |err| try std.testing.expectEqual(error.UnsupportedMethod, err);
+		var state = DeflateTestSink{};
+		var sink = state.sink();
+		try std.testing.expectError(error.UnsupportedMethod, decompressFolderToSink(folder, "abcd", &.{4}, 4, null, &sink, std.testing.allocator));
+		try std.testing.expectEqual(@as(usize, 0), state.count);
+	}
+}
+
+test "codec: integration Delta sink batches tiny writes and propagates callback failures" {
+	const data = try std.testing.allocator.alloc(u8, 32771);
+	defer std.testing.allocator.free(data);
+	@memset(data, 0);
+	const folder = TestFolder{ .coders = &.{integrationCoder(&.{3}, &.{0})} };
+	var state = CodecIntegrationSink{ .expected = data };
+	var sink = state.sink();
+	try decompressFolderToSink(folder, data, &.{data.len}, data.len, null, &sink, std.testing.allocator);
+	try std.testing.expectEqual(@as(usize, 3), state.calls);
+	try std.testing.expectEqual(@as(usize, 16384), state.max_write);
+	try std.testing.expectEqual(data.len, state.count);
+	for ([_]SinkError{ error.OutOfMemory, error.ChecksumError, error.StructuralError, error.ResourceLimitExceeded }) |err| {
+		state = .{ .expected = data, .failure = err };
+		try std.testing.expectError(err, decompressFolderToSink(folder, data, &.{data.len}, data.len, null, &sink, std.testing.allocator));
+	}
+}
+
+test "codec: integration single x86 filter preserves existing conversion" {
+	const plain = [_]u8{ 0x90, 0xe8, 0, 0, 0, 0, 0x90, 0xe9, 1, 0, 0, 0, 0x90 };
+	var encoded = plain;
+	bcjX86Encode(&encoded);
+	const folder = TestFolder{ .coders = &.{integrationCoder(&METHOD_BCJ_X86, &.{})} };
+	try checkIntegrationFolder(folder, &encoded, &.{encoded.len}, &plain, null);
+}
+
+test "codec: integration Deflate64 filter and AES filter pipelines" {
+	const data = @embedFile("fixtures/filters/delta3/encoded.bin");
+	const expected = @embedFile("fixtures/filters/delta3/plain.bin");
+	const compressed = try std.testing.allocator.alloc(u8, 5 + data.len);
+	defer std.testing.allocator.free(compressed);
+	compressed[0] = 1;
+	std.mem.writeInt(u16, compressed[1..3], @intCast(data.len), .little);
+	std.mem.writeInt(u16, compressed[3..5], ~@as(u16, @intCast(data.len)), .little);
+	@memcpy(compressed[5..], data);
+	try checkFilterPipelineVariants(data, expected, integrationCoder(&.{3}, &.{2}), compressed, integrationCoder(&METHOD_DEFLATE64, &.{}));
+}
+
+test "codec: integration Deflate64 feeds all four BCJ2 streams including a call" {
+	const data = "\x01\x01\x00\xfe\xff\xe8" ++
+		"\x01\x04\x00\xfb\xff\x00\x00\x00\x05" ++
+		"\x03\x00" ++ "\x01\x05\x00\xfa\xff\x00\xff\xff\xff\xff";
+	const coder = integrationCoder(&METHOD_DEFLATE64, &.{});
+	const folder = TestFolder{
+		.coders = &.{ coder, coder, coder, coder, .{ .method_id = &METHOD_BCJ2, .properties = &.{}, .num_in_streams = 4, .num_out_streams = 1 } },
+		.bind_pairs = &.{ .{ .in_index = 4, .out_index = 0 }, .{ .in_index = 5, .out_index = 1 }, .{ .in_index = 6, .out_index = 2 }, .{ .in_index = 7, .out_index = 3 } },
+		.packed_indices = &.{ 0, 1, 2, 3 },
+		.unpack_sizes = &.{ 1, 4, 0, 5, 5 },
+	};
+	try checkIntegrationFolder(folder, data, &.{ 6, 9, 2, 10 }, "\xe8\x00\x00\x00\x00", null);
+}
+
+test "codec: integration unused Deflate64 BCJ2 side stream still validates termination" {
+	const data = @embedFile("fixtures/deflate64/fixed.raw") ++ "\x03\x03\x00\x00\x00\x00\x00\x00";
+	const coder = integrationCoder(&METHOD_DEFLATE64, &.{});
+	const folder = TestFolder{
+		.coders = &.{ coder, coder, coder, .{ .method_id = &METHOD_BCJ2, .properties = &.{}, .num_in_streams = 4, .num_out_streams = 1 } },
+		.bind_pairs = &.{ .{ .in_index = 3, .out_index = 0 }, .{ .in_index = 4, .out_index = 1 }, .{ .in_index = 5, .out_index = 2 } },
+		.packed_indices = &.{ 0, 1, 2, 6 },
+		.unpack_sizes = &.{ 17, 4, 0, 17 },
+	};
+	const sizes = [_]u64{ data.len - 8, 1, 2, 5 };
+	try std.testing.expectError(error.DecompressFailed, decompressFolder(folder, data, &sizes, 17, null, std.testing.allocator));
+	var state = DeflateTestSink{};
+	var sink = state.sink();
+	try std.testing.expectError(error.DecompressFailed, decompressFolderToSink(folder, data, &sizes, 17, null, &sink, std.testing.allocator));
+}
+
+fn deflate64IntegrationAllocationProbe(allocator: std.mem.Allocator) !void {
+	const data = @embedFile("fixtures/deflate64/history49152.raw");
+	const expected = @embedFile("fixtures/deflate64/history49152.plain");
+	const folder = TestFolder{ .coders = &.{integrationCoder(&METHOD_DEFLATE64, &.{})} };
+	const output = try decompressFolder(folder, data, &.{data.len}, expected.len, null, allocator);
+	defer allocator.free(output);
+	try std.testing.expectEqualSlices(u8, expected, output);
+	var state = CodecIntegrationSink{ .expected = expected };
+	var sink = state.sink();
+	try decompressFolderToSink(folder, data, &.{data.len}, expected.len, null, &sink, allocator);
+	try std.testing.expectEqual(expected.len, state.count);
+}
+
+fn filterIntegrationAllocationProbe(allocator: std.mem.Allocator) !void {
+	const data = @embedFile("fixtures/filters/delta3/encoded.bin");
+	const expected = @embedFile("fixtures/filters/delta3/plain.bin");
+	const folder = TestFolder{ .coders = &.{integrationCoder(&.{3}, &.{2})} };
+	const output = try decompressFolder(folder, data, &.{data.len}, expected.len, null, allocator);
+	defer allocator.free(output);
+	try std.testing.expectEqualSlices(u8, expected, output);
+	var state = CodecIntegrationSink{ .expected = expected };
+	var sink = state.sink();
+	try decompressFolderToSink(folder, data, &.{data.len}, expected.len, null, &sink, allocator);
+	try std.testing.expectEqual(expected.len, state.count);
+}
+
+test "codec: integration Deflate64 and filters allocation failures and bounded sinks" {
+	try std.testing.checkAllAllocationFailures(std.testing.allocator, deflate64IntegrationAllocationProbe, .{});
+	try std.testing.checkAllAllocationFailures(std.testing.allocator, filterIntegrationAllocationProbe, .{});
+	const data = @embedFile("fixtures/deflate64/history49152.raw");
+	const expected = @embedFile("fixtures/deflate64/history49152.plain");
+	var capped = TestMaxSingleAllocationAllocator.init(std.testing.allocator, 70 * 1024);
+	var state = CodecIntegrationSink{ .expected = expected };
+	var sink = state.sink();
+	const folder = TestFolder{ .coders = &.{integrationCoder(&METHOD_DEFLATE64, &.{})} };
+	try decompressFolderToSink(folder, data, &.{data.len}, expected.len, null, &sink, capped.allocator());
+	try std.testing.expectEqual(expected.len, state.count);
+	try std.testing.expect(capped.max_observed_alloc < expected.len);
+	for ([_]SinkError{ error.OutOfMemory, error.ChecksumError, error.StructuralError, error.ResourceLimitExceeded }) |err| {
+		state = .{ .expected = expected, .failure = err };
+		try std.testing.expectError(err, decompressFolderToSink(folder, data, &.{data.len}, expected.len, null, &sink, std.testing.allocator));
+	}
+}
+
+fn aesFilterIntegrationAllocationProbe(allocator: std.mem.Allocator) !void {
+	const expected = [_]u8{0} ** 16;
+	var encrypted = expected;
+	const props = try aes.parseProperties(&.{0x3f});
+	try aes.encryptCbc(&encrypted, aes.deriveKey("", props), props.iv);
+	const folder = TestFolder{
+		.coders = &.{ integrationCoder(&METHOD_7ZAES, &.{0x3f}), integrationCoder(&.{3}, &.{0}) },
+		.bind_pairs = &.{.{ .in_index = 1, .out_index = 0 }},
+		.unpack_sizes = &.{ 16, 16 },
+	};
+	const output = try decompressFolder(folder, &encrypted, &.{16}, 16, "", allocator);
+	defer allocator.free(output);
+	try std.testing.expectEqualSlices(u8, &expected, output);
+	var state = CodecIntegrationSink{ .expected = &expected };
+	var sink = state.sink();
+	try decompressFolderToSink(folder, &encrypted, &.{16}, 16, "", &sink, allocator);
+	try std.testing.expectEqual(@as(usize, 16), state.count);
+}
+
+test "codec: integration AES filter preserves allocation failures" {
+	try std.testing.checkAllAllocationFailures(std.testing.allocator, aesFilterIntegrationAllocationProbe, .{});
 }
 
 fn deflateAllocationProbe(allocator: std.mem.Allocator) !void {

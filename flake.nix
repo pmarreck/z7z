@@ -23,7 +23,7 @@
         #   1. Set zigDepsHash = "";
         #   2. Run `nix build` — it fails and prints the correct hash
         #   3. Replace zigDepsHash with the printed hash
-        zigDepsHash = "sha256-OC6uenk6FUk+2Du3i9RSEXvQgi7hvuxeFBnQW9XKAak=";
+        zigDepsHash = "sha256-c8QpZA9KFPIQ52gNIiLClfxTmP8B4SzHoieQCnKMLgg=";
 
         zigDeps = pkgs.stdenv.mkDerivation {
           pname = "z7z-zig-deps";
@@ -122,7 +122,7 @@
           version = "0.1.0";
           src = self;
 
-          nativeBuildInputs = [ zig ]
+          nativeBuildInputs = [ zig pkgs.bash pkgs.jq pkgs.coreutils pkgs.findutils ]
             ++ pkgs.lib.optionals isDarwin [
               pkgs.darwin.cctools
               pkgs.apple-sdk
@@ -160,6 +160,7 @@
               echo "Tests timed out or failed after 10 minutes"
               exit 1
             }
+            bash tests/cli/codec-fixtures
           '';
 
           installPhase = ''

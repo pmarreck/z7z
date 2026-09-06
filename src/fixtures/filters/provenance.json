@@ -1,0 +1,501 @@
+{
+  "oracle": "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+  "version": "\n7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03\n 64-bit locale=C UTF8=- Threads:128 OPEN_MAX:9001, ASM\n",
+  "oracle_sha256": "eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac",
+  "cases": [
+    {
+      "name": "delta1",
+      "method": "Delta:1",
+      "properties": [
+        0
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=Delta:1",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta1/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta1/plain.bin"
+      ],
+      "bytes": 1031,
+      "changed_bytes": 1025,
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "encoded_sha256": "fd2919c0feb58bd38432902ffcffcfd3ceda31d297904ffb497be99a26e83712",
+      "archive_sha256": "7fb5fef7a8a6b9565f98b1305ba49d2d89d5ea19bf1511b3d33827c1bd87f390"
+    },
+    {
+      "name": "delta2",
+      "method": "Delta:2",
+      "properties": [
+        1
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=Delta:2",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta2/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta2/plain.bin"
+      ],
+      "bytes": 1031,
+      "changed_bytes": 1024,
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "encoded_sha256": "0e2e0b0f998707771b6232522da7bb50f67554d1d298c495ae0a3d6ad2c18439",
+      "archive_sha256": "372fd590f88d2279865231e29185fabd71f694a17de414e79a97491795f5b624"
+    },
+    {
+      "name": "delta3",
+      "method": "Delta:3",
+      "properties": [
+        2
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=Delta:3",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta3/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta3/plain.bin"
+      ],
+      "bytes": 1031,
+      "changed_bytes": 1023,
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "encoded_sha256": "f3d091b500d1c733d653f051e17e978de382cdde947964b8f9143e7eb6b19527",
+      "archive_sha256": "0db6b9e93716a2e2c0e714c2ddce749a9977699f0aab6f462d15f86f664d70c8"
+    },
+    {
+      "name": "delta16",
+      "method": "Delta:16",
+      "properties": [
+        15
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=Delta:16",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta16/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta16/plain.bin"
+      ],
+      "bytes": 1031,
+      "changed_bytes": 1010,
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "encoded_sha256": "7ab57ce5292a6296f76d69067d24a5bf6e2ed317ff536c944309fdfd23a2d203",
+      "archive_sha256": "bfd1e57892bd3920b6fd7efa68ede3e5b0a0e3d29e98fecd2a2096f0996dd914"
+    },
+    {
+      "name": "delta256",
+      "method": "Delta:256",
+      "properties": [
+        255
+      ],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=Delta:256",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta256/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/delta256/plain.bin"
+      ],
+      "bytes": 1031,
+      "changed_bytes": 771,
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "encoded_sha256": "17b603860ec54faea975abcbe1241f0afa0870a23ccafdc6eb3f1b3266ece5f1",
+      "archive_sha256": "9ca83b9d07b8f25ddd557fc5247cf4f4a05d041a0132b8363156e23dccc116ac"
+    },
+    {
+      "name": "swap2",
+      "method": "Swap2",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=Swap2",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/swap2/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/swap2/plain.bin"
+      ],
+      "bytes": 1031,
+      "changed_bytes": 1030,
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "encoded_sha256": "d15a6924bd1cd2413209d1b89761227e96f11d3a1d326da34fd9e2c827495121",
+      "archive_sha256": "dcbe21945b0fabc3eb332fa71e827a8306a28795a29313ea62101eb0940a64cb"
+    },
+    {
+      "name": "swap4",
+      "method": "Swap4",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=Swap4",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/swap4/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/swap4/plain.bin"
+      ],
+      "bytes": 1031,
+      "changed_bytes": 1028,
+      "plain_sha256": "7eb805619bbf0a3c25e4b8be6ca3011766fceff08f6a03dfcdabc84e55b069e8",
+      "encoded_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "archive_sha256": "677c176eada92d7100ba5d918a23542e378fbe4d827df9c7ff968aeb066cad5c"
+    },
+    {
+      "name": "arm",
+      "method": "ARM",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=ARM",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/arm/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/arm/plain.bin"
+      ],
+      "bytes": 323,
+      "changed_bytes": 32,
+      "plain_sha256": "72d551c973632d08f2a146f6b9a418a5c5a921f811dc398a3b5f03ac97a438ff",
+      "encoded_sha256": "10aebf167311b83d426c43e31911a654352f86c0cad2e89e547699f2cdda5983",
+      "archive_sha256": "396b552a9aea35c371c23d01c342a3f2067a9c6a9fcd020c644acbcfd2ad57a7"
+    },
+    {
+      "name": "ppc",
+      "method": "PPC",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=PPC",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/ppc/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/ppc/plain.bin"
+      ],
+      "bytes": 323,
+      "changed_bytes": 61,
+      "plain_sha256": "72bb6b02b3231b38078cfe6a4d599ffbe977d97e7b88112b4c45b73a4cbce595",
+      "encoded_sha256": "62dda7db92b96374c193c2a21fbab4f5c44a9fe172786a3a8796d1d427342836",
+      "archive_sha256": "e25f3cee3ca5e4f8da32fbff19fe89510e249d920c4bc43edc2e9a8aa7c4f228"
+    },
+    {
+      "name": "sparc",
+      "method": "SPARC",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=SPARC",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/sparc/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/sparc/plain.bin"
+      ],
+      "bytes": 323,
+      "changed_bytes": 31,
+      "plain_sha256": "d79100183ed250ef3375bd7755d02a72e1935ee5a25e76b78ff1b93b7b6897e3",
+      "encoded_sha256": "066d7fa3193c79e812b2c28ac625d502e9dc8d27a502fff642f6d3f8a7106743",
+      "archive_sha256": "d2bbc2f3058227f6a4e4c22931c89db8a046e06428ffc87f9b58bbca2cdd9bbb"
+    },
+    {
+      "name": "armt",
+      "method": "ARMT",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=ARMT",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/armt/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/armt/plain.bin"
+      ],
+      "bytes": 83,
+      "changed_bytes": 16,
+      "plain_sha256": "2e7c41835c52387121cc24f70a434463a1a122f242c4ac95ae9c075adc96c499",
+      "encoded_sha256": "e973b78d819e440b4a2d5f6074dae648095f9e839412aa8f5f56158fd5489841",
+      "archive_sha256": "eb1b41be002447b75d34bb10007d75b7183abe407d3aba6102e9327cca740f04"
+    },
+    {
+      "name": "arm64",
+      "method": "ARM64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=ARM64",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/arm64/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/arm64/plain.bin"
+      ],
+      "bytes": 323,
+      "changed_bytes": 19,
+      "plain_sha256": "3bf68839c25d6fb30066e6afd383b7c846d4abb70fdf412637e45c9ebf339441",
+      "encoded_sha256": "ac01dd049abdddf6986ce4f593759ab6c43dc616246b2e0855c69036f9a5a748",
+      "archive_sha256": "27874c508487f893959c785db9618b2170396e7e220ac003271132c38ceab764"
+    },
+    {
+      "name": "ia64",
+      "method": "IA64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=IA64",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/ia64/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/ia64/plain.bin"
+      ],
+      "bytes": 1539,
+      "changed_bytes": 32,
+      "plain_sha256": "c3bc3f01b0dda04f6ff495b62afef0a18155028c8c315b55fb094cde4ff2f93e",
+      "encoded_sha256": "69e0ca953233d047424ae5560229da2cd531a69453649b9166cc68781395434e",
+      "archive_sha256": "b3a74780d2b4ebc4e4ec54512b941cc2fb0c7ebc586127982a5adf57dc424280"
+    },
+    {
+      "name": "riscv",
+      "method": "RISCV",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=RISCV",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/riscv/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/riscv/plain.bin"
+      ],
+      "bytes": 323,
+      "changed_bytes": 210,
+      "plain_sha256": "292908a2f306b28cea55c79664ba44cd5f68f1f2bcd8ea01724f1c220ce734f2",
+      "encoded_sha256": "e44e2576020ab0c9b4e1152e9a10c2eb4eaf96ad42d5b10d2b3bc01c25986170",
+      "archive_sha256": "28ad26a061214cfd3777d038f0a66892b453a3bd89d0d61c61bec75a0525b707"
+    },
+    {
+      "name": "riscv-shapes",
+      "method": "RISCV",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=RISCV",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/riscv-shapes/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/riscv-shapes/plain.bin"
+      ],
+      "bytes": 108032,
+      "changed_bytes": 8004,
+      "plain_sha256": "893098640283706793ee94831facf0f7dffc317932ff3ecc8e755d7674a883c8",
+      "encoded_sha256": "33cbfe43f3b7b942d1ef77f9752e4b5eb7a62ac69a25547132fce5137cae17e3",
+      "archive_sha256": "5426988495ee1e5d5b2e8478d040a86f5f77ed9518e193864f2e88088db8f6f6"
+    },
+    {
+      "name": "arm-random",
+      "method": "ARM",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=ARM",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/arm-random/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/arm-random/plain.bin"
+      ],
+      "bytes": 65539,
+      "changed_bytes": 121,
+      "plain_sha256": "ef0c135ff6e81cc81538aedb9f80214fe5ca5cb8e36e4b92909d49daba8bb37e",
+      "encoded_sha256": "c850aeae2d38ebd59cb84ed423467adf9fe7b5311167af75814379b256363053",
+      "archive_sha256": "03cdca2837d01bc59dd63d2383584b947918b9983a0bfd43ad2322400bb35c18"
+    },
+    {
+      "name": "armt-random",
+      "method": "ARMT",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=ARMT",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/armt-random/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/armt-random/plain.bin"
+      ],
+      "bytes": 65539,
+      "changed_bytes": 89,
+      "plain_sha256": "ef0c135ff6e81cc81538aedb9f80214fe5ca5cb8e36e4b92909d49daba8bb37e",
+      "encoded_sha256": "f40c450fc44359459161b6cfdb04ef65bb776f6e561f1757c9b84f030d2fcd63",
+      "archive_sha256": "fe3e6f3288ed37dbce55c7ae279aad746986f396c6949b9884d0c708fd9566ee"
+    },
+    {
+      "name": "ppc-random",
+      "method": "PPC",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=PPC",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/ppc-random/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/ppc-random/plain.bin"
+      ],
+      "bytes": 65539,
+      "changed_bytes": 172,
+      "plain_sha256": "ef0c135ff6e81cc81538aedb9f80214fe5ca5cb8e36e4b92909d49daba8bb37e",
+      "encoded_sha256": "f2837fcf2c36eb027ce5a877b18142add79e0546ffd8a407e8ee6c03479844f3",
+      "archive_sha256": "3fdbca960cac6c9267e1ea120f783446d1b313139e0164d668e85f3888df6897"
+    },
+    {
+      "name": "sparc-random",
+      "method": "SPARC",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=SPARC",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/sparc-random/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/sparc-random/plain.bin"
+      ],
+      "bytes": 65539,
+      "changed_bytes": 72,
+      "plain_sha256": "ef0c135ff6e81cc81538aedb9f80214fe5ca5cb8e36e4b92909d49daba8bb37e",
+      "encoded_sha256": "c161707bd57dd75043b8c6121a4ac7c68c2f4646459d6a0210a94463d2d159b8",
+      "archive_sha256": "d54e3553eaa8a009a9d2556b713868b06681e7bbcca75087bbcb0881e2862f09"
+    },
+    {
+      "name": "arm64-random",
+      "method": "ARM64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=ARM64",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/arm64-random/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/arm64-random/plain.bin"
+      ],
+      "bytes": 65539,
+      "changed_bytes": 593,
+      "plain_sha256": "ef0c135ff6e81cc81538aedb9f80214fe5ca5cb8e36e4b92909d49daba8bb37e",
+      "encoded_sha256": "b4ab729051a019e45fb70911c6a7bc176f0c5adccf8044e945e5120a62e4eaf6",
+      "archive_sha256": "8643a008f471bf3e41eaf283130704711e9d5d9508e6caefc50ffcceb310f187"
+    },
+    {
+      "name": "ia64-random",
+      "method": "IA64",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=IA64",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/ia64-random/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/ia64-random/plain.bin"
+      ],
+      "bytes": 65539,
+      "changed_bytes": 47,
+      "plain_sha256": "ef0c135ff6e81cc81538aedb9f80214fe5ca5cb8e36e4b92909d49daba8bb37e",
+      "encoded_sha256": "ca2c202159ee95c8b48f4879b7f662796e41b8c53b3aa2fbde222e2b4f7fd3b7",
+      "archive_sha256": "e0d0669a48774872ae65a975eaef18bb568ac8e6228c7ab8ab8939ab6fe81814"
+    },
+    {
+      "name": "riscv-random",
+      "method": "RISCV",
+      "properties": [],
+      "command": [
+        "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+        "a",
+        "-t7z",
+        "-m0=RISCV",
+        "-mhc=off",
+        "-mtm=off",
+        "-mta=off",
+        "-mtc=off",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/riscv-random/oracle.7z",
+        "/home/pmarreck/Code/z7z/src/fixtures/filters/riscv-random/plain.bin"
+      ],
+      "bytes": 65539,
+      "changed_bytes": 83,
+      "plain_sha256": "ef0c135ff6e81cc81538aedb9f80214fe5ca5cb8e36e4b92909d49daba8bb37e",
+      "encoded_sha256": "9a9dc2428aef73ac7360a2b405d57324ee7b08471c0869f1368754bfab9a57ac",
+      "archive_sha256": "8ec026587b154f4fb35d84b8d78bc1ae96ce0dfe53515792b0f620d5bfbcaac5"
+    }
+  ]
+}

@@ -41,4 +41,8 @@ test {
     _ = archive;
     _ = ffi;
     _ = interop_test;
+    _ = @import("deflate64.zig");
+    _ = @import("filters.zig");
+    _ = @import("bzip2_adapter.zig");
+    _ = @import("codec_archive_test.zig");
 }

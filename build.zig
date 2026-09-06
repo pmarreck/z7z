@@ -10,12 +10,21 @@ pub fn build(b: *std.Build) void {
         "Optimization mode (default: ReleaseFast)",
     ) orelse .ReleaseFast;
 
+    const bzip2_dep = b.dependency("bzip2z", .{ .target = target, .optimize = optimize });
+    // Import the decoder source without pulling upstream's library test suite.
+    const bzip2_module = b.createModule(.{
+        .root_source_file = bzip2_dep.path("src/bzip2.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
     // --- Zig core library (static, with C FFI) ---
     const lib_module = b.createModule(.{
         .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .imports = &.{.{ .name = "bzip2z", .module = bzip2_module }},
     });
 
     const lib = b.addLibrary(.{
@@ -32,6 +41,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .imports = &.{.{ .name = "bzip2z", .module = bzip2_module }},
     });
 
     // --- C CLI executable ---
@@ -96,6 +106,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .link_libc = true,
+            .imports = &.{.{ .name = "bzip2z", .module = bzip2_module }},
         }),
     });
     const run_unit_tests = b.addRunArtifact(unit_tests);

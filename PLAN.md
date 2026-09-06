@@ -12,10 +12,16 @@ must independently check each agent's test and performance claims.
 - [x] Add a persistent regression check for Downloads/RESET BAT-499-v1.7z (2026-09-06 10:50 AM EDT). The failure no longer reproduces: oracle, C ABI, Zig verification, and installed validate all pass. Method is LZMA:16; no decoder fix was warranted. Keep the private archive out of Git.
 - [x] Create an initial machine-readable verification feature matrix with method/property IDs, implemented paths, evidence, and explicit gaps (2026-09-06 11:02 AM EDT). 26 method rows and 19 structural/consumer rows; set-based mutation tests and Nix coverage check pass. The oracle-removal gate intentionally fails while coverage is incomplete.
 - [ ] Implement the confirmed filter, Deflate64, BZip2, PPMd, and archive-structure gaps in separately tested and measured increments; retain the development oracle until the complete matrix passes.
-- [ ] Reassess ../bzip2z's current revision and integrate it for 7z BZip2 data (Peter confirmed reuse, 2026-09-06 EDT). Check the previously observed short-write, error-propagation, and allocation-limit issues before pinning it. This remains after the original archive regression and inventory.
+- [x] Resolve the measured LZMA2 regression (2026-09-06 12:22 PM EDT). Prevent BZip2 sink-call inlining to restore the shared dispatch frame. Twelve canonical Nix pairs measured CPU 738.52 ms baseline, 777.00 ms initial integration, 738.24 ms final. The earlier LZMA2 noinline candidate failed canonical acceptance. All measurements remain in tests/benchmark/2026-09-06-codecs.json.
+- [ ] Ship the integrated codec/filter increment after final benchmarks, full tests, five-target builds, and exact-commit Mechatron CI; notify validate of the pushed revision and remaining limits.
+- [x] Check BZip2 final padding against the 7z oracle (2026-09-06 11:55 AM EDT). Twelve nonzero-padding variants preserve oracle output but initially failed with TrailingData. Removed only the zero-padding guard; all 17 adapter tests pass and whole trailing bytes remain rejected. Evidence: src/fixtures/bzip2/padding-provenance.json.
+- [x] Integrate pinned pure-Zig bzip2z 6113a10 for 7z BZip2 data (2026-09-06 12:22 PM EDT). Adapter tests cover whole-write semantics, original sink errors, allocation limits/failures, CRC/framing, multiblock/RLE and padding. Retained/sink/range/C ABI paths pass; BCJ2 pull remains unsupported. Normal Zig dependency and Nix FOD verified without sibling edits or vendoring.
+- [x] Verify final codec integration with ./build, ./test, Nix test/coverage checks, and all five ./build_all targets (2026-09-06 12:22 PM EDT). Existing CLI 178/178 and new fixture CLI 405/405 checks pass; 31/31 archives supported. Final Nix verifier exactly matches the measured executable SHA-256 b12c59e6d96550c97c180256fad24a735568ee611776b9359703056bb0612178.
+- [x] Preserve encrypted-header behavior under strict coder output-size checks (2026-09-06 11:52 AM EDT). Use the unbound output size, not the final metadata array entry. Existing archive/C ABI regressions became red; focused reproduction confirmed StructuralError, then passed after the correction. Full suite passes.
 - [x] Verify and enforce optional packed-stream/header CRCs (2026-09-06 approximately 11:25 AM EDT). Paired failing regressions, permanent oracle-audited fixtures, retained/slice/range and C CLI checks pass. Full ./test and ./build passed in an isolated CRC-only worktree. Gaussian/uniform LZMA2 wall changes -0.47%/-0.18%, within measured variation; tests/benchmark/2026-09-06-crc.md. Packed CRC checks intentionally reject two cases the oracle accepts.
+- [x] Ship CRC fix 362499532be7b7ed152cc8c991257ab09f01e718 and verify all seven Mechatron targets (2026-09-06 11:51 AM EDT). Sent validate a durable status note with exact SHA/CI result and the Zig-to-Zig/C ABI clarification; receipt has not been acknowledged.
 
-Active delegated work: Noether owns src/filters.zig and filter fixtures; Pauli owns
+Completed delegated work: Noether owns src/filters.zig and filter fixtures; Pauli owns
 src/deflate64.zig and Deflate64 fixtures; Raman owns the BZip2 adapter/reuse audit;
 Arendt owns PPMd feasibility/implementation. Progress and final reports are in
 /tmp/dispatch-log/z7z-{filters,deflate64,bzip2,ppmd}-{progress,final}.md. The parent
@@ -24,6 +30,8 @@ delegation (2026-09-06 11:16 AM EDT): Pauli integrates Deflate64 and filters in
 src/codec.zig; Noether independently checks the CRC fixtures with the oracle;
 Raman investigates a portable pinned BZip2 build dependency. PPMd model reuse
 awaits Peter's provenance decision; its property parser is not decoder support.
+The coordinator has integrated the completed codec/filter work. Noether's
+performance follow-up is complete; final shipping remains coordinator-owned.
 
 - [x] Integrate the verified Zig 0.16 stdlib Deflate decoder into retained extraction, sink/range verification, and supported coder chains; use failing tests and record performance (completed 2026-09-04 09:58 PM EDT; tests/benchmark/2026-09-04-deflate.md). Ship through exact-commit Mechatron CI.
 - [x] Repair the pre-existing nondeterministic CLI compression-level fixture exposed by the baseline run; replace random/clock input with deterministic data and let ./test accumulate failures (completed 2026-09-04 09:53 PM EDT; 196/196 Zig and 178/178 CLI checks pass).
@@ -88,11 +96,11 @@ Any obsolete exclusion requires documented evidence and Peter's agreement.
 The following gaps come from the existing dispatch code and the earlier inventory;
 recheck their decoding capabilities against 26.03 before marking matrix rows.
 
-- [ ] Implement Delta and Swap2/Swap4 with property validation and split-buffer tests.
-- [ ] Implement ARM64 and RISC-V filters, then ARM, Thumb, PowerPC, SPARC, and IA64. Exercise real transform cases, offsets, alignment, wraparound, and instruction splits.
+- [x] Implement Delta and Swap2/Swap4 with property validation and split-buffer tests (2026-09-06 11:52 AM EDT). Retained/sink/range and C CLI tests pass; generic coder graphs remain pending.
+- [x] Implement ARM64 and RISC-V filters, then ARM, Thumb, PowerPC, SPARC, and IA64 (2026-09-06 11:52 AM EDT). Oracle non-identity cases, offsets, alignment, wraparound and instruction splits pass; generic coder graphs remain pending.
 - [x] Evaluate Deflate reuse candidates with independent fixtures: pinned Zig 0.16 passes 90 comparisons, short-input tests, and the original #24963 ZIP; fingerprint inspection accepts an invalid backreference (completed 2026-09-04 09:25 PM EDT).
 - [x] Add failing 7z Deflate archive/sink/range regressions, then integrate std.compress.flate with allocator-owned buffers, strict output limits, and before/after measurements (completed 2026-09-04 09:58 PM EDT).
-- [ ] Implement Deflate64 separately; its long-distance witness is incompatible with ordinary Deflate.
+- [x] Implement Deflate64 separately (2026-09-06 11:52 AM EDT). 64 KiB distances, extended code285, framing checks and all four BCJ2 input roles pass. Initial long-history verification measures about 114 MiB/s; complete combination inventory remains pending.
 - [x] Evaluate local bzip2z: 2 MiB oracle payload passes, partial sink writes lose output, and repeated-data expansion grows buffers before the sink sees bytes (completed 2026-09-04 09:25 PM EDT).
 - [ ] Integrate a verified green bzip2z revision with all-or-error sink writes, preserved resource/input/cancellation errors, and allocator-enforced limits. Cover multi-block decoding, integrity checks, and legacy encodings still accepted by the current oracle. The investigated sibling worktree contains uncommitted changes.
 - [ ] Implement PPMd with the exact variant and property semantics used by 7z; exercise model resets, memory limits, and truncation.
@@ -112,6 +120,8 @@ Reuse findings (2026-09-04 EDT, inspected source; no builds/tests run):
 ### 4. Complete Archive Structures and Bounded Streaming
 
 - [ ] Exercise and implement valid coder graphs, binding order, multiple packed streams, filter chains, and encrypted combinations, including BCJ2. Reject cycles, invalid bindings, and inconsistent sizes.
+- [ ] Reproduce source-review concerns with executable tests: unchecked folder stream totals/bind indices, ignored simple-pipeline bindings, and unused BCJ2 side-stream bytes. These are unproven risks, not demonstrated false acceptances (2026-09-06 review).
+- [ ] Audit bzip2z malformed RUNA/RUNB accumulation and independently cover randomized blocks, maximum RLE expansion, and concatenated members. The current adapter corpus does not establish these cases.
 - [ ] Complete plain, encoded, and encrypted headers; external metadata streams where supported; substream defaults; optional CRCs; empty-stream flags; Unicode names; timestamps; attributes; and unknown-property handling.
 - [ ] Cover solid/non-solid/multi-folder archives, zero-length entries, large sizes and offsets, archive prefixes/SFX, trailing data, and split volumes according to observed reference semantics.
 - [ ] Complete packed-input streaming within a single solid folder, including decryption and multi-stream pipelines; account for codec dictionary/model memory explicitly.

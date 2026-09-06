@@ -1,0 +1,41 @@
+{
+  "oracle_sha256": "eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac",
+  "cases": [
+    {
+      "name": "extended-0",
+      "detail": "fixed: literal A; length285 extra=0; distance=1; EOB",
+      "valid_bits": 47,
+      "oracle_verified": true,
+      "plain_sha256": "63c1dd951ffedf6f7fd968ad4efa39b8ed584f162f46e715114ee184f8de9201",
+      "raw_sha256": "d07205e93eb46a64e6b09c4b899f998ed458b320870a3a027d7ff1d880d35cdd",
+      "archive_sha256": "8071ccae44becaf01ed92f6889c1ed42fa107a3a7f8c5689b568757790925c7f"
+    },
+    {
+      "name": "extended-255",
+      "detail": "fixed: literal A; length285 extra=255; distance=1; EOB",
+      "valid_bits": 47,
+      "oracle_verified": true,
+      "plain_sha256": "bd29f5b5043ba9d48f0cd6fda241bb24d8c274987ed0c1697008dc73c0f37dc2",
+      "raw_sha256": "59ef489731fe3ed30b4dd269c8c00b6020f3ff2c1a4b2f59ae93b8bf9f4520fb",
+      "archive_sha256": "613f403a8041bd280cb8b90b8c6c160d222f9ca75726fefc918038c5ed907209"
+    },
+    {
+      "name": "extended-65535",
+      "detail": "fixed: literal A; length285 extra=65535; distance=1; EOB",
+      "valid_bits": 47,
+      "oracle_verified": true,
+      "plain_sha256": "2548571936ec94827963864d3199caad85c8cf935d00eb5ce46d1e99585b3803",
+      "raw_sha256": "28293fff3311200fae4de21f0977221d0919a19374eecfc69d0ca491a9de4abe",
+      "archive_sha256": "4d903bc30153efd3f454280da5930ab6a8459c023d81569cf62e433b65082b6e"
+    },
+    {
+      "name": "distance65536",
+      "detail": "two stored blocks (65535+1); fixed length3, distance code31 extra16383 = 65536",
+      "valid_bits": 524404,
+      "oracle_verified": true,
+      "plain_sha256": "260f48b9b9547ce9c2b909c45ca0de6e5bfc2007a4dcc0517cc52d02ba4ee4db",
+      "raw_sha256": "74d47d186090abe9a6f213bdf9014be372e6e6755071de46f27c5e025c43c800",
+      "archive_sha256": "04c611dc045e5b538be7deee78e1bb1a14110c2968db00d904c76426eb15c34b"
+    }
+  ]
+}

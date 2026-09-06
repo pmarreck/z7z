@@ -1,0 +1,46 @@
+{
+  "oracle": "7-Zip 26.03 static 7zzs (black-box execution only)",
+  "oracle_sha256": "eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac",
+  "generated": "2026-09-06T15:42:59.825Z",
+  "command": "7zzs a -t7z -m0=BZip2 -md=100k -mx=9 -mmt=1 -mhc=off -mtc=off -mtm=off -mta=off ARCHIVE INPUT",
+  "packed_payload": "Archive bytes [32, 32 + uint64le(header[12..20])) with uncompressed next header; single packed stream.",
+  "cases": [
+    {
+      "name": "small",
+      "size": 49,
+      "crc32": "34E73C90",
+      "input_sha256": "c4db3c8fbe0ee0f91ca131ed97d07be104b95b836f8810c8162b3d53a943e396",
+      "archive_sha256": "953091b9adcaae7b58a6c88ffa64be07d49c3ff5ca0122e13b61a1482700522d",
+      "packed_sha256": "b23c382e2c23e2f0fbcc817ee95804b7880f4a6b79b1f7098fea94cbc780385d",
+      "packed_size": 90
+    },
+    {
+      "name": "rle-expansion",
+      "size": 1200000,
+      "crc32": "69DFAE60",
+      "input_sha256": "deeec306cc460ea6bfa53302b50ff4b2d3a802fdb0c058125d245d577a668e21",
+      "archive_sha256": "43cb6abc30fa89e4acaa33f5235db77c80dba87a6ead75969bd9108a809b4eca",
+      "packed_sha256": "b9054339286c886cc7e6e5594b261c81420e8844029f8e7c59d3bfe21e199514",
+      "packed_size": 49
+    },
+    {
+      "name": "multiblock",
+      "size": 210000,
+      "crc32": "A05D9824",
+      "input_sha256": "742f361aadc61cca597ec11a4fa3c4e622a6a2bc22dc743a24a53ddedd6d0822",
+      "archive_sha256": "a27e767db5155ae01f42afc542f45001439c32b16fcc6b3610b159c09b8fdc19",
+      "packed_sha256": "b5e104f3a22d2965d1dda60984acf39ce0d9ca28fad4d7abfa82789b9f8ffea7",
+      "packed_size": 2254
+    },
+    {
+      "name": "filter-swap4",
+      "size": 1031,
+      "crc32": "256881DA",
+      "input_sha256": "c3ddfdff2a054f2b71be67f2934b53a133ce7ee20598ab19154ca137f1c7877a",
+      "archive_sha256": "21300dbc4c9534f44045bfa819caa4ec3739a745a105c28f1c5f88a277904d99",
+      "packed_sha256": "37302ce19cea3bf1139935c45c04c9883ffd27a2d068670c4fd1fa09831605fe",
+      "packed_size": 767,
+      "input_source": "../filters/swap4/encoded.bin (independent filter oracle fixture)"
+    }
+  ]
+}

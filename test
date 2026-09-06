@@ -31,6 +31,15 @@ else
 	((FAILURES++))
 fi
 
+echo ""
+echo "=== Codec fixture CLI tests ==="
+if nix develop -c tests/cli/codec-fixtures; then
+	echo "PASS: codec fixture CLI tests"
+else
+	echo "FAIL: codec fixture CLI tests"
+	((FAILURES++))
+fi
+
 if [ "$FAILURES" -gt 0 ]; then
 	echo ""
 	echo "FAILED: $FAILURES suite(s)"

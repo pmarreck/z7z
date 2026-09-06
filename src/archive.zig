@@ -1275,6 +1275,7 @@ fn parseArchiveMetadata(archive_data: []const u8, password: ?[]const u8, allocat
     // Parse metadata (pass full archive for encoded header support)
     return meta.parseNextHeaderFull(nh_bytes, archive_data, password, allocator) catch |e| switch (e) {
         error.ChecksumError => return ArchiveError.ChecksumError,
+        error.ResourceLimitExceeded => return ArchiveError.ResourceLimitExceeded,
         error.StructuralError => return ArchiveError.StructuralError,
         error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
         error.EndOfStream => return ArchiveError.EndOfStream,
@@ -1314,6 +1315,7 @@ fn parseArchiveMetadataRange(source: RangeSource, password: ?[]const u8, allocat
 
     return meta.parseNextHeaderFromSource(next_header, source, password, allocator) catch |err| switch (err) {
         error.ChecksumError => return ArchiveError.ChecksumError,
+        error.ResourceLimitExceeded => return ArchiveError.ResourceLimitExceeded,
         error.StructuralError => return ArchiveError.StructuralError,
         error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
         error.EndOfStream => return ArchiveError.EndOfStream,
@@ -1753,6 +1755,7 @@ fn verifyPayloads(
             error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
             error.DecompressFailed => return ArchiveError.StructuralError,
             error.OutOfMemory => return ArchiveError.OutOfMemory,
+            error.ResourceLimitExceeded => return ArchiveError.ResourceLimitExceeded,
         };
         defer allocator.free(unpacked);
 
@@ -2584,6 +2587,28 @@ test "archive: permanent oracle-audited CRC fixtures preserve validity classific
         var source = TestChunkedRangeSource{ .data = data, .next_header_start = header.nextHeaderAbsoluteOffset() };
         try std.testing.expectError(ArchiveError.ChecksumError, verifyRange(source.source(), .{}, allocator));
     }
+}
+
+test "archive: BZip2 retained allocation budget overflow stays a resource error" {
+    const allocator = std.testing.allocator;
+    const original = @embedFile("fixtures/bzip2/small.7z");
+    var good = try read(original, allocator);
+    defer good.deinit();
+    try std.testing.expectEqual(@as(usize, 49), good.file_data[0].len);
+
+    var header = try sig_header.parse(original);
+    const offset: usize = @intCast(header.nextHeaderAbsoluteOffset());
+    var metadata = try meta.parseNextHeader(original[offset..], allocator);
+    defer metadata.deinit();
+    metadata.folders[0].unpack_sizes[0] = std.math.maxInt(usize);
+    const next = try encoder.encodeNextHeader(metadata, allocator);
+    defer allocator.free(next);
+    header.next_header_size = next.len;
+    header.next_header_crc = crc32.hash(next);
+    const signature = sig_header.encode(header);
+    const oversized = try std.mem.concat(allocator, u8, &.{ &signature, original[sig_header.HEADER_SIZE..offset], next });
+    defer allocator.free(oversized);
+    try std.testing.expectError(ArchiveError.ResourceLimitExceeded, read(oversized, allocator));
 }
 
 test "archive: inspect reports unpacked work from metadata" {

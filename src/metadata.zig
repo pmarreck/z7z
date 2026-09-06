@@ -13,6 +13,7 @@ const range_source = @import("range_source.zig");
 
 pub const ParseError = error{
     ChecksumError,
+    ResourceLimitExceeded,
     StructuralError,
     UnsupportedFeature,
     EndOfStream,
@@ -234,16 +235,14 @@ fn decodeEncodedHeader(r: *Reader, maybe_source: ?range_source.RangeSource, pass
     defer packed_range.deinit(allocator);
     const packed_data = packed_range.bytes;
     try pi.checkCrcs(0, 1, packed_data);
-    const unpack_size: u64 = if (folder.unpack_sizes.len > 0)
-        folder.unpack_sizes[folder.unpack_sizes.len - 1]
-    else
-        0;
+    const unpack_size = folder.getFinalUnpackSize();
 
     // Decompress using codec dispatch
     const decoded = codec.decompressFolder(folder, packed_data, &.{packed_data.len}, unpack_size, password, allocator) catch |e| switch (e) {
         error.UnsupportedMethod => return ParseError.UnsupportedFeature,
         error.DecompressFailed => return ParseError.StructuralError,
         error.OutOfMemory => return ParseError.OutOfMemory,
+        error.ResourceLimitExceeded => return ParseError.ResourceLimitExceeded,
     };
     defer allocator.free(decoded);
 
