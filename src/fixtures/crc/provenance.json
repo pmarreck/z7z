@@ -1,0 +1,258 @@
+{
+  "observed_at": "2026-09-06T15:23:00.650Z",
+  "oracle": {
+    "path": "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+    "sha256": "eab4c8d7f193e3d6d3237370bbcaa879a160a3f1dc82202207e27baeab79b6ac",
+    "version_banner": "7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03\n 64-bit locale=C UTF8=- Threads:128 OPEN_MAX:9001, ASM\n"
+  },
+  "construction": {
+    "description": "Exact local copies of parent archive.zig packedCrcFixture and encodedHeaderCrcFixture; synthetic Copy data only. No private archives.",
+    "git_head_at_observation": "075ecadc4200706d0c362afa699da47af83b31c9",
+    "parent_archive_zig_sha256": "e7e87fb3ebdf2dfd72c86017c79c8d34dbfff491486b2b124b8e2803265e59ca",
+    "scratch_test_sha256": "63123a06565a70487fbe46f7882149f4f19cca9d8935951f43ecdb196da72385",
+    "scratch_test_recovery_path": "/dev/shm/z7z-crc-oracle-20260906/crc_oracle_test.zig",
+    "command": "nix develop /home/pmarreck/Code/z7z -c zig test src/crc_oracle_test.zig -O ReleaseSafe -target x86_64-linux-musl -lc --test-filter crc-oracle",
+    "focused_result": "5 tests passed; parent read, verify, verifyRange accept both good cases and reject all three bad cases as ChecksumError"
+  },
+  "cases": [
+    {
+      "file": "packed-good.7z",
+      "bytes": 106,
+      "sha256": "55fc62349a1a2129f003473f8de3050731f06db631f431f5b7e3e5750194a3f8",
+      "expected_payload": "packed.txt",
+      "payload_bytes": 18,
+      "payload_sha256": "a5e210286abad156379383c4413c47ecc21b1fa6793eb5d696626944e0401f9c",
+      "helper": "packedCrcFixture",
+      "arguments": {
+        "corrupt": false
+      },
+      "start_header_crc_valid": true,
+      "next_header_crc_valid": true,
+      "changed_offsets_from_good": [],
+      "changed_offsets_outside_signature": [],
+      "parent_read_verify_verifyRange": "accepted; 18 payload bytes",
+      "oracle_runs": [
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "t",
+            "src/fixtures/crc/packed-good.7z"
+          ],
+          "exit_status": 0,
+          "stdout": "\n7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03\n 64-bit locale=C UTF8=- Threads:128 OPEN_MAX:9001, ASM\n\nScanning the drive for archives:\n1 file, 106 bytes (1 KiB)\n\nTesting archive: src/fixtures/crc/packed-good.7z\n--\nPath = src/fixtures/crc/packed-good.7z\nType = 7z\nPhysical Size = 106\nHeaders Size = 88\nMethod = Copy\nSolid = -\nBlocks = 1\n\nEverything is Ok\n\nSize:       18\nCompressed: 106\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "x",
+            "-so",
+            "src/fixtures/crc/packed-good.7z"
+          ],
+          "exit_status": 0,
+          "stdout": "packed CRC fixture",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "file": "packed-bad.7z",
+      "bytes": 106,
+      "sha256": "227ac06f20be9b2d23a1e1db51de691cc17eb5c280c79925547a6d10d090cffc",
+      "expected_payload": "packed.txt",
+      "payload_bytes": 18,
+      "payload_sha256": "a5e210286abad156379383c4413c47ecc21b1fa6793eb5d696626944e0401f9c",
+      "helper": "packedCrcFixture",
+      "arguments": {
+        "corrupt": true
+      },
+      "start_header_crc_valid": true,
+      "next_header_crc_valid": true,
+      "changed_offsets_from_good": [
+        8,
+        9,
+        10,
+        11,
+        28,
+        29,
+        30,
+        31,
+        59
+      ],
+      "changed_offsets_outside_signature": [
+        59
+      ],
+      "parent_read_verify_verifyRange": "ChecksumError",
+      "oracle_runs": [
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "t",
+            "src/fixtures/crc/packed-bad.7z"
+          ],
+          "exit_status": 0,
+          "stdout": "\n7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03\n 64-bit locale=C UTF8=- Threads:128 OPEN_MAX:9001, ASM\n\nScanning the drive for archives:\n1 file, 106 bytes (1 KiB)\n\nTesting archive: src/fixtures/crc/packed-bad.7z\n--\nPath = src/fixtures/crc/packed-bad.7z\nType = 7z\nPhysical Size = 106\nHeaders Size = 88\nMethod = Copy\nSolid = -\nBlocks = 1\n\nEverything is Ok\n\nSize:       18\nCompressed: 106\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "x",
+            "-so",
+            "src/fixtures/crc/packed-bad.7z"
+          ],
+          "exit_status": 0,
+          "stdout": "packed CRC fixture",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "file": "encoded-good.7z",
+      "bytes": 136,
+      "sha256": "cea0f4d85808a815a7d984591cfabf6de66e539824c6a3ca3a25483d94ae316e",
+      "expected_payload": "header.txt",
+      "payload_bytes": 18,
+      "payload_sha256": "7cb6eeb70cd30ae844ba1b115f1bf1007012684d30bd5880b309c21ff590f7cf",
+      "helper": "encodedHeaderCrcFixture",
+      "arguments": {
+        "bad_pack": false,
+        "bad_folder": false
+      },
+      "start_header_crc_valid": true,
+      "next_header_crc_valid": true,
+      "changed_offsets_from_good": [],
+      "changed_offsets_outside_signature": [],
+      "parent_read_verify_verifyRange": "accepted; 18 payload bytes",
+      "oracle_runs": [
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "t",
+            "src/fixtures/crc/encoded-good.7z"
+          ],
+          "exit_status": 0,
+          "stdout": "\n7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03\n 64-bit locale=C UTF8=- Threads:128 OPEN_MAX:9001, ASM\n\nScanning the drive for archives:\n1 file, 136 bytes (1 KiB)\n\nTesting archive: src/fixtures/crc/encoded-good.7z\n--\nPath = src/fixtures/crc/encoded-good.7z\nType = 7z\nPhysical Size = 136\nHeaders Size = 118\nMethod = Copy\nSolid = -\nBlocks = 1\n\nEverything is Ok\n\nSize:       18\nCompressed: 136\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "x",
+            "-so",
+            "src/fixtures/crc/encoded-good.7z"
+          ],
+          "exit_status": 0,
+          "stdout": "header CRC fixture",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "file": "encoded-bad-pack.7z",
+      "bytes": 136,
+      "sha256": "5e6d15f4d37080aa13489d2a1b3cb6cdd09fd84c6a7e1ad98c844fbf163f8374",
+      "expected_payload": "header.txt",
+      "payload_bytes": 18,
+      "payload_sha256": "7cb6eeb70cd30ae844ba1b115f1bf1007012684d30bd5880b309c21ff590f7cf",
+      "helper": "encodedHeaderCrcFixture",
+      "arguments": {
+        "bad_pack": true,
+        "bad_folder": false
+      },
+      "start_header_crc_valid": true,
+      "next_header_crc_valid": true,
+      "changed_offsets_from_good": [
+        8,
+        9,
+        10,
+        11,
+        28,
+        29,
+        30,
+        31,
+        114
+      ],
+      "changed_offsets_outside_signature": [
+        114
+      ],
+      "parent_read_verify_verifyRange": "ChecksumError",
+      "oracle_runs": [
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "t",
+            "src/fixtures/crc/encoded-bad-pack.7z"
+          ],
+          "exit_status": 0,
+          "stdout": "\n7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03\n 64-bit locale=C UTF8=- Threads:128 OPEN_MAX:9001, ASM\n\nScanning the drive for archives:\n1 file, 136 bytes (1 KiB)\n\nTesting archive: src/fixtures/crc/encoded-bad-pack.7z\n--\nPath = src/fixtures/crc/encoded-bad-pack.7z\nType = 7z\nPhysical Size = 136\nHeaders Size = 118\nMethod = Copy\nSolid = -\nBlocks = 1\n\nEverything is Ok\n\nSize:       18\nCompressed: 136\n",
+          "stderr": ""
+        },
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "x",
+            "-so",
+            "src/fixtures/crc/encoded-bad-pack.7z"
+          ],
+          "exit_status": 0,
+          "stdout": "header CRC fixture",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "file": "encoded-bad-folder.7z",
+      "bytes": 136,
+      "sha256": "0e439e7bfb26d6a72227f846a6b8cefe640f37a9881b057086f2e1e39b4045c6",
+      "expected_payload": "header.txt",
+      "payload_bytes": 18,
+      "payload_sha256": "7cb6eeb70cd30ae844ba1b115f1bf1007012684d30bd5880b309c21ff590f7cf",
+      "helper": "encodedHeaderCrcFixture",
+      "arguments": {
+        "bad_pack": false,
+        "bad_folder": true
+      },
+      "start_header_crc_valid": true,
+      "next_header_crc_valid": true,
+      "changed_offsets_from_good": [
+        8,
+        9,
+        10,
+        11,
+        28,
+        29,
+        30,
+        31,
+        130
+      ],
+      "changed_offsets_outside_signature": [
+        130
+      ],
+      "parent_read_verify_verifyRange": "ChecksumError",
+      "oracle_runs": [
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "t",
+            "src/fixtures/crc/encoded-bad-folder.7z"
+          ],
+          "exit_status": 2,
+          "stdout": "\n7-Zip (z) 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03\n 64-bit locale=C UTF8=- Threads:128 OPEN_MAX:9001, ASM\n\nScanning the drive for archives:\n1 file, 136 bytes (1 KiB)\n\nTesting archive: src/fixtures/crc/encoded-bad-folder.7z\n\nCan't open as archive: 1\nFiles: 0\nSize:       0\nCompressed: 0\n",
+          "stderr": "ERROR: src/fixtures/crc/encoded-bad-folder.7z\nsrc/fixtures/crc/encoded-bad-folder.7z\nOpen ERROR: Cannot open the file as [7z] archive\n\n\nERRORS:\nHeaders Error\n"
+        },
+        {
+          "command": [
+            "/dev/shm/z7z-coverage-20260906.QOCJby/7zzs",
+            "x",
+            "-so",
+            "src/fixtures/crc/encoded-bad-folder.7z"
+          ],
+          "exit_status": 2,
+          "stdout": "",
+          "stderr": "ERROR: src/fixtures/crc/encoded-bad-folder.7z\nsrc/fixtures/crc/encoded-bad-folder.7z\nOpen ERROR: Cannot open the file as [7z] archive\n\n\nERRORS:\nHeaders Error\n"
+        }
+      ]
+    }
+  ]
+}

@@ -13,13 +13,17 @@ must independently check each agent's test and performance claims.
 - [x] Create an initial machine-readable verification feature matrix with method/property IDs, implemented paths, evidence, and explicit gaps (2026-09-06 11:02 AM EDT). 26 method rows and 19 structural/consumer rows; set-based mutation tests and Nix coverage check pass. The oracle-removal gate intentionally fails while coverage is incomplete.
 - [ ] Implement the confirmed filter, Deflate64, BZip2, PPMd, and archive-structure gaps in separately tested and measured increments; retain the development oracle until the complete matrix passes.
 - [ ] Reassess ../bzip2z's current revision and integrate it for 7z BZip2 data (Peter confirmed reuse, 2026-09-06 EDT). Check the previously observed short-write, error-propagation, and allocation-limit issues before pinning it. This remains after the original archive regression and inventory.
-- [ ] Verify and enforce optional packed-stream/header CRCs; use paired valid/invalid fixtures before changing production code.
+- [x] Verify and enforce optional packed-stream/header CRCs (2026-09-06 approximately 11:25 AM EDT). Paired failing regressions, permanent oracle-audited fixtures, retained/slice/range and C CLI checks pass. Full ./test and ./build passed in an isolated CRC-only worktree. Gaussian/uniform LZMA2 wall changes -0.47%/-0.18%, within measured variation; tests/benchmark/2026-09-06-crc.md. Packed CRC checks intentionally reject two cases the oracle accepts.
 
 Active delegated work: Noether owns src/filters.zig and filter fixtures; Pauli owns
 src/deflate64.zig and Deflate64 fixtures; Raman owns the BZip2 adapter/reuse audit;
 Arendt owns PPMd feasibility/implementation. Progress and final reports are in
 /tmp/dispatch-log/z7z-{filters,deflate64,bzip2,ppmd}-{progress,final}.md. The parent
-owns codec/archive dispatch, dependency manifests, builds, tests, and shipping.
+owns archive dispatch, dependency manifests, builds, tests, and shipping. Follow-up
+delegation (2026-09-06 11:16 AM EDT): Pauli integrates Deflate64 and filters in
+src/codec.zig; Noether independently checks the CRC fixtures with the oracle;
+Raman investigates a portable pinned BZip2 build dependency. PPMd model reuse
+awaits Peter's provenance decision; its property parser is not decoder support.
 
 - [x] Integrate the verified Zig 0.16 stdlib Deflate decoder into retained extraction, sink/range verification, and supported coder chains; use failing tests and record performance (completed 2026-09-04 09:58 PM EDT; tests/benchmark/2026-09-04-deflate.md). Ship through exact-commit Mechatron CI.
 - [x] Repair the pre-existing nondeterministic CLI compression-level fixture exposed by the baseline run; replace random/clock input with deterministic data and let ./test accumulate failures (completed 2026-09-04 09:53 PM EDT; 196/196 Zig and 178/178 CLI checks pass).

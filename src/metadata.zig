@@ -12,6 +12,7 @@ const codec = @import("codec.zig");
 const range_source = @import("range_source.zig");
 
 pub const ParseError = error{
+    ChecksumError,
     StructuralError,
     UnsupportedFeature,
     EndOfStream,
@@ -75,6 +76,22 @@ pub const PackInfo = struct {
     pack_pos: u64,
     pack_sizes: []u64,
     pack_crcs: ?[]?u32, // null if no CRCs declared
+
+    pub fn checkCrcs(self: PackInfo, first: usize, count: usize, data: []const u8) error{ StructuralError, ChecksumError }!void {
+        if (first > self.pack_sizes.len or count > self.pack_sizes.len - first) return error.StructuralError;
+        const digests = self.pack_crcs orelse return;
+        if (digests.len != self.pack_sizes.len) return error.StructuralError;
+        var offset: usize = 0;
+        for (self.pack_sizes[first..][0..count], digests[first..][0..count]) |size, digest| {
+            const len = std.math.cast(usize, size) orelse return error.StructuralError;
+            if (len > data.len - offset) return error.StructuralError;
+            if (digest) |expected| {
+                if (crc32.hash(data[offset..][0..len]) != expected) return error.ChecksumError;
+            }
+            offset += len;
+        }
+        if (offset != data.len) return error.StructuralError;
+    }
 };
 
 pub const SubStreamInfo = struct {
@@ -216,6 +233,7 @@ fn decodeEncodedHeader(r: *Reader, maybe_source: ?range_source.RangeSource, pass
     };
     defer packed_range.deinit(allocator);
     const packed_data = packed_range.bytes;
+    try pi.checkCrcs(0, 1, packed_data);
     const unpack_size: u64 = if (folder.unpack_sizes.len > 0)
         folder.unpack_sizes[folder.unpack_sizes.len - 1]
     else
@@ -228,6 +246,10 @@ fn decodeEncodedHeader(r: *Reader, maybe_source: ?range_source.RangeSource, pass
         error.OutOfMemory => return ParseError.OutOfMemory,
     };
     defer allocator.free(decoded);
+
+    if (folder.unpack_crc) |expected| {
+        if (crc32.hash(decoded) != expected) return ParseError.ChecksumError;
+    }
 
     // The decoded data should start with kHeader
     return parseNextHeader(decoded, allocator);
@@ -859,4 +881,24 @@ test "metadata: reject garbage input" {
     const allocator = std.testing.allocator;
     const result = parseNextHeader(&[_]u8{ 0xFF, 0x00 }, allocator);
     try std.testing.expectError(ParseError.StructuralError, result);
+}
+
+test "metadata: packed CRC checks selected streams and nullable digests" {
+    var sizes = [_]u64{ 3, 0, 2, 4 };
+    var digests = [_]?u32{ crc32.hash("abc"), crc32.hash(""), null, crc32.hash("last") };
+    var info = PackInfo{ .pack_pos = 0, .pack_sizes = &sizes, .pack_crcs = &digests };
+    try info.checkCrcs(0, 4, "abcXYlast");
+    try info.checkCrcs(1, 3, "XYlast");
+    try info.checkCrcs(2, 1, "ZZ");
+    try info.checkCrcs(4, 0, "");
+    try std.testing.expectError(error.ChecksumError, info.checkCrcs(0, 4, "xbcXYlast"));
+    try std.testing.expectError(error.ChecksumError, info.checkCrcs(1, 3, "XYlost"));
+    try std.testing.expectError(error.StructuralError, info.checkCrcs(0, 4, "abcXYlas"));
+    try std.testing.expectError(error.StructuralError, info.checkCrcs(0, 4, "abcXYlast!"));
+    try std.testing.expectError(error.StructuralError, info.checkCrcs(5, 0, ""));
+    try std.testing.expectError(error.StructuralError, info.checkCrcs(3, 2, ""));
+    info.pack_crcs = digests[0..3];
+    try std.testing.expectError(error.StructuralError, info.checkCrcs(0, 1, "abc"));
+    info.pack_crcs = null;
+    try info.checkCrcs(0, 4, "xbcXYlost");
 }

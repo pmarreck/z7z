@@ -1274,6 +1274,7 @@ fn parseArchiveMetadata(archive_data: []const u8, password: ?[]const u8, allocat
 
     // Parse metadata (pass full archive for encoded header support)
     return meta.parseNextHeaderFull(nh_bytes, archive_data, password, allocator) catch |e| switch (e) {
+        error.ChecksumError => return ArchiveError.ChecksumError,
         error.StructuralError => return ArchiveError.StructuralError,
         error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
         error.EndOfStream => return ArchiveError.EndOfStream,
@@ -1312,6 +1313,7 @@ fn parseArchiveMetadataRange(source: RangeSource, password: ?[]const u8, allocat
     if (crc32.hash(next_header) != hdr.next_header_crc) return ArchiveError.ChecksumError;
 
     return meta.parseNextHeaderFromSource(next_header, source, password, allocator) catch |err| switch (err) {
+        error.ChecksumError => return ArchiveError.ChecksumError,
         error.StructuralError => return ArchiveError.StructuralError,
         error.UnsupportedFeature => return ArchiveError.UnsupportedFeature,
         error.EndOfStream => return ArchiveError.EndOfStream,
@@ -1658,6 +1660,8 @@ fn verifyPayloadsStreaming(
             defer packed_range.deinit(allocator);
             const packed_data = packed_range.bytes;
 
+            try pi.checkCrcs(pack_stream_idx - num_pack_streams, num_pack_streams, packed_data);
+
             var sink_state = StreamingVerifySink{
                 .metadata = metadata,
                 .opts = opts,
@@ -1742,6 +1746,8 @@ fn verifyPayloads(
             return ArchiveError.TruncatedInput;
         }
         const packed_data = archive_data[pack_start .. pack_start + folder_pack_size];
+
+        try pi.checkCrcs(pack_stream_idx - num_pack_streams, num_pack_streams, packed_data);
 
         const unpacked = codec.decompressFolder(folder, packed_data, folder_pack_sizes, unpack_size, password, allocator) catch |e| switch (e) {
             error.UnsupportedMethod => return ArchiveError.UnsupportedFeature,
@@ -2463,6 +2469,121 @@ test "archive: verify rejects corrupted copy payload via substream CRC" {
 
     try std.testing.expectError(ArchiveError.ChecksumError, verify(corrupted, .{}, allocator));
     try std.testing.expectError(ArchiveError.ChecksumError, read(corrupted, allocator));
+}
+
+fn packedCrcFixture(allocator: std.mem.Allocator, corrupt: bool) ![]u8 {
+    const data = try createWithMethod(&.{.{ .name = "crc.txt", .data = "packed CRC fixture" }}, .copy, allocator);
+    defer allocator.free(data);
+    const header = try sig_header.parse(data);
+    const offset: usize = @intCast(header.nextHeaderAbsoluteOffset());
+    var metadata = try meta.parseNextHeader(data[offset..], allocator);
+    defer metadata.deinit();
+    const digests = try allocator.alloc(?u32, 1);
+    digests[0] = crc32.hash("packed CRC fixture") ^ @as(u32, if (corrupt) 1 else 0);
+    metadata.pack_info.?.pack_crcs = digests;
+    const next = try encoder.encodeNextHeader(metadata, allocator);
+    defer allocator.free(next);
+    var updated = header;
+    updated.next_header_size = next.len;
+    updated.next_header_crc = crc32.hash(next);
+    const signature = sig_header.encode(updated);
+    return std.mem.concat(allocator, u8, &.{ &signature, data[sig_header.HEADER_SIZE..offset], next });
+}
+
+test "archive: packed CRC mismatch rejects slice and range verification" {
+    const allocator = std.testing.allocator;
+    const good = try packedCrcFixture(allocator, false);
+    defer allocator.free(good);
+    const stats = try verify(good, .{}, allocator);
+    try std.testing.expectEqual(@as(u64, 18), stats.total_unpack_size);
+    const bad = try packedCrcFixture(allocator, true);
+    defer allocator.free(bad);
+    try std.testing.expectError(ArchiveError.ChecksumError, verify(bad, .{}, allocator));
+    const header = try sig_header.parse(bad);
+    var source = TestChunkedRangeSource{ .data = bad, .next_header_start = header.nextHeaderAbsoluteOffset() };
+    try std.testing.expectError(ArchiveError.ChecksumError, verifyRange(source.source(), .{}, allocator));
+}
+
+test "archive: packed CRC mismatch rejects retained extraction" {
+    const allocator = std.testing.allocator;
+    const good = try packedCrcFixture(allocator, false);
+    defer allocator.free(good);
+    var contents = try read(good, allocator);
+    defer contents.deinit();
+    try std.testing.expectEqualStrings("packed CRC fixture", contents.file_data[0]);
+    const bad = try packedCrcFixture(allocator, true);
+    defer allocator.free(bad);
+    if (read(bad, allocator)) |result| {
+        var unexpected = result;
+        unexpected.deinit();
+        return error.TestUnexpectedResult;
+    } else |err| try std.testing.expectEqual(ArchiveError.ChecksumError, err);
+}
+
+fn encodedHeaderCrcFixture(allocator: std.mem.Allocator, bad_pack: bool, bad_folder: bool) ![]u8 {
+    const original = try createWithMethod(&.{.{ .name = "header.txt", .data = "header CRC fixture" }}, .copy, allocator);
+    defer allocator.free(original);
+    const header = try sig_header.parse(original);
+    const offset: usize = @intCast(header.nextHeaderAbsoluteOffset());
+    const decoded = original[offset..];
+    var sizes = [_]u64{decoded.len};
+    var digests = [_]?u32{crc32.hash(decoded) ^ @as(u32, if (bad_pack) 1 else 0)};
+    var coders = [_]meta.Coder{.{ .method_id = &.{0}, .properties = &.{}, .num_in_streams = 1, .num_out_streams = 1 }};
+    var folders = [_]meta.Folder{.{
+        .coders = &coders, .bind_pairs = &.{}, .packed_indices = &.{}, .unpack_sizes = &sizes,
+        .unpack_crc = crc32.hash(decoded) ^ @as(u32, if (bad_folder) 1 else 0),
+    }};
+    const description = try encoder.encodeNextHeader(.{
+        .pack_info = .{ .pack_pos = offset - sig_header.HEADER_SIZE, .pack_sizes = &sizes, .pack_crcs = &digests },
+        .folders = &folders, .sub_streams = null, .files = &.{}, .allocator = allocator,
+    }, allocator);
+    defer allocator.free(description);
+    // Replace Header/MainStreamsInfo wrappers with EncodedHeader/StreamsInfo.
+    const next = try std.mem.concat(allocator, u8, &.{ &.{0x17}, description[2 .. description.len - 1] });
+    defer allocator.free(next);
+    const signature = sig_header.encode(.{
+        .major_version = 0, .minor_version = 4,
+        .next_header_offset = offset - sig_header.HEADER_SIZE + decoded.len,
+        .next_header_size = next.len, .next_header_crc = crc32.hash(next),
+    });
+    return std.mem.concat(allocator, u8, &.{ &signature, original[sig_header.HEADER_SIZE..offset], decoded, next });
+}
+
+test "archive: encoded header packed CRC mismatch rejected" {
+    const allocator = std.testing.allocator;
+    const good = try encodedHeaderCrcFixture(allocator, false, false);
+    defer allocator.free(good);
+    const stats = try verify(good, .{}, allocator);
+    try std.testing.expectEqual(@as(u64, 18), stats.total_unpack_size);
+    const bad = try encodedHeaderCrcFixture(allocator, true, false);
+    defer allocator.free(bad);
+    try std.testing.expectError(ArchiveError.ChecksumError, verify(bad, .{}, allocator));
+}
+
+test "archive: encoded header folder CRC mismatch rejected" {
+    const allocator = std.testing.allocator;
+    const bad = try encodedHeaderCrcFixture(allocator, false, true);
+    defer allocator.free(bad);
+    try std.testing.expectError(ArchiveError.ChecksumError, inspect(bad, null, allocator));
+}
+
+test "archive: permanent oracle-audited CRC fixtures preserve validity classification" {
+    const allocator = std.testing.allocator;
+    inline for (.{ "packed-good", "encoded-good" }) |name| {
+        const data = @embedFile("fixtures/crc/" ++ name ++ ".7z");
+        const stats = try verify(data, .{}, allocator);
+        try std.testing.expectEqual(@as(u64, 18), stats.total_unpack_size);
+        var contents = try read(data, allocator);
+        defer contents.deinit();
+        try std.testing.expectEqualStrings(if (comptime std.mem.startsWith(u8, name, "packed")) "packed CRC fixture" else "header CRC fixture", contents.file_data[0]);
+    }
+    inline for (.{ "packed-bad", "encoded-bad-pack", "encoded-bad-folder" }) |name| {
+        const data = @embedFile("fixtures/crc/" ++ name ++ ".7z");
+        try std.testing.expectError(ArchiveError.ChecksumError, verify(data, .{}, allocator));
+        const header = try sig_header.parse(data);
+        var source = TestChunkedRangeSource{ .data = data, .next_header_start = header.nextHeaderAbsoluteOffset() };
+        try std.testing.expectError(ArchiveError.ChecksumError, verifyRange(source.source(), .{}, allocator));
+    }
 }
 
 test "archive: inspect reports unpacked work from metadata" {

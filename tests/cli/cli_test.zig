@@ -77,6 +77,19 @@ fn tmpPath(buf: []u8, name: []const u8) []const u8 {
 // Tests
 // ============================================================================
 
+test "cli: optional packed and encoded header CRC fixtures" {
+    inline for (.{ "packed-good", "encoded-good" }) |name| {
+        const result = try runCli(testing.allocator, &.{ "test", "src/fixtures/crc/" ++ name ++ ".7z" });
+        defer result.deinit(testing.allocator);
+        try testing.expectEqual(@as(u8, 0), result.exit_code);
+    }
+    inline for (.{ "packed-bad", "encoded-bad-pack", "encoded-bad-folder" }) |name| {
+        const result = try runCli(testing.allocator, &.{ "test", "src/fixtures/crc/" ++ name ++ ".7z" });
+        defer result.deinit(testing.allocator);
+        try testing.expect(result.exit_code != 0);
+    }
+}
+
 test "cli: no args prints usage and exits non-zero" {
     cleanTmpDir();
     const result = try runCli(testing.allocator, &.{});

@@ -606,7 +606,7 @@ test "interop: 7zz encoded header archive readable by z7z" {
 	const file_count = 26;
 	const contents_str = "Test content for encoded header interop.\n";
 
-	var src_paths = std.ArrayListUnmanaged([]u8).empty;
+	var src_paths = std.ArrayListUnmanaged([:0]u8).empty;
 	defer {
 		for (src_paths.items) |p| allocator.free(p);
 		src_paths.deinit(allocator);

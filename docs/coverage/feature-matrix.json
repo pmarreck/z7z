@@ -42,7 +42,7 @@
 	],
 	"structures": [
 		{"id":"plain-header","status":"partial","test_ids":["archive: read TV-A"],"note":"Plain headers supported; field ordering, duplicate tags and malformed counts need audit."},
-		{"id":"encoded-header","status":"partial","test_ids":["interop: 7zz encoded header archive readable by z7z"],"note":"Single packed folder tested; multi-stream headers, folder CRCs and recursive limits pending."},
+		{"id":"encoded-header","status":"partial","test_ids":["interop: 7zz encoded header archive readable by z7z","archive: encoded header packed CRC mismatch rejected","archive: encoded header folder CRC mismatch rejected"],"note":"Single packed folder and optional packed/folder CRC rejection tested; multi-stream headers and recursive limits pending."},
 		{"id":"encrypted-header","status":"partial","test_ids":["archive: createWithOptions encrypted with header encryption roundtrip"],"note":"Missing/wrong password and legal coder combinations require full sweep."},
 		{"id":"external-streams","status":"missing","test_ids":[],"note":"AdditionalStreamsInfo and external folder/name/time/attribute data are rejected."},
 		{"id":"coder-graphs","status":"partial","test_ids":["interop: 7zz BCJ2 archive passes extraction and streaming verification"],"note":"Fixed compressor/filter/AES classification and BCJ2 special case; arbitrary legal bindings, cycles and chains pending."},
@@ -56,7 +56,7 @@
 		{"id":"trailing-data","status":"unknown","test_ids":[],"note":"Distinguish legal archive trailing bytes from unconsumed packed bytes; oracle matrix pending."},
 		{"id":"split-volumes","status":"missing","test_ids":[],"note":"Consumer-owned multi-volume source composition and missing-volume errors pending."},
 		{"id":"large-offsets-limits","status":"partial","test_ids":["archive: inspect rejects overflowing next-header bounds","archive: verify guardrails reject unpack sizes before extraction"],"note":"Overflow/limits tested in selected paths; complete allocation and all u64-to-usize sites pending."},
-		{"id":"packed-stream-crcs","status":"unknown","test_ids":[],"note":"PackInfo CRC enforcement, optional CRCs and encoded-header digests require audit."},
+		{"id":"packed-stream-crcs","status":"partial","test_ids":["metadata: packed CRC checks selected streams and nullable digests","archive: packed CRC mismatch rejects slice and range verification","archive: packed CRC mismatch rejects retained extraction","archive: encoded header packed CRC mismatch rejected"],"note":"Optional packed CRCs enforced for retained/slice/range paths and encoded headers. Multiple-stream nullable digests tested directly; archive-level multi-stream fixtures pending."},
 		{"id":"short-range-reads","status":"partial","test_ids":["archive: range verify loops over short reads and preserves substream CRCs"],"note":"Short reads supported; compressed folder input is still retained."},
 		{"id":"compressed-input-streaming","status":"missing","test_ids":[],"note":"True incremental packed input within one solid folder remains pending."},
 		{"id":"consumer-contract","status":"partial","test_ids":[],"note":"Zig-native validate adapter exists; dependency refresh and validate_gui integration coverage pending."}
