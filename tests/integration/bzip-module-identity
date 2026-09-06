@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -u
+
+ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd) || exit 1
+RAM_ROOT=${TMPDIR:-/dev/shm}
+WORK=$(mktemp -d "$RAM_ROOT/z7z-module-identity.XXXXXXXX") || exit 1
+cleanup() {
+	# Only generated copies and symlinks live in this unique scratch directory.
+	case "$WORK" in "$RAM_ROOT"/z7z-module-identity.*) rm -rf -- "$WORK" ;; esac
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+out="" err="" rc=0
+CAPTURE_SOURCE=${CAPTURE_BASH:-${HOME:-}/dotfiles/bin/src/capture.bash}
+if [[ -r "$CAPTURE_SOURCE" ]]; then
+	# shellcheck source=/dev/null
+	source "$CAPTURE_SOURCE"
+else
+	capture() {
+		"$@" >"$WORK/stdout" 2>"$WORK/stderr"
+		rc=$?
+		out=$(<"$WORK/stdout")
+		err=$(<"$WORK/stderr")
+	}
+fi
+
+for file in build.zig build.zig.zon main.zig; do
+	capture cp -- "$ROOT/tests/integration/module-identity/$file" "$WORK/$file"
+	if [[ $rc -ne 0 ]]; then printf 'FAIL: fixture copy: %s\n' "$err"; exit 1; fi
+done
+capture ln -s -- "$ROOT" "$WORK/z7z"
+if [[ $rc -ne 0 ]]; then printf 'FAIL: package link: %s\n' "$err"; exit 1; fi
+cd -- "$WORK" || exit 1
+capture zig build "$@" --cache-dir "$WORK/cache"
+if [[ $rc -ne 0 ]]; then
+	printf 'FAIL: shared bzip2z consumer (exit %d)\n%s\n%s\n' "$rc" "$out" "$err"
+	exit 1
+fi
+printf 'PASS: shared bzip2z consumer\n'

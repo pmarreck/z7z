@@ -161,6 +161,7 @@
               exit 1
             }
             bash tests/cli/codec-fixtures
+            bash tests/integration/bzip-module-identity ${pkgs.lib.optionalString isLinux "-Dtarget=${system}-musl"}
           '';
 
           installPhase = ''

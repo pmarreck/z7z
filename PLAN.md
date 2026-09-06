@@ -8,12 +8,18 @@ Peter gives standing approval for delegation (2026-09-06 EDT). Assign disjoint
 files or isolated worktrees; the coordinating agent owns shared integration and
 must independently check each agent's test and performance claims.
 
+- [x] Audit rarz's PPMd implementation for reuse (2026-09-06 approximately 01:35 PM EDT). CODE_REVIEW.md records the committed candidate, provenance discrepancy, two confirmed strict-API failures, independently rerun scalar tests and fixture evidence, and an implementation route. The model is a plausible candidate, not ready for direct import; original 7-Zip source remains off-limits and adaptation is not authorized by this audit.
+- [ ] Resolve PPMd port provenance from the August 27 implementation record and applicable notices, then obtain an explicit adaptation decision. Do not treat MIT metadata or public-domain ancestry alone as a verified rights chain; do not claim 7z compatibility from RAR tests.
+- [ ] Repair validate's BZip2 duplicate-module build failure at 357c8ce. First reproduce with a consumer depending on both z7z and bzip2z, use the shared exported dependency module, then run full tests/builds and exact-commit CI and reply with a green revision. Delegated reproduction can proceed while the coordinator finishes the PPMd audit; original note is retained in inbox until handled.
+- [x] Enforce Peter's shared-library clarification (2026-09-06 approximately 01:50 PM EDT): z7z uses bzip2z's exported module at validate's same 6113a10 pin. The consumer importing both packages failed with the duplicate-module diagnostic before the fix and passes afterward; pin/module identity is asserted.
+- [x] Validate shared BZip2 module repair locally (2026-09-06 approximately 01:50 PM EDT). ./build, ./test (178 legacy CLI and 405 codec checks), Nix test/coverage checks, all five ./build_all targets, and 17 ReleaseSafe adapter tests pass. Benchmark report retains the initial LZMA2 CPU +3.18% and repeat -0.57%; median repeat -0.06%. No consistent regression established. Exact-commit shipment and validate reply remain pending above.
+
 - [x] Resolve missing Mechatron CI delivery for commit 1567c2c and verify its exact-commit result (2026-09-06 10:50 AM EDT). Retried the signed GitHub delivery; all six targets passed in 228 seconds.
 - [x] Add a persistent regression check for Downloads/RESET BAT-499-v1.7z (2026-09-06 10:50 AM EDT). The failure no longer reproduces: oracle, C ABI, Zig verification, and installed validate all pass. Method is LZMA:16; no decoder fix was warranted. Keep the private archive out of Git.
 - [x] Create an initial machine-readable verification feature matrix with method/property IDs, implemented paths, evidence, and explicit gaps (2026-09-06 11:02 AM EDT). 26 method rows and 19 structural/consumer rows; set-based mutation tests and Nix coverage check pass. The oracle-removal gate intentionally fails while coverage is incomplete.
 - [ ] Implement the confirmed filter, Deflate64, BZip2, PPMd, and archive-structure gaps in separately tested and measured increments; retain the development oracle until the complete matrix passes.
 - [x] Resolve the measured LZMA2 regression (2026-09-06 12:22 PM EDT). Prevent BZip2 sink-call inlining to restore the shared dispatch frame. Twelve canonical Nix pairs measured CPU 738.52 ms baseline, 777.00 ms initial integration, 738.24 ms final. The earlier LZMA2 noinline candidate failed canonical acceptance. All measurements remain in tests/benchmark/2026-09-06-codecs.json.
-- [ ] Ship the integrated codec/filter increment after final benchmarks, full tests, five-target builds, and exact-commit Mechatron CI; notify validate of the pushed revision and remaining limits.
+- [x] Ship codec/filter increment 357c8ce8ba4a0c6dbc24d21b8bdf8ab3fb3e3a35 after final benchmarks, full tests, and five-target builds (2026-09-06 12:29 PM EDT). Fetch confirmed origin/yolo; all seven Mechatron targets passed at 12:28:58 PM EDT in 245 seconds. Sent validate the durable codec-expansion-pushed-and-ci-green note with the revision, API/dependency notes, measurements, and remaining limits; receipt is not acknowledged.
 - [x] Check BZip2 final padding against the 7z oracle (2026-09-06 11:55 AM EDT). Twelve nonzero-padding variants preserve oracle output but initially failed with TrailingData. Removed only the zero-padding guard; all 17 adapter tests pass and whole trailing bytes remain rejected. Evidence: src/fixtures/bzip2/padding-provenance.json.
 - [x] Integrate pinned pure-Zig bzip2z 6113a10 for 7z BZip2 data (2026-09-06 12:22 PM EDT). Adapter tests cover whole-write semantics, original sink errors, allocation limits/failures, CRC/framing, multiblock/RLE and padding. Retained/sink/range/C ABI paths pass; BCJ2 pull remains unsupported. Normal Zig dependency and Nix FOD verified without sibling edits or vendoring.
 - [x] Verify final codec integration with ./build, ./test, Nix test/coverage checks, and all five ./build_all targets (2026-09-06 12:22 PM EDT). Existing CLI 178/178 and new fixture CLI 405/405 checks pass; 31/31 archives supported. Final Nix verifier exactly matches the measured executable SHA-256 b12c59e6d96550c97c180256fad24a735568ee611776b9359703056bb0612178.
@@ -28,8 +34,9 @@ Arendt owns PPMd feasibility/implementation. Progress and final reports are in
 owns archive dispatch, dependency manifests, builds, tests, and shipping. Follow-up
 delegation (2026-09-06 11:16 AM EDT): Pauli integrates Deflate64 and filters in
 src/codec.zig; Noether independently checks the CRC fixtures with the oracle;
-Raman investigates a portable pinned BZip2 build dependency. PPMd model reuse
-awaits Peter's provenance decision; its property parser is not decoder support.
+Raman investigates a portable pinned BZip2 build dependency. Peter has authorized
+an audit of rarz's reference-derived PPMd model; actual reuse awaits the findings.
+The z7z property parser is not decoder support.
 The coordinator has integrated the completed codec/filter work. Noether's
 performance follow-up is complete; final shipping remains coordinator-owned.
 

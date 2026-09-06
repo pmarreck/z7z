@@ -23,6 +23,15 @@ else
 fi
 
 echo ""
+echo "=== Shared bzip2z module identity ==="
+if nix develop -c tests/integration/bzip-module-identity; then
+	echo "PASS: shared bzip2z module identity"
+else
+	echo "FAIL: shared bzip2z module identity"
+	((FAILURES++))
+fi
+
+echo ""
 echo "=== CLI integration tests ==="
 if nix develop -c ./test-cli 2>&1; then
 	echo "PASS: CLI tests"

@@ -25,21 +25,23 @@ This was tested both from `git archive` and from the immutable GitHub download.
   code is unchanged. Dirty tree also contains test/FFI/build changes and deleted
   CLI/migration files. None were modified or needed here.
 
-Import committed `src/bzip2.zig` as the named module `bzip2z`, not
-`src/lib.zig`. The latter imports the upstream test suite in test builds.
-The decoder's only sibling source import is `concurrency.zig`, which remains
-unevaluated on the single-threaded decoder path.
+Use `bzip2_dep.module("bzip2z")` and access the decoder through
+`@import("bzip2z").bzip2`. Share that exported module across the static core,
+named z7z module, and unit-test root. Downstream consumers can then depend on
+the same bzip2z package without assigning its source file to two Zig modules.
 
-Ordinary `b.dependency("bzip2z", ...)` succeeds with this committed pin. Create
-a module rooted at `bzip2_dep.path("src/bzip2.zig")` and import it as `bzip2z`
-into static core, named z7z module, and unit-test root. This was tested through
-a separate consumer importing actual z7z commit `075ecadc` via
-`dep.module("z7z")`, with a scratch adapter export and the same build patch.
-It first failed with a missing module, then decoded the oracle fixture after
-wiring the dependency imports. No Nix-only source path or upstream fix is needed.
+The initial private module rooted at `src/bzip2.zig` passed z7z's standalone
+tests and a z7z-only external consumer. It failed in validate, which also imports
+bzip2z's exported module. The new `tests/integration/bzip-module-identity`
+consumer depends on both packages, checks that their bzip2z pins resolve to the
+same exported module, and exercises both APIs. It first failed with the exact
+duplicate-module diagnostic, then passed after replacing the private module.
+All 17 adapter tests pass through the exported root; dependency-module tests
+were not collected in that focused run. Avoiding the exported root to avoid
+upstream tests was therefore unnecessary for this consumer.
 
 Upstream `build.zig` evaluates its CLI/progrez graph, but its CLI artifacts are
-not compiled by this source-module consumer. The omitted `c/` manifest path
+not compiled by this library-module consumer. The omitted `c/` manifest path
 therefore does not block this integration. A full upstream CLI build remains
 untested. `lazyDependency` still evaluates upstream build once fetched and is
 unnecessary. The earlier separate-source-fetch recommendation was superseded
@@ -187,7 +189,8 @@ Focused command (replace `$BZIP2_SOURCE` with the immutable extracted source):
 nix develop /home/pmarreck/Code/z7z -c zig test \
   -O ReleaseSafe -target x86_64-linux-musl -lc \
   --dep bzip2z -Mroot=src/bzip2_adapter.zig \
-  -Mbzip2z="$BZIP2_SOURCE/src/bzip2.zig"
+  -O ReleaseSafe -target x86_64-linux-musl \
+  -Mbzip2z="$BZIP2_SOURCE/src/lib.zig"
 ```
 
 Investigation source export: `/dev/shm/z7z-bzip2.MEnP75/src/bzip2.zig`.

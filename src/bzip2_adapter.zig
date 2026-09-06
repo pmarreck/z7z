@@ -1,7 +1,7 @@
 //! Pure adapter for bzip2z commit 6113a10a9073c4076a5be5409868b1c868192b38.
-//! Import its src/bzip2.zig as the named module "bzip2z"; no library build.
+//! Uses the dependency's exported library module to share downstream identity.
 const std = @import("std");
-const bzip2 = @import("bzip2z");
+const bzip2 = @import("bzip2z").bzip2;
 
 pub const default_decoder_memory_limit: usize = 128 * 1024 * 1024;
 

@@ -1,0 +1,1636 @@
+{
+  "baseline_commit": "357c8ce8ba4a0c6dbc24d21b8bdf8ab3fb3e3a35",
+  "before_sha256": "b12c59e6d96550c97c180256fad24a735568ee611776b9359703056bb0612178",
+  "after_sha256": "2183c2ba4b43bb4a2e53dec781d415f25b7644c2c93063a45e0451b6128947d3",
+  "cpu_affinity": 24,
+  "optimization": "ReleaseFast",
+  "zig": "0.16.0",
+  "runs": {
+    "lzma2": [
+      {
+        "pair": 0,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.7640676593800001,
+              "stddev": null,
+              "median": 0.7640676593800001,
+              "user": 0.75543264,
+              "system": 0.0038645199999999998,
+              "min": 0.7640676593800001,
+              "max": 0.7640676593800001,
+              "times": [
+                0.7640676593800001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.76043812438,
+              "stddev": null,
+              "median": 0.76043812438,
+              "user": 0.75085264,
+              "system": 0.00485152,
+              "min": 0.76043812438,
+              "max": 0.76043812438,
+              "times": [
+                0.76043812438
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 1,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.7605410596400001,
+              "stddev": null,
+              "median": 0.7605410596400001,
+              "user": 0.75076824,
+              "system": 0.003933579999999999,
+              "min": 0.7605410596400001,
+              "max": 0.7605410596400001,
+              "times": [
+                0.7605410596400001
+              ],
+              "memory_usage_byte": [
+                2154496
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.7669074656400001,
+              "stddev": null,
+              "median": 0.7669074656400001,
+              "user": 0.75312524,
+              "system": 0.00788958,
+              "min": 0.7669074656400001,
+              "max": 0.7669074656400001,
+              "times": [
+                0.7669074656400001
+              ],
+              "memory_usage_byte": [
+                2154496
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 2,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.75977586846,
+              "stddev": null,
+              "median": 0.75977586846,
+              "user": 0.7482735,
+              "system": 0.00581824,
+              "min": 0.75977586846,
+              "max": 0.75977586846,
+              "times": [
+                0.75977586846
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.75700164246,
+              "stddev": null,
+              "median": 0.75700164246,
+              "user": 0.7491995,
+              "system": 0.0018252400000000001,
+              "min": 0.75700164246,
+              "max": 0.75700164246,
+              "times": [
+                0.75700164246
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 3,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.76497278286,
+              "stddev": null,
+              "median": 0.76497278286,
+              "user": 0.75392384,
+              "system": 0.004785579999999999,
+              "min": 0.76497278286,
+              "max": 0.76497278286,
+              "times": [
+                0.76497278286
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.75888162486,
+              "stddev": null,
+              "median": 0.75888162486,
+              "user": 0.74884384,
+              "system": 0.00375458,
+              "min": 0.75888162486,
+              "max": 0.75888162486,
+              "times": [
+                0.75888162486
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 4,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.76037823256,
+              "stddev": null,
+              "median": 0.76037823256,
+              "user": 0.74949574,
+              "system": 0.00480536,
+              "min": 0.76037823256,
+              "max": 0.76037823256,
+              "times": [
+                0.76037823256
+              ],
+              "memory_usage_byte": [
+                2154496
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.7635775945600001,
+              "stddev": null,
+              "median": 0.7635775945600001,
+              "user": 0.7522647399999999,
+              "system": 0.00479736,
+              "min": 0.7635775945600001,
+              "max": 0.7635775945600001,
+              "times": [
+                0.7635775945600001
+              ],
+              "memory_usage_byte": [
+                2154496
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 5,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.75800803254,
+              "stddev": null,
+              "median": 0.75800803254,
+              "user": 0.74921768,
+              "system": 0.00402188,
+              "min": 0.75800803254,
+              "max": 0.75800803254,
+              "times": [
+                0.75800803254
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.7620446095400001,
+              "stddev": null,
+              "median": 0.7620446095400001,
+              "user": 0.75435668,
+              "system": 0.0030308799999999993,
+              "min": 0.7620446095400001,
+              "max": 0.7620446095400001,
+              "times": [
+                0.7620446095400001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 6,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.77764863774,
+              "stddev": null,
+              "median": 0.77764863774,
+              "user": 0.76961322,
+              "system": 0.0020495799999999996,
+              "min": 0.77764863774,
+              "max": 0.77764863774,
+              "times": [
+                0.77764863774
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.9147433567400001,
+              "stddev": null,
+              "median": 0.9147433567400001,
+              "user": 0.89222522,
+              "system": 0.008944579999999999,
+              "min": 0.9147433567400001,
+              "max": 0.9147433567400001,
+              "times": [
+                0.9147433567400001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 7,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.8591418592600001,
+              "stddev": null,
+              "median": 0.8591418592600001,
+              "user": 0.8520540999999999,
+              "system": 0.0002018199999999997,
+              "min": 0.8591418592600001,
+              "max": 0.8591418592600001,
+              "times": [
+                0.8591418592600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.7613557542600001,
+              "stddev": null,
+              "median": 0.7613557542600001,
+              "user": 0.7510981,
+              "system": 0.00517082,
+              "min": 0.7613557542600001,
+              "max": 0.7613557542600001,
+              "times": [
+                0.7613557542600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 8,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.7583517515600001,
+              "stddev": null,
+              "median": 0.7583517515600001,
+              "user": 0.7499323,
+              "system": 0.00385674,
+              "min": 0.7583517515600001,
+              "max": 0.7583517515600001,
+              "times": [
+                0.7583517515600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.8124462475600001,
+              "stddev": null,
+              "median": 0.8124462475600001,
+              "user": 0.8064283,
+              "system": 0.00089474,
+              "min": 0.8124462475600001,
+              "max": 0.8124462475600001,
+              "times": [
+                0.8124462475600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 9,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.7654705758200001,
+              "stddev": null,
+              "median": 0.7654705758200001,
+              "user": 0.75745744,
+              "system": 0.0018853999999999997,
+              "min": 0.7654705758200001,
+              "max": 0.7654705758200001,
+              "times": [
+                0.7654705758200001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.75726720682,
+              "stddev": null,
+              "median": 0.75726720682,
+              "user": 0.74912644,
+              "system": 0.0018753999999999997,
+              "min": 0.75726720682,
+              "max": 0.75726720682,
+              "times": [
+                0.75726720682
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 10,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.76610151794,
+              "stddev": null,
+              "median": 0.76610151794,
+              "user": 0.75261094,
+              "system": 0.007945619999999999,
+              "min": 0.76610151794,
+              "max": 0.76610151794,
+              "times": [
+                0.76610151794
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.75881818494,
+              "stddev": null,
+              "median": 0.75881818494,
+              "user": 0.7479499399999999,
+              "system": 0.0049916199999999996,
+              "min": 0.75881818494,
+              "max": 0.75881818494,
+              "times": [
+                0.75881818494
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 11,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.77799565866,
+              "stddev": null,
+              "median": 0.77799565866,
+              "user": 0.77122222,
+              "system": 0.0009396600000000001,
+              "min": 0.77799565866,
+              "max": 0.77799565866,
+              "times": [
+                0.77799565866
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.76089075966,
+              "stddev": null,
+              "median": 0.76089075966,
+              "user": 0.75101122,
+              "system": 0.00392266,
+              "min": 0.76089075966,
+              "max": 0.76089075966,
+              "times": [
+                0.76089075966
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "bzip2": [
+      {
+        "pair": 0,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.36909829168,
+              "stddev": null,
+              "median": 0.36909829168,
+              "user": 0.28397774,
+              "system": 0.0822401,
+              "min": 0.36909829168,
+              "max": 0.36909829168,
+              "times": [
+                0.36909829168
+              ],
+              "memory_usage_byte": [
+                3035136
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.37098239468,
+              "stddev": null,
+              "median": 0.37098239468,
+              "user": 0.29852974,
+              "system": 0.0694401,
+              "min": 0.37098239468,
+              "max": 0.37098239468,
+              "times": [
+                0.37098239468
+              ],
+              "memory_usage_byte": [
+                3035136
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 1,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.3614885223,
+              "stddev": null,
+              "median": 0.3614885223,
+              "user": 0.28874172,
+              "system": 0.070168,
+              "min": 0.3614885223,
+              "max": 0.3614885223,
+              "times": [
+                0.3614885223
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.3610140713,
+              "stddev": null,
+              "median": 0.3610140713,
+              "user": 0.28980771999999994,
+              "system": 0.06716699999999999,
+              "min": 0.3610140713,
+              "max": 0.3610140713,
+              "times": [
+                0.3610140713
+              ],
+              "memory_usage_byte": [
+                3035136
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 2,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.3640205429,
+              "stddev": null,
+              "median": 0.3640205429,
+              "user": 0.30538052,
+              "system": 0.055579199999999995,
+              "min": 0.3640205429,
+              "max": 0.3640205429,
+              "times": [
+                0.3640205429
+              ],
+              "memory_usage_byte": [
+                3018752
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.36005013690000004,
+              "stddev": null,
+              "median": 0.36005013690000004,
+              "user": 0.29369452,
+              "system": 0.0635772,
+              "min": 0.36005013690000004,
+              "max": 0.36005013690000004,
+              "times": [
+                0.36005013690000004
+              ],
+              "memory_usage_byte": [
+                3035136
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 3,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.36174553238,
+              "stddev": null,
+              "median": 0.36174553238,
+              "user": 0.29631051999999997,
+              "system": 0.06155159999999999,
+              "min": 0.36174553238,
+              "max": 0.36174553238,
+              "times": [
+                0.36174553238
+              ],
+              "memory_usage_byte": [
+                3018752
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.35753791238,
+              "stddev": null,
+              "median": 0.35753791238,
+              "user": 0.29235052,
+              "system": 0.06230259999999999,
+              "min": 0.35753791238,
+              "max": 0.35753791238,
+              "times": [
+                0.35753791238
+              ],
+              "memory_usage_byte": [
+                3018752
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 4,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.36828004678,
+              "stddev": null,
+              "median": 0.36828004678,
+              "user": 0.29911254,
+              "system": 0.06621538,
+              "min": 0.36828004678,
+              "max": 0.36828004678,
+              "times": [
+                0.36828004678
+              ],
+              "memory_usage_byte": [
+                3018752
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.35759469278,
+              "stddev": null,
+              "median": 0.35759469278,
+              "user": 0.29043554,
+              "system": 0.06422438,
+              "min": 0.35759469278,
+              "max": 0.35759469278,
+              "times": [
+                0.35759469278
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 5,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.35806801816000006,
+              "stddev": null,
+              "median": 0.35806801816000006,
+              "user": 0.28580182,
+              "system": 0.0691873,
+              "min": 0.35806801816000006,
+              "max": 0.35806801816000006,
+              "times": [
+                0.35806801816000006
+              ],
+              "memory_usage_byte": [
+                3026944
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.35860471616000006,
+              "stddev": null,
+              "median": 0.35860471616000006,
+              "user": 0.28816082,
+              "system": 0.0673143,
+              "min": 0.35860471616000006,
+              "max": 0.35860471616000006,
+              "times": [
+                0.35860471616000006
+              ],
+              "memory_usage_byte": [
+                3035136
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 6,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.35747370768000003,
+              "stddev": null,
+              "median": 0.35747370768000003,
+              "user": 0.28684277999999996,
+              "system": 0.06763604,
+              "min": 0.35747370768000003,
+              "max": 0.35747370768000003,
+              "times": [
+                0.35747370768000003
+              ],
+              "memory_usage_byte": [
+                3026944
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.35563265568,
+              "stddev": null,
+              "median": 0.35563265568,
+              "user": 0.28642678,
+              "system": 0.06658503999999998,
+              "min": 0.35563265568,
+              "max": 0.35563265568,
+              "times": [
+                0.35563265568
+              ],
+              "memory_usage_byte": [
+                3026944
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 7,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.35888185686,
+              "stddev": null,
+              "median": 0.35888185686,
+              "user": 0.29778318,
+              "system": 0.0582705,
+              "min": 0.35888185686,
+              "max": 0.35888185686,
+              "times": [
+                0.35888185686
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.36131149586,
+              "stddev": null,
+              "median": 0.36131149586,
+              "user": 0.29593717999999997,
+              "system": 0.06243750000000001,
+              "min": 0.36131149586,
+              "max": 0.36131149586,
+              "times": [
+                0.36131149586
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 8,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.39242011712,
+              "stddev": null,
+              "median": 0.39242011712,
+              "user": 0.30835976,
+              "system": 0.07972646,
+              "min": 0.39242011712,
+              "max": 0.39242011712,
+              "times": [
+                0.39242011712
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.36040848212000004,
+              "stddev": null,
+              "median": 0.36040848212000004,
+              "user": 0.29448476,
+              "system": 0.06329845999999999,
+              "min": 0.36040848212000004,
+              "max": 0.36040848212000004,
+              "times": [
+                0.36040848212000004
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 9,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.36478718834,
+              "stddev": null,
+              "median": 0.36478718834,
+              "user": 0.29157596,
+              "system": 0.0705587,
+              "min": 0.36478718834,
+              "max": 0.36478718834,
+              "times": [
+                0.36478718834
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.36257211934000005,
+              "stddev": null,
+              "median": 0.36257211934000005,
+              "user": 0.29622296000000004,
+              "system": 0.0635887,
+              "min": 0.36257211934000005,
+              "max": 0.36257211934000005,
+              "times": [
+                0.36257211934000005
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 10,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.3647692238,
+              "stddev": null,
+              "median": 0.3647692238,
+              "user": 0.297809,
+              "system": 0.06413458,
+              "min": 0.3647692238,
+              "max": 0.3647692238,
+              "times": [
+                0.3647692238
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.35833990379999997,
+              "stddev": null,
+              "median": 0.35833990379999997,
+              "user": 0.29427899999999996,
+              "system": 0.061330579999999996,
+              "min": 0.35833990379999997,
+              "max": 0.35833990379999997,
+              "times": [
+                0.35833990379999997
+              ],
+              "memory_usage_byte": [
+                3031040
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 11,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.36227104522,
+              "stddev": null,
+              "median": 0.36227104522,
+              "user": 0.29702841999999996,
+              "system": 0.06235453999999999,
+              "min": 0.36227104522,
+              "max": 0.36227104522,
+              "times": [
+                0.36227104522
+              ],
+              "memory_usage_byte": [
+                3026944
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.36065144822,
+              "stddev": null,
+              "median": 0.36065144822,
+              "user": 0.29728242,
+              "system": 0.06042554,
+              "min": 0.36065144822,
+              "max": 0.36065144822,
+              "times": [
+                0.36065144822
+              ],
+              "memory_usage_byte": [
+                3026944
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "repeat": [
+      {
+        "pair": 0,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.76478218936,
+              "stddev": null,
+              "median": 0.76478218936,
+              "user": 0.7530419199999999,
+              "system": 0.0056324,
+              "min": 0.76478218936,
+              "max": 0.76478218936,
+              "times": [
+                0.76478218936
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.7727555123600001,
+              "stddev": null,
+              "median": 0.7727555123600001,
+              "user": 0.7631039199999999,
+              "system": 0.0037263999999999995,
+              "min": 0.7727555123600001,
+              "max": 0.7727555123600001,
+              "times": [
+                0.7727555123600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 1,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.7602425405200001,
+              "stddev": null,
+              "median": 0.7602425405200001,
+              "user": 0.74985552,
+              "system": 0.00587926,
+              "min": 0.7602425405200001,
+              "max": 0.7602425405200001,
+              "times": [
+                0.7602425405200001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.7883531585200001,
+              "stddev": null,
+              "median": 0.7883531585200001,
+              "user": 0.7783655199999999,
+              "system": 0.0048772600000000004,
+              "min": 0.7883531585200001,
+              "max": 0.7883531585200001,
+              "times": [
+                0.7883531585200001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 2,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.7727705822600001,
+              "stddev": null,
+              "median": 0.7727705822600001,
+              "user": 0.7610621999999999,
+              "system": 0.006093059999999999,
+              "min": 0.7727705822600001,
+              "max": 0.7727705822600001,
+              "times": [
+                0.7727705822600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.76893472626,
+              "stddev": null,
+              "median": 0.76893472626,
+              "user": 0.7581401999999999,
+              "system": 0.00506606,
+              "min": 0.76893472626,
+              "max": 0.76893472626,
+              "times": [
+                0.76893472626
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 3,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.7638814297200001,
+              "stddev": null,
+              "median": 0.7638814297200001,
+              "user": 0.75342694,
+              "system": 0.0048806200000000004,
+              "min": 0.7638814297200001,
+              "max": 0.7638814297200001,
+              "times": [
+                0.7638814297200001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.7619852817200001,
+              "stddev": null,
+              "median": 0.7619852817200001,
+              "user": 0.75194494,
+              "system": 0.0038686199999999993,
+              "min": 0.7619852817200001,
+              "max": 0.7619852817200001,
+              "times": [
+                0.7619852817200001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 4,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.8892497459,
+              "stddev": null,
+              "median": 0.8892497459,
+              "user": 0.86143476,
+              "system": 0.0057713999999999994,
+              "min": 0.8892497459,
+              "max": 0.8892497459,
+              "times": [
+                0.8892497459
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.8113727149000001,
+              "stddev": null,
+              "median": 0.8113727149000001,
+              "user": 0.79613576,
+              "system": 0.0077874,
+              "min": 0.8113727149000001,
+              "max": 0.8113727149000001,
+              "times": [
+                0.8113727149000001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 5,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.78772460194,
+              "stddev": null,
+              "median": 0.78772460194,
+              "user": 0.77745,
+              "system": 0.00459728,
+              "min": 0.78772460194,
+              "max": 0.78772460194,
+              "times": [
+                0.78772460194
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.79179504194,
+              "stddev": null,
+              "median": 0.79179504194,
+              "user": 0.782219,
+              "system": 0.0035902799999999995,
+              "min": 0.79179504194,
+              "max": 0.79179504194,
+              "times": [
+                0.79179504194
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 6,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.7615481861600001,
+              "stddev": null,
+              "median": 0.7615481861600001,
+              "user": 0.75216974,
+              "system": 0.004779579999999999,
+              "min": 0.7615481861600001,
+              "max": 0.7615481861600001,
+              "times": [
+                0.7615481861600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.7641617151600001,
+              "stddev": null,
+              "median": 0.7641617151600001,
+              "user": 0.74956274,
+              "system": 0.00873558,
+              "min": 0.7641617151600001,
+              "max": 0.7641617151600001,
+              "times": [
+                0.7641617151600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 7,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.7606892740400001,
+              "stddev": null,
+              "median": 0.7606892740400001,
+              "user": 0.74856254,
+              "system": 0.006890439999999999,
+              "min": 0.7606892740400001,
+              "max": 0.7606892740400001,
+              "times": [
+                0.7606892740400001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.76345731804,
+              "stddev": null,
+              "median": 0.76345731804,
+              "user": 0.7508305399999999,
+              "system": 0.00686144,
+              "min": 0.76345731804,
+              "max": 0.76345731804,
+              "times": [
+                0.76345731804
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 8,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.7591770306600001,
+              "stddev": null,
+              "median": 0.7591770306600001,
+              "user": 0.75037884,
+              "system": 0.00389344,
+              "min": 0.7591770306600001,
+              "max": 0.7591770306600001,
+              "times": [
+                0.7591770306600001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.76427029166,
+              "stddev": null,
+              "median": 0.76427029166,
+              "user": 0.7548928399999999,
+              "system": 0.00389044,
+              "min": 0.76427029166,
+              "max": 0.76427029166,
+              "times": [
+                0.76427029166
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 9,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.7687608337,
+              "stddev": null,
+              "median": 0.7687608337,
+              "user": 0.75908058,
+              "system": 0.00394858,
+              "min": 0.7687608337,
+              "max": 0.7687608337,
+              "times": [
+                0.7687608337
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.7736330317000001,
+              "stddev": null,
+              "median": 0.7736330317000001,
+              "user": 0.76307258,
+              "system": 0.00493558,
+              "min": 0.7736330317000001,
+              "max": 0.7736330317000001,
+              "times": [
+                0.7736330317000001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 10,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "before",
+              "mean": 0.7575306085000001,
+              "stddev": null,
+              "median": 0.7575306085000001,
+              "user": 0.74899712,
+              "system": 0.00400648,
+              "min": 0.7575306085000001,
+              "max": 0.7575306085000001,
+              "times": [
+                0.7575306085000001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "after",
+              "mean": 0.7786304865,
+              "stddev": null,
+              "median": 0.7786304865,
+              "user": 0.76897812,
+              "system": 0.00401248,
+              "min": 0.7786304865,
+              "max": 0.7786304865,
+              "times": [
+                0.7786304865
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "pair": 11,
+        "hyperfine": {
+          "results": [
+            {
+              "command": "after",
+              "mean": 0.81309458544,
+              "stddev": null,
+              "median": 0.81309458544,
+              "user": 0.80396158,
+              "system": 0.0028543599999999994,
+              "min": 0.81309458544,
+              "max": 0.81309458544,
+              "times": [
+                0.81309458544
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            },
+            {
+              "command": "before",
+              "mean": 0.7970682494400001,
+              "stddev": null,
+              "median": 0.7970682494400001,
+              "user": 0.78507058,
+              "system": 0.0058223599999999995,
+              "min": 0.7970682494400001,
+              "max": 0.7970682494400001,
+              "times": [
+                0.7970682494400001
+              ],
+              "memory_usage_byte": [
+                2138112
+              ],
+              "exit_codes": [
+                0
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

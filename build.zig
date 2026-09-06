@@ -11,12 +11,7 @@ pub fn build(b: *std.Build) void {
     ) orelse .ReleaseFast;
 
     const bzip2_dep = b.dependency("bzip2z", .{ .target = target, .optimize = optimize });
-    // Import the decoder source without pulling upstream's library test suite.
-    const bzip2_module = b.createModule(.{
-        .root_source_file = bzip2_dep.path("src/bzip2.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
+    const bzip2_module = bzip2_dep.module("bzip2z");
 
     // --- Zig core library (static, with C FFI) ---
     const lib_module = b.createModule(.{

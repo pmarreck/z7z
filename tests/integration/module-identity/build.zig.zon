@@ -1,0 +1,14 @@
+.{
+	.name = .z7z_module_identity,
+	.version = "0.0.0",
+	.fingerprint = 0x84b51ac82024e987,
+	.minimum_zig_version = "0.16.0",
+	.dependencies = .{
+		.z7z = .{ .path = "z7z" },
+		.bzip2z = .{
+			.url = "https://github.com/pmarreck/bzip2z/archive/6113a10a9073c4076a5be5409868b1c868192b38.tar.gz",
+			.hash = "bzip2z-0.1.0-m5NdluccCAAHOlMkmGvJHFqYCFjK6KlL6qSL3UDrirUY",
+		},
+	},
+	.paths = .{ "build.zig", "build.zig.zon", "main.zig" },
+}
