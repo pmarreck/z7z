@@ -6,6 +6,14 @@ set -u
 
 FAILURES=0
 
+echo "=== Feature matrix checks ==="
+if nix develop -c tests/unit/feature-matrix; then
+	echo "PASS: feature matrix"
+else
+	echo "FAIL: feature matrix"
+	((FAILURES++))
+fi
+
 echo "=== Unit tests (Zig) ==="
 if nix develop -c zig build test 2>&1; then
 	echo "PASS: unit tests"

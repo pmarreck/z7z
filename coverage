@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -u
+
+mode=${1:---complete}
+input=${2:-docs/coverage/feature-matrix.json}
+case "$mode" in
+	--check|--complete) ;;
+	*) printf 'usage: nix develop -c ./coverage [--check|--complete] [matrix.json|-]\n' >&2; exit 2 ;;
+esac
+json=$(cat -- "$input") || exit 1
+tests=$(rg '^test "' src) || exit 1
+if ! jq -e --arg tests "$tests" --rawfile catalog docs/coverage/oracle-26.03-codecs.tsv '
+	def status_ok: . == "partial" or . == "missing" or . == "unknown" or . == "verified";
+	def tests_exist: all(.test_ids[]; . as $id | $tests | contains("test \"" + $id + "\""));
+	.schema_version == 1 and
+	(.inventory_complete | type == "boolean") and
+	(.methods | type == "array" and length > 0) and
+	(.structures | type == "array" and length > 0) and
+	([.methods[].id] | length == (unique | length)) and
+	([.structures[].id] | length == (unique | length)) and
+	all(.methods[]; (.id | test("^[0-9A-F]+$")) and
+		(.scope == "7z" or .scope == "extension" or .scope == "unresolved") and
+		(.status | status_ok) and (.properties | type == "string" and length > 0) and
+		(.implemented_paths | type == "array") and (.test_ids | type == "array") and tests_exist) and
+	all(.structures[]; (.status | status_ok) and (.note | type == "string" and length > 0) and
+		(.test_ids | type == "array") and tests_exist) and
+	all((.methods + .structures)[]; .status != "verified" or (.test_ids | length > 0)) and
+	(([.methods[] | select(.scope != "extension") | [.id, .name] | join("\t")] | sort) ==
+		($catalog | split("\n") | map(select(length > 0)) | sort)) and
+	(.inventory_complete == false or
+		(all(.methods[]; .scope != "unresolved" and .status != "unknown") and all(.structures[]; .status != "unknown")))
+' <<< "$json" > /dev/null; then
+	printf 'FAIL: invalid feature matrix, missing evidence, or oracle catalog mismatch\n' >&2
+	exit 1
+fi
+if [[ $mode == --check ]]; then
+	printf 'PASS: matrix consistency (does not imply feature completeness)\n'
+	exit 0
+fi
+jq -r '(.methods + .structures)[] | select(.status != "verified") | "\(.status): \(.name // .id)"' <<< "$json"
+if ! jq -e '.inventory_complete and all((.methods + .structures)[]; .status == "verified")' <<< "$json" > /dev/null; then
+	printf 'INCOMPLETE: retain the development oracle\n' >&2
+	exit 1
+fi
+printf 'PASS: all inventoried features have verification evidence\n'

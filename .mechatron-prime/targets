@@ -1,5 +1,6 @@
 # Native tests on the Thelio worker.
 checks.x86_64-linux.test
+checks.x86_64-linux.coverage
 
 # Five supported release targets, cross-compiled by Zig on Thelio.
 packages.x86_64-linux.aarch64-macos

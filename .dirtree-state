@@ -14,6 +14,8 @@ annotate=[
 	bm = Hyperfine benchmark suite for compression and z7z verify microbenchmarks over deterministic datasets
 	build_all = Five-target ReleaseFast cross-build entry point
 	cli/main.c = C CLI dogfooding the FFI with cross-platform metadata and extraction adapters
+	coverage = Feature inventory consistency check and failing oracle-removal completeness gate
+	docs/coverage = Pinned oracle method catalog, verification matrix, and status semantics
 	docs/research/2026-09-04-decoder-reuse.md = Measured Deflate and BZip2 reuse findings, provenance, and integration constraints
 	docs/research/decoder-reuse-probe.zig = Standalone candidate suitability experiment; two known diagnostic failures
 	flake.nix = Nix package/check/devshell with five explicit Mechatron cross-build outputs
@@ -28,5 +30,7 @@ annotate=[
 	tests/benchmark/2026-09-04-deflate.json = Raw hyperfine wall/CPU samples including initial outliers and pinned controls
 	tests/benchmark/2026-09-04-deflate.md = Deflate throughput and LZMA2 before/after controls, caveats, and reproduction
 	tests/benchmark/benchmark.log = Tracked hyperfine benchmark history for compression and verify timings.
+	tests/integration/verify-archive = Explicit-input oracle, C ABI, and Zig verification regression check for private archives
+	tests/unit/feature-matrix = Set-based mutation tests for feature inventory consistency and completion claims
 	tools/verify_bench.zig = Verify microbenchmark harness that repeatedly calls Zig archive.verify() on one loaded archive
 ]

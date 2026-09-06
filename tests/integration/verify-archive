@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -u
+
+if [[ $# != 1 ]]; then
+	printf 'usage: nix develop -c %s <archive.7z>\n' "$0" >&2
+	exit 2
+fi
+
+failures=0
+for label in oracle c-abi zig-verify; do
+	case "$label" in
+		oracle) command=(7zz t "$1") ;;
+		c-abi) command=(./zig-out/bin/z7z test "$1") ;;
+		zig-verify) command=(./zig-out/bin/z7z-verify-bench "$1" 1) ;;
+	esac
+	if output=$("${command[@]}" 2>&1); then
+		printf 'PASS: %s\n' "$label"
+	else
+		status=$?
+		printf 'FAIL: %s (exit %d)\n%s\n' "$label" "$status" "$output" >&2
+		failures=$((failures + 1))
+	fi
+done
+exit "$failures"

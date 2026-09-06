@@ -168,6 +168,24 @@
           '';
         };
 
+        checks.coverage = pkgs.stdenvNoCC.mkDerivation {
+          pname = "z7z-coverage-check";
+          version = "0.1.0";
+          src = self;
+          nativeBuildInputs = [ pkgs.bash pkgs.jq pkgs.ripgrep ];
+          dontConfigure = true;
+          buildPhase = ''
+            runHook preBuild
+            patchShebangs coverage tests/unit/feature-matrix
+            bash tests/unit/feature-matrix
+            runHook postBuild
+          '';
+          installPhase = ''
+            mkdir -p "$out"
+            printf 'matrix consistency passed; feature completeness is a separate gate\n' > "$out/result"
+          '';
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = [
             zig
@@ -175,6 +193,7 @@
             pkgs.hyperfine
             pkgs.luajit
             pkgs.jq
+            pkgs.ripgrep
             pkgs.file
           ];
 

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -u
+failures=0
+matrix=docs/coverage/feature-matrix.json
+expect_status() {
+	local label=$1 expected=$2 status
+	shift 2
+	"$@" > /dev/null 2>&1
+	status=$?
+	if [[ $status == "$expected" ]]; then
+		printf 'PASS: %s\n' "$label"
+	else
+		printf 'FAIL: %s (expected %d, got %d)\n' "$label" "$expected" "$status"
+		failures=$((failures + 1))
+	fi
+}
+expect_status 'matrix schema and oracle catalog agree' 0 ./coverage --check
+expect_status 'incomplete inventory cannot retire the oracle' 1 ./coverage --complete
+for mutation in '.methods |= .[1:]' '.methods += [.methods[0]]' '.methods[0].status = "complete"' '.inventory_complete = true' '.methods[0].test_ids = ["nonexistent test"]'; do
+	mutated=$(jq "$mutation" "$matrix")
+	expect_status "reject $mutation" 1 ./coverage --check - <<< "$mutated"
+done
+exit "$failures"
