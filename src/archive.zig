@@ -2456,6 +2456,50 @@ test "archive: FileEntry accepts group_index field" {
     try std.testing.expectEqual(@as(u32, 0), g.group_index);
 }
 
+fn flushMutation(allocator: std.mem.Allocator) ![]u8 {
+    const data = try allocator.dupe(u8, @embedFile("fixtures/lzma2-strict/plain.7z"));
+    data[6867] ^= 0xff;
+    return data;
+}
+
+fn readFlushFixture(data: []const u8, allocator: std.mem.Allocator) !void {
+    var result = try read(data, allocator);
+    defer result.deinit();
+    try std.testing.expectEqual(@as(usize, 62352), result.file_data[0].len);
+    try std.testing.expectEqual(@as(u32, 0xe331d7e4), crc32.hash(result.file_data[0]));
+}
+
+test "archive: LZMA2 flush mutation rejects retained extraction" {
+    const allocator = std.testing.allocator;
+    try readFlushFixture(@embedFile("fixtures/lzma2-strict/plain.7z"), allocator);
+    const bad = try flushMutation(allocator);
+    defer allocator.free(bad);
+    try std.testing.expectError(ArchiveError.StructuralError, readFlushFixture(bad, allocator));
+}
+
+test "archive: LZMA2 flush mutation rejects streaming verification" {
+    const allocator = std.testing.allocator;
+    const good = @embedFile("fixtures/lzma2-strict/plain.7z");
+    const stats = try verify(good, .{}, allocator);
+    try std.testing.expectEqual(@as(u64, 62352), stats.total_unpack_size);
+    const bad = try flushMutation(allocator);
+    defer allocator.free(bad);
+    try std.testing.expectError(ArchiveError.StructuralError, verify(bad, .{}, allocator));
+}
+
+test "archive: LZMA2 flush mutation rejects short-read range verification" {
+    const allocator = std.testing.allocator;
+    const good = @embedFile("fixtures/lzma2-strict/plain.7z");
+    const header = try sig_header.parse(good);
+    var source = TestChunkedRangeSource{ .data = good, .next_header_start = header.nextHeaderAbsoluteOffset() };
+    const stats = try verifyRange(source.source(), .{}, allocator);
+    try std.testing.expectEqual(@as(u64, 62352), stats.total_unpack_size);
+    const bad = try flushMutation(allocator);
+    defer allocator.free(bad);
+    source = .{ .data = bad, .next_header_start = header.nextHeaderAbsoluteOffset() };
+    try std.testing.expectError(ArchiveError.StructuralError, verifyRange(source.source(), .{}, allocator));
+}
+
 test "archive: verify rejects corrupted copy payload via substream CRC" {
     const allocator = std.testing.allocator;
 

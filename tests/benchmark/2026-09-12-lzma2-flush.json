@@ -1,0 +1,6311 @@
+{
+  "baseline_commit": "33dd4bc56799410aab4291caaf731c93ced5c823",
+  "cpu": 24,
+  "optimization": "ReleaseFast",
+  "zig": "0.16.0",
+  "initial_sink_adapter": {
+    "verify": [
+      {
+        "pair": 0,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7416504926799999,
+            "stddev": null,
+            "median": 0.7416504926799999,
+            "user": 0.73219418,
+            "system": 0.004708400000000001,
+            "min": 0.7416504926799999,
+            "max": 0.7416504926799999,
+            "times": [
+              0.7416504926799999
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77278805468,
+            "stddev": null,
+            "median": 0.77278805468,
+            "user": 0.76519518,
+            "system": 0.002724400000000001,
+            "min": 0.77278805468,
+            "max": 0.77278805468,
+            "times": [
+              0.77278805468
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 1,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.77395899094,
+            "stddev": null,
+            "median": 0.77395899094,
+            "user": 0.7632135999999999,
+            "system": 0.00589278,
+            "min": 0.77395899094,
+            "max": 0.77395899094,
+            "times": [
+              0.77395899094
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74231381694,
+            "stddev": null,
+            "median": 0.74231381694,
+            "user": 0.7302556,
+            "system": 0.006909779999999999,
+            "min": 0.74231381694,
+            "max": 0.74231381694,
+            "times": [
+              0.74231381694
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 2,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7425471536800001,
+            "stddev": null,
+            "median": 0.7425471536800001,
+            "user": 0.73045606,
+            "system": 0.007748999999999999,
+            "min": 0.7425471536800001,
+            "max": 0.7425471536800001,
+            "times": [
+              0.7425471536800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77993024468,
+            "stddev": null,
+            "median": 0.77993024468,
+            "user": 0.77172906,
+            "system": 0.0027729999999999994,
+            "min": 0.77993024468,
+            "max": 0.77993024468,
+            "times": [
+              0.77993024468
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 3,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.77667551572,
+            "stddev": null,
+            "median": 0.77667551572,
+            "user": 0.7672855399999999,
+            "system": 0.00458852,
+            "min": 0.77667551572,
+            "max": 0.77667551572,
+            "times": [
+              0.77667551572
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74672588772,
+            "stddev": null,
+            "median": 0.74672588772,
+            "user": 0.7383205399999999,
+            "system": 0.0035935200000000002,
+            "min": 0.74672588772,
+            "max": 0.74672588772,
+            "times": [
+              0.74672588772
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 4,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7430814104200001,
+            "stddev": null,
+            "median": 0.7430814104200001,
+            "user": 0.7352348,
+            "system": 0.0036163000000000002,
+            "min": 0.7430814104200001,
+            "max": 0.7430814104200001,
+            "times": [
+              0.7430814104200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77659327942,
+            "stddev": null,
+            "median": 0.77659327942,
+            "user": 0.7669617999999999,
+            "system": 0.004606300000000001,
+            "min": 0.77659327942,
+            "max": 0.77659327942,
+            "times": [
+              0.77659327942
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 5,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7738617872800001,
+            "stddev": null,
+            "median": 0.7738617872800001,
+            "user": 0.7643,
+            "system": 0.004892919999999999,
+            "min": 0.7738617872800001,
+            "max": 0.7738617872800001,
+            "times": [
+              0.7738617872800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74158136728,
+            "stddev": null,
+            "median": 0.74158136728,
+            "user": 0.7334559999999999,
+            "system": 0.002908919999999999,
+            "min": 0.74158136728,
+            "max": 0.74158136728,
+            "times": [
+              0.74158136728
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 6,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74061759408,
+            "stddev": null,
+            "median": 0.74061759408,
+            "user": 0.73284884,
+            "system": 0.0036468399999999997,
+            "min": 0.74061759408,
+            "max": 0.74061759408,
+            "times": [
+              0.74061759408
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77442714308,
+            "stddev": null,
+            "median": 0.77442714308,
+            "user": 0.76322784,
+            "system": 0.0066428400000000005,
+            "min": 0.77442714308,
+            "max": 0.77442714308,
+            "times": [
+              0.77442714308
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 7,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.77120267348,
+            "stddev": null,
+            "median": 0.77120267348,
+            "user": 0.7659415399999999,
+            "system": 0.0008622999999999999,
+            "min": 0.77120267348,
+            "max": 0.77120267348,
+            "times": [
+              0.77120267348
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74213524448,
+            "stddev": null,
+            "median": 0.74213524448,
+            "user": 0.7340585399999999,
+            "system": 0.0038492999999999995,
+            "min": 0.74213524448,
+            "max": 0.74213524448,
+            "times": [
+              0.74213524448
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 8,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7462404494,
+            "stddev": null,
+            "median": 0.7462404494,
+            "user": 0.73901122,
+            "system": 0.00266652,
+            "min": 0.7462404494,
+            "max": 0.7462404494,
+            "times": [
+              0.7462404494
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7771386034000001,
+            "stddev": null,
+            "median": 0.7771386034000001,
+            "user": 0.7682982199999999,
+            "system": 0.00364752,
+            "min": 0.7771386034000001,
+            "max": 0.7771386034000001,
+            "times": [
+              0.7771386034000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 9,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.78044488728,
+            "stddev": null,
+            "median": 0.78044488728,
+            "user": 0.7702130799999999,
+            "system": 0.00472678,
+            "min": 0.78044488728,
+            "max": 0.78044488728,
+            "times": [
+              0.78044488728
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7444013012800001,
+            "stddev": null,
+            "median": 0.7444013012800001,
+            "user": 0.7358760799999999,
+            "system": 0.0037317800000000005,
+            "min": 0.7444013012800001,
+            "max": 0.7444013012800001,
+            "times": [
+              0.7444013012800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 10,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7523548361200001,
+            "stddev": null,
+            "median": 0.7523548361200001,
+            "user": 0.74290572,
+            "system": 0.00478308,
+            "min": 0.7523548361200001,
+            "max": 0.7523548361200001,
+            "times": [
+              0.7523548361200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7762083311200001,
+            "stddev": null,
+            "median": 0.7762083311200001,
+            "user": 0.76677672,
+            "system": 0.00477608,
+            "min": 0.7762083311200001,
+            "max": 0.7762083311200001,
+            "times": [
+              0.7762083311200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 11,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.77599635602,
+            "stddev": null,
+            "median": 0.77599635602,
+            "user": 0.76614628,
+            "system": 0.0048553,
+            "min": 0.77599635602,
+            "max": 0.77599635602,
+            "times": [
+              0.77599635602
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7426553850200001,
+            "stddev": null,
+            "median": 0.7426553850200001,
+            "user": 0.73232828,
+            "system": 0.0059083,
+            "min": 0.7426553850200001,
+            "max": 0.7426553850200001,
+            "times": [
+              0.7426553850200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ],
+    "cli": [
+      {
+        "pair": 0,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5869371005,
+            "stddev": null,
+            "median": 0.5869371005,
+            "user": 0.55463252,
+            "system": 0.027912439999999997,
+            "min": 0.5869371005,
+            "max": 0.5869371005,
+            "times": [
+              0.5869371005
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7631981445,
+            "stddev": null,
+            "median": 0.7631981445,
+            "user": 0.72952652,
+            "system": 0.02827944,
+            "min": 0.7631981445,
+            "max": 0.7631981445,
+            "times": [
+              0.7631981445
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 1,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.76368864566,
+            "stddev": null,
+            "median": 0.76368864566,
+            "user": 0.7286187599999999,
+            "system": 0.029149119999999997,
+            "min": 0.76368864566,
+            "max": 0.76368864566,
+            "times": [
+              0.76368864566
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.58201117966,
+            "stddev": null,
+            "median": 0.58201117966,
+            "user": 0.54690776,
+            "system": 0.03057612,
+            "min": 0.58201117966,
+            "max": 0.58201117966,
+            "times": [
+              0.58201117966
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 2,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5817074308800001,
+            "stddev": null,
+            "median": 0.5817074308800001,
+            "user": 0.54813976,
+            "system": 0.02928904,
+            "min": 0.5817074308800001,
+            "max": 0.5817074308800001,
+            "times": [
+              0.5817074308800001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7616807338800001,
+            "stddev": null,
+            "median": 0.7616807338800001,
+            "user": 0.7284187599999999,
+            "system": 0.02784004,
+            "min": 0.7616807338800001,
+            "max": 0.7616807338800001,
+            "times": [
+              0.7616807338800001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 3,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7631831361000001,
+            "stddev": null,
+            "median": 0.7631831361000001,
+            "user": 0.7244083199999999,
+            "system": 0.0327366,
+            "min": 0.7631831361000001,
+            "max": 0.7631831361000001,
+            "times": [
+              0.7631831361000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5830641141,
+            "stddev": null,
+            "median": 0.5830641141,
+            "user": 0.54716532,
+            "system": 0.0312256,
+            "min": 0.5830641141,
+            "max": 0.5830641141,
+            "times": [
+              0.5830641141
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 4,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5818576389000001,
+            "stddev": null,
+            "median": 0.5818576389000001,
+            "user": 0.54352276,
+            "system": 0.033598119999999995,
+            "min": 0.5818576389000001,
+            "max": 0.5818576389000001,
+            "times": [
+              0.5818576389000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7647317359,
+            "stddev": null,
+            "median": 0.7647317359,
+            "user": 0.72723176,
+            "system": 0.03154112,
+            "min": 0.7647317359,
+            "max": 0.7647317359,
+            "times": [
+              0.7647317359
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 5,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7645017684400001,
+            "stddev": null,
+            "median": 0.7645017684400001,
+            "user": 0.72646596,
+            "system": 0.031698500000000004,
+            "min": 0.7645017684400001,
+            "max": 0.7645017684400001,
+            "times": [
+              0.7645017684400001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.58524671144,
+            "stddev": null,
+            "median": 0.58524671144,
+            "user": 0.54024696,
+            "system": 0.040058500000000004,
+            "min": 0.58524671144,
+            "max": 0.58524671144,
+            "times": [
+              0.58524671144
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 6,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5823760369600001,
+            "stddev": null,
+            "median": 0.5823760369600001,
+            "user": 0.54065144,
+            "system": 0.03695062,
+            "min": 0.5823760369600001,
+            "max": 0.5823760369600001,
+            "times": [
+              0.5823760369600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.76655806796,
+            "stddev": null,
+            "median": 0.76655806796,
+            "user": 0.7249894399999999,
+            "system": 0.03553562,
+            "min": 0.76655806796,
+            "max": 0.76655806796,
+            "times": [
+              0.76655806796
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 7,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7661947157000001,
+            "stddev": null,
+            "median": 0.7661947157000001,
+            "user": 0.73163924,
+            "system": 0.02854512,
+            "min": 0.7661947157000001,
+            "max": 0.7661947157000001,
+            "times": [
+              0.7661947157000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5818498327,
+            "stddev": null,
+            "median": 0.5818498327,
+            "user": 0.5407312400000001,
+            "system": 0.03665412,
+            "min": 0.5818498327,
+            "max": 0.5818498327,
+            "times": [
+              0.5818498327
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 8,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5832766777,
+            "stddev": null,
+            "median": 0.5832766777,
+            "user": 0.5479412,
+            "system": 0.03081884,
+            "min": 0.5832766777,
+            "max": 0.5832766777,
+            "times": [
+              0.5832766777
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7655862937000001,
+            "stddev": null,
+            "median": 0.7655862937000001,
+            "user": 0.7249452,
+            "system": 0.034309839999999994,
+            "min": 0.7655862937000001,
+            "max": 0.7655862937000001,
+            "times": [
+              0.7655862937000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 9,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7641873716400001,
+            "stddev": null,
+            "median": 0.7641873716400001,
+            "user": 0.7302552999999999,
+            "system": 0.02798154,
+            "min": 0.7641873716400001,
+            "max": 0.7641873716400001,
+            "times": [
+              0.7641873716400001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.58193912264,
+            "stddev": null,
+            "median": 0.58193912264,
+            "user": 0.5496053,
+            "system": 0.02751954,
+            "min": 0.58193912264,
+            "max": 0.58193912264,
+            "times": [
+              0.58193912264
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 10,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5811656245000001,
+            "stddev": null,
+            "median": 0.5811656245000001,
+            "user": 0.54511498,
+            "system": 0.0313884,
+            "min": 0.5811656245000001,
+            "max": 0.5811656245000001,
+            "times": [
+              0.5811656245000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7651700445,
+            "stddev": null,
+            "median": 0.7651700445,
+            "user": 0.7286809799999999,
+            "system": 0.0300454,
+            "min": 0.7651700445,
+            "max": 0.7651700445,
+            "times": [
+              0.7651700445
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 11,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7667079562600001,
+            "stddev": null,
+            "median": 0.7667079562600001,
+            "user": 0.7264404799999999,
+            "system": 0.034907379999999995,
+            "min": 0.7667079562600001,
+            "max": 0.7667079562600001,
+            "times": [
+              0.7667079562600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5795372432600001,
+            "stddev": null,
+            "median": 0.5795372432600001,
+            "user": 0.54191348,
+            "system": 0.033576379999999996,
+            "min": 0.5795372432600001,
+            "max": 0.5795372432600001,
+            "times": [
+              0.5795372432600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "aborted_initial_repeat": {
+    "reason": "Read-only saved binaries prevented replacement; stopped after confirming this still measured the initial sink adapter.",
+    "samples": [
+      {
+        "file": "retained-cli-0.json",
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.58569579792,
+            "stddev": null,
+            "median": 0.58569579792,
+            "user": 0.55113102,
+            "system": 0.0295402,
+            "min": 0.58569579792,
+            "max": 0.58569579792,
+            "times": [
+              0.58569579792
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.76631773892,
+            "stddev": null,
+            "median": 0.76631773892,
+            "user": 0.72376902,
+            "system": 0.03565719999999999,
+            "min": 0.76631773892,
+            "max": 0.76631773892,
+            "times": [
+              0.76631773892
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-cli-1.json",
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7627865731000001,
+            "stddev": null,
+            "median": 0.7627865731000001,
+            "user": 0.72446186,
+            "system": 0.03194232,
+            "min": 0.7627865731000001,
+            "max": 0.7627865731000001,
+            "times": [
+              0.7627865731000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5844059331000001,
+            "stddev": null,
+            "median": 0.5844059331000001,
+            "user": 0.55010386,
+            "system": 0.029536319999999998,
+            "min": 0.5844059331000001,
+            "max": 0.5844059331000001,
+            "times": [
+              0.5844059331000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-cli-2.json",
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5808661258200001,
+            "stddev": null,
+            "median": 0.5808661258200001,
+            "user": 0.54856756,
+            "system": 0.0275369,
+            "min": 0.5808661258200001,
+            "max": 0.5808661258200001,
+            "times": [
+              0.5808661258200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7659168568200001,
+            "stddev": null,
+            "median": 0.7659168568200001,
+            "user": 0.72498656,
+            "system": 0.0343509,
+            "min": 0.7659168568200001,
+            "max": 0.7659168568200001,
+            "times": [
+              0.7659168568200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-cli-3.json",
+        "incomplete_raw": ""
+      },
+      {
+        "file": "retained-verify-0.json",
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7409779458000001,
+            "stddev": null,
+            "median": 0.7409779458000001,
+            "user": 0.73059154,
+            "system": 0.00500456,
+            "min": 0.7409779458000001,
+            "max": 0.7409779458000001,
+            "times": [
+              0.7409779458000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7716605548000001,
+            "stddev": null,
+            "median": 0.7716605548000001,
+            "user": 0.7628535399999999,
+            "system": 0.00301156,
+            "min": 0.7716605548000001,
+            "max": 0.7716605548000001,
+            "times": [
+              0.7716605548000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-1.json",
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7759686304800001,
+            "stddev": null,
+            "median": 0.7759686304800001,
+            "user": 0.76629262,
+            "system": 0.0037275,
+            "min": 0.7759686304800001,
+            "max": 0.7759686304800001,
+            "times": [
+              0.7759686304800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7454590214800001,
+            "stddev": null,
+            "median": 0.7454590214800001,
+            "user": 0.73520962,
+            "system": 0.0047375,
+            "min": 0.7454590214800001,
+            "max": 0.7454590214800001,
+            "times": [
+              0.7454590214800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-10.json",
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74322934494,
+            "stddev": null,
+            "median": 0.74322934494,
+            "user": 0.73227416,
+            "system": 0.004920259999999999,
+            "min": 0.74322934494,
+            "max": 0.74322934494,
+            "times": [
+              0.74322934494
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77501926294,
+            "stddev": null,
+            "median": 0.77501926294,
+            "user": 0.76292816,
+            "system": 0.005921259999999999,
+            "min": 0.77501926294,
+            "max": 0.77501926294,
+            "times": [
+              0.77501926294
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-11.json",
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7749643876400001,
+            "stddev": null,
+            "median": 0.7749643876400001,
+            "user": 0.76375916,
+            "system": 0.00475356,
+            "min": 0.7749643876400001,
+            "max": 0.7749643876400001,
+            "times": [
+              0.7749643876400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.77235409864,
+            "stddev": null,
+            "median": 0.77235409864,
+            "user": 0.76451916,
+            "system": 0.0017485600000000003,
+            "min": 0.77235409864,
+            "max": 0.77235409864,
+            "times": [
+              0.77235409864
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-2.json",
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7516218171000001,
+            "stddev": null,
+            "median": 0.7516218171000001,
+            "user": 0.7407433999999999,
+            "system": 0.00484664,
+            "min": 0.7516218171000001,
+            "max": 0.7516218171000001,
+            "times": [
+              0.7516218171000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7761179801,
+            "stddev": null,
+            "median": 0.7761179801,
+            "user": 0.7661903999999999,
+            "system": 0.00383264,
+            "min": 0.7761179801,
+            "max": 0.7761179801,
+            "times": [
+              0.7761179801
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-3.json",
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7723435812000001,
+            "stddev": null,
+            "median": 0.7723435812000001,
+            "user": 0.7642053600000001,
+            "system": 0.00273448,
+            "min": 0.7723435812000001,
+            "max": 0.7723435812000001,
+            "times": [
+              0.7723435812000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7429334492,
+            "stddev": null,
+            "median": 0.7429334492,
+            "user": 0.7322063600000001,
+            "system": 0.00572648,
+            "min": 0.7429334492,
+            "max": 0.7429334492,
+            "times": [
+              0.7429334492
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-4.json",
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7490220936199999,
+            "stddev": null,
+            "median": 0.7490220936199999,
+            "user": 0.74012414,
+            "system": 0.0036443200000000004,
+            "min": 0.7490220936199999,
+            "max": 0.7490220936199999,
+            "times": [
+              0.7490220936199999
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77921779062,
+            "stddev": null,
+            "median": 0.77921779062,
+            "user": 0.76478214,
+            "system": 0.00862532,
+            "min": 0.77921779062,
+            "max": 0.77921779062,
+            "times": [
+              0.77921779062
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-5.json",
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.77389935878,
+            "stddev": null,
+            "median": 0.77389935878,
+            "user": 0.76284104,
+            "system": 0.0057643799999999995,
+            "min": 0.77389935878,
+            "max": 0.77389935878,
+            "times": [
+              0.77389935878
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74229377278,
+            "stddev": null,
+            "median": 0.74229377278,
+            "user": 0.7340060399999999,
+            "system": 0.0027653799999999996,
+            "min": 0.74229377278,
+            "max": 0.74229377278,
+            "times": [
+              0.74229377278
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-6.json",
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7438045646800001,
+            "stddev": null,
+            "median": 0.7438045646800001,
+            "user": 0.733635,
+            "system": 0.004601179999999999,
+            "min": 0.7438045646800001,
+            "max": 0.7438045646800001,
+            "times": [
+              0.7438045646800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.8072063206800001,
+            "stddev": null,
+            "median": 0.8072063206800001,
+            "user": 0.7958,
+            "system": 0.0055851799999999995,
+            "min": 0.8072063206800001,
+            "max": 0.8072063206800001,
+            "times": [
+              0.8072063206800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-7.json",
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7736413049,
+            "stddev": null,
+            "median": 0.7736413049,
+            "user": 0.7633633400000001,
+            "system": 0.0046731,
+            "min": 0.7736413049,
+            "max": 0.7736413049,
+            "times": [
+              0.7736413049
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7464922619000001,
+            "stddev": null,
+            "median": 0.7464922619000001,
+            "user": 0.73684134,
+            "system": 0.0036680999999999997,
+            "min": 0.7464922619000001,
+            "max": 0.7464922619000001,
+            "times": [
+              0.7464922619000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-8.json",
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74161822,
+            "stddev": null,
+            "median": 0.74161822,
+            "user": 0.7324951999999999,
+            "system": 0.0035581,
+            "min": 0.74161822,
+            "max": 0.74161822,
+            "times": [
+              0.74161822
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7734234680000001,
+            "stddev": null,
+            "median": 0.7734234680000001,
+            "user": 0.7630951999999999,
+            "system": 0.0045671,
+            "min": 0.7734234680000001,
+            "max": 0.7734234680000001,
+            "times": [
+              0.7734234680000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "file": "retained-verify-9.json",
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7747360045600001,
+            "stddev": null,
+            "median": 0.7747360045600001,
+            "user": 0.7643437599999999,
+            "system": 0.00442084,
+            "min": 0.7747360045600001,
+            "max": 0.7747360045600001,
+            "times": [
+              0.7747360045600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7515527135600001,
+            "stddev": null,
+            "median": 0.7515527135600001,
+            "user": 0.7417977599999999,
+            "system": 0.00345584,
+            "min": 0.7515527135600001,
+            "max": 0.7515527135600001,
+            "times": [
+              0.7515527135600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "direct_accumulator_candidate": {
+    "verify": [
+      {
+        "pair": 0,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74621060894,
+            "stddev": null,
+            "median": 0.74621060894,
+            "user": 0.7369387599999999,
+            "system": 0.0037448,
+            "min": 0.74621060894,
+            "max": 0.74621060894,
+            "times": [
+              0.74621060894
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7633785109400001,
+            "stddev": null,
+            "median": 0.7633785109400001,
+            "user": 0.75246476,
+            "system": 0.006708799999999999,
+            "min": 0.7633785109400001,
+            "max": 0.7633785109400001,
+            "times": [
+              0.7633785109400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 1,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.76427140758,
+            "stddev": null,
+            "median": 0.76427140758,
+            "user": 0.7553700199999999,
+            "system": 0.0039082399999999995,
+            "min": 0.76427140758,
+            "max": 0.76427140758,
+            "times": [
+              0.76427140758
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.75133099958,
+            "stddev": null,
+            "median": 0.75133099958,
+            "user": 0.7413330199999999,
+            "system": 0.004887239999999999,
+            "min": 0.75133099958,
+            "max": 0.75133099958,
+            "times": [
+              0.75133099958
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 2,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7451203644000001,
+            "stddev": null,
+            "median": 0.7451203644000001,
+            "user": 0.7365852799999999,
+            "system": 0.00289206,
+            "min": 0.7451203644000001,
+            "max": 0.7451203644000001,
+            "times": [
+              0.7451203644000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7659094894,
+            "stddev": null,
+            "median": 0.7659094894,
+            "user": 0.7575472799999999,
+            "system": 0.0028930600000000002,
+            "min": 0.7659094894,
+            "max": 0.7659094894,
+            "times": [
+              0.7659094894
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 3,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7691380840800001,
+            "stddev": null,
+            "median": 0.7691380840800001,
+            "user": 0.7617614999999999,
+            "system": 0.0020250199999999998,
+            "min": 0.7691380840800001,
+            "max": 0.7691380840800001,
+            "times": [
+              0.7691380840800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74091444308,
+            "stddev": null,
+            "median": 0.74091444308,
+            "user": 0.7298474999999999,
+            "system": 0.005982019999999999,
+            "min": 0.74091444308,
+            "max": 0.74091444308,
+            "times": [
+              0.74091444308
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 4,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.75853539006,
+            "stddev": null,
+            "median": 0.75853539006,
+            "user": 0.74404686,
+            "system": 0.00795848,
+            "min": 0.75853539006,
+            "max": 0.75853539006,
+            "times": [
+              0.75853539006
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77059212506,
+            "stddev": null,
+            "median": 0.77059212506,
+            "user": 0.7629438599999999,
+            "system": 0.00206048,
+            "min": 0.77059212506,
+            "max": 0.77059212506,
+            "times": [
+              0.77059212506
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 5,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.76620063274,
+            "stddev": null,
+            "median": 0.76620063274,
+            "user": 0.7572984399999999,
+            "system": 0.0028049599999999996,
+            "min": 0.76620063274,
+            "max": 0.76620063274,
+            "times": [
+              0.76620063274
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.73984602074,
+            "stddev": null,
+            "median": 0.73984602074,
+            "user": 0.7327364399999999,
+            "system": 0.0018169599999999998,
+            "min": 0.73984602074,
+            "max": 0.73984602074,
+            "times": [
+              0.73984602074
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 6,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.79378010644,
+            "stddev": null,
+            "median": 0.79378010644,
+            "user": 0.7846666199999999,
+            "system": 0.00297122,
+            "min": 0.79378010644,
+            "max": 0.79378010644,
+            "times": [
+              0.79378010644
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.76478524944,
+            "stddev": null,
+            "median": 0.76478524944,
+            "user": 0.7521706199999999,
+            "system": 0.006937219999999999,
+            "min": 0.76478524944,
+            "max": 0.76478524944,
+            "times": [
+              0.76478524944
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 7,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7690344735000001,
+            "stddev": null,
+            "median": 0.7690344735000001,
+            "user": 0.75638698,
+            "system": 0.0065952799999999985,
+            "min": 0.7690344735000001,
+            "max": 0.7690344735000001,
+            "times": [
+              0.7690344735000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7505252735000001,
+            "stddev": null,
+            "median": 0.7505252735000001,
+            "user": 0.73942098,
+            "system": 0.005618279999999999,
+            "min": 0.7505252735000001,
+            "max": 0.7505252735000001,
+            "times": [
+              0.7505252735000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 8,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74216706556,
+            "stddev": null,
+            "median": 0.74216706556,
+            "user": 0.7320089399999999,
+            "system": 0.004652079999999999,
+            "min": 0.74216706556,
+            "max": 0.74216706556,
+            "times": [
+              0.74216706556
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7684942745600001,
+            "stddev": null,
+            "median": 0.7684942745600001,
+            "user": 0.7570929399999999,
+            "system": 0.00562908,
+            "min": 0.7684942745600001,
+            "max": 0.7684942745600001,
+            "times": [
+              0.7684942745600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 9,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.76699987232,
+            "stddev": null,
+            "median": 0.76699987232,
+            "user": 0.75713348,
+            "system": 0.00390872,
+            "min": 0.76699987232,
+            "max": 0.76699987232,
+            "times": [
+              0.76699987232
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7415357853200001,
+            "stddev": null,
+            "median": 0.7415357853200001,
+            "user": 0.73102348,
+            "system": 0.00488172,
+            "min": 0.7415357853200001,
+            "max": 0.7415357853200001,
+            "times": [
+              0.7415357853200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 10,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7421866001,
+            "stddev": null,
+            "median": 0.7421866001,
+            "user": 0.73269764,
+            "system": 0.0038205799999999996,
+            "min": 0.7421866001,
+            "max": 0.7421866001,
+            "times": [
+              0.7421866001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7667992061000001,
+            "stddev": null,
+            "median": 0.7667992061000001,
+            "user": 0.75729264,
+            "system": 0.0038465799999999996,
+            "min": 0.7667992061000001,
+            "max": 0.7667992061000001,
+            "times": [
+              0.7667992061000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 11,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7701033214,
+            "stddev": null,
+            "median": 0.7701033214,
+            "user": 0.7616545199999999,
+            "system": 0.00208946,
+            "min": 0.7701033214,
+            "max": 0.7701033214,
+            "times": [
+              0.7701033214
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7412404574000001,
+            "stddev": null,
+            "median": 0.7412404574000001,
+            "user": 0.7320045199999999,
+            "system": 0.00307946,
+            "min": 0.7412404574000001,
+            "max": 0.7412404574000001,
+            "times": [
+              0.7412404574000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ],
+    "cli": [
+      {
+        "pair": 0,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.58734276704,
+            "stddev": null,
+            "median": 0.58734276704,
+            "user": 0.5480769600000001,
+            "system": 0.03444318,
+            "min": 0.58734276704,
+            "max": 0.58734276704,
+            "times": [
+              0.58734276704
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.75077993204,
+            "stddev": null,
+            "median": 0.75077993204,
+            "user": 0.71406496,
+            "system": 0.030664179999999996,
+            "min": 0.75077993204,
+            "max": 0.75077993204,
+            "times": [
+              0.75077993204
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 1,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.75023653216,
+            "stddev": null,
+            "median": 0.75023653216,
+            "user": 0.71493824,
+            "system": 0.02927712,
+            "min": 0.75023653216,
+            "max": 0.75023653216,
+            "times": [
+              0.75023653216
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.58439125516,
+            "stddev": null,
+            "median": 0.58439125516,
+            "user": 0.54562724,
+            "system": 0.033619119999999995,
+            "min": 0.58439125516,
+            "max": 0.58439125516,
+            "times": [
+              0.58439125516
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 2,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5820642023400001,
+            "stddev": null,
+            "median": 0.5820642023400001,
+            "user": 0.54495962,
+            "system": 0.03244752,
+            "min": 0.5820642023400001,
+            "max": 0.5820642023400001,
+            "times": [
+              0.5820642023400001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.75034652434,
+            "stddev": null,
+            "median": 0.75034652434,
+            "user": 0.71340562,
+            "system": 0.030703519999999995,
+            "min": 0.75034652434,
+            "max": 0.75034652434,
+            "times": [
+              0.75034652434
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 3,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7486159180999999,
+            "stddev": null,
+            "median": 0.7486159180999999,
+            "user": 0.71358424,
+            "system": 0.028665279999999998,
+            "min": 0.7486159180999999,
+            "max": 0.7486159180999999,
+            "times": [
+              0.7486159180999999
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5842457761,
+            "stddev": null,
+            "median": 0.5842457761,
+            "user": 0.54137624,
+            "system": 0.03768428,
+            "min": 0.5842457761,
+            "max": 0.5842457761,
+            "times": [
+              0.5842457761
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 4,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.58215234922,
+            "stddev": null,
+            "median": 0.58215234922,
+            "user": 0.54683518,
+            "system": 0.029895599999999998,
+            "min": 0.58215234922,
+            "max": 0.58215234922,
+            "times": [
+              0.58215234922
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7510028002200001,
+            "stddev": null,
+            "median": 0.7510028002200001,
+            "user": 0.71320018,
+            "system": 0.0305126,
+            "min": 0.7510028002200001,
+            "max": 0.7510028002200001,
+            "times": [
+              0.7510028002200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 5,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.80710504606,
+            "stddev": null,
+            "median": 0.80710504606,
+            "user": 0.7536461,
+            "system": 0.04270318,
+            "min": 0.80710504606,
+            "max": 0.80710504606,
+            "times": [
+              0.80710504606
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.62477702006,
+            "stddev": null,
+            "median": 0.62477702006,
+            "user": 0.5712691,
+            "system": 0.04502018,
+            "min": 0.62477702006,
+            "max": 0.62477702006,
+            "times": [
+              0.62477702006
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 6,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.64612691256,
+            "stddev": null,
+            "median": 0.64612691256,
+            "user": 0.5862601399999999,
+            "system": 0.05086868,
+            "min": 0.64612691256,
+            "max": 0.64612691256,
+            "times": [
+              0.64612691256
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.78389741356,
+            "stddev": null,
+            "median": 0.78389741356,
+            "user": 0.72704214,
+            "system": 0.04589368,
+            "min": 0.78389741356,
+            "max": 0.78389741356,
+            "times": [
+              0.78389741356
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 7,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7985102701400001,
+            "stddev": null,
+            "median": 0.7985102701400001,
+            "user": 0.74279854,
+            "system": 0.044904219999999995,
+            "min": 0.7985102701400001,
+            "max": 0.7985102701400001,
+            "times": [
+              0.7985102701400001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.60429381014,
+            "stddev": null,
+            "median": 0.60429381014,
+            "user": 0.54241754,
+            "system": 0.05534922,
+            "min": 0.60429381014,
+            "max": 0.60429381014,
+            "times": [
+              0.60429381014
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 8,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5991723696,
+            "stddev": null,
+            "median": 0.5991723696,
+            "user": 0.55168346,
+            "system": 0.04184996,
+            "min": 0.5991723696,
+            "max": 0.5991723696,
+            "times": [
+              0.5991723696
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7905274596,
+            "stddev": null,
+            "median": 0.7905274596,
+            "user": 0.7493274600000001,
+            "system": 0.03297396,
+            "min": 0.7905274596,
+            "max": 0.7905274596,
+            "times": [
+              0.7905274596
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 9,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7565399244000001,
+            "stddev": null,
+            "median": 0.7565399244000001,
+            "user": 0.72235248,
+            "system": 0.027252259999999997,
+            "min": 0.7565399244000001,
+            "max": 0.7565399244000001,
+            "times": [
+              0.7565399244000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5860663164000001,
+            "stddev": null,
+            "median": 0.5860663164000001,
+            "user": 0.5572714799999999,
+            "system": 0.023992259999999998,
+            "min": 0.5860663164000001,
+            "max": 0.5860663164000001,
+            "times": [
+              0.5860663164000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 10,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.59030795828,
+            "stddev": null,
+            "median": 0.59030795828,
+            "user": 0.55098514,
+            "system": 0.03464562,
+            "min": 0.59030795828,
+            "max": 0.59030795828,
+            "times": [
+              0.59030795828
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.75391653128,
+            "stddev": null,
+            "median": 0.75391653128,
+            "user": 0.71461214,
+            "system": 0.03283062,
+            "min": 0.75391653128,
+            "max": 0.75391653128,
+            "times": [
+              0.75391653128
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 11,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.75413142736,
+            "stddev": null,
+            "median": 0.75413142736,
+            "user": 0.71470914,
+            "system": 0.03279074,
+            "min": 0.75413142736,
+            "max": 0.75413142736,
+            "times": [
+              0.75413142736
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.58316470436,
+            "stddev": null,
+            "median": 0.58316470436,
+            "user": 0.54436114,
+            "system": 0.033473739999999995,
+            "min": 0.58316470436,
+            "max": 0.58316470436,
+            "times": [
+              0.58316470436
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "inplace_reader_candidate": {
+    "verify": [
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7421831532800001,
+            "stddev": null,
+            "median": 0.7421831532800001,
+            "user": 0.7299239599999999,
+            "system": 0.00684444,
+            "min": 0.7421831532800001,
+            "max": 0.7421831532800001,
+            "times": [
+              0.7421831532800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77152974228,
+            "stddev": null,
+            "median": 0.77152974228,
+            "user": 0.7600119599999999,
+            "system": 0.00584744,
+            "min": 0.77152974228,
+            "max": 0.77152974228,
+            "times": [
+              0.77152974228
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7772381506,
+            "stddev": null,
+            "median": 0.7772381506,
+            "user": 0.76578326,
+            "system": 0.00586548,
+            "min": 0.7772381506,
+            "max": 0.7772381506,
+            "times": [
+              0.7772381506
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7430425456,
+            "stddev": null,
+            "median": 0.7430425456,
+            "user": 0.7334512599999999,
+            "system": 0.0038804800000000004,
+            "min": 0.7430425456,
+            "max": 0.7430425456,
+            "times": [
+              0.7430425456
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74142751008,
+            "stddev": null,
+            "median": 0.74142751008,
+            "user": 0.73074246,
+            "system": 0.0049383199999999995,
+            "min": 0.74142751008,
+            "max": 0.74142751008,
+            "times": [
+              0.74142751008
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77125496008,
+            "stddev": null,
+            "median": 0.77125496008,
+            "user": 0.76033546,
+            "system": 0.00493732,
+            "min": 0.77125496008,
+            "max": 0.77125496008,
+            "times": [
+              0.77125496008
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7713954498200001,
+            "stddev": null,
+            "median": 0.7713954498200001,
+            "user": 0.76066944,
+            "system": 0.004780359999999999,
+            "min": 0.7713954498200001,
+            "max": 0.7713954498200001,
+            "times": [
+              0.7713954498200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74167977382,
+            "stddev": null,
+            "median": 0.74167977382,
+            "user": 0.73070044,
+            "system": 0.00478436,
+            "min": 0.74167977382,
+            "max": 0.74167977382,
+            "times": [
+              0.74167977382
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74111337028,
+            "stddev": null,
+            "median": 0.74111337028,
+            "user": 0.73294222,
+            "system": 0.0029647,
+            "min": 0.74111337028,
+            "max": 0.74111337028,
+            "times": [
+              0.74111337028
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7699701912800001,
+            "stddev": null,
+            "median": 0.7699701912800001,
+            "user": 0.76215722,
+            "system": 0.0019717,
+            "min": 0.7699701912800001,
+            "max": 0.7699701912800001,
+            "times": [
+              0.7699701912800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.769489538,
+            "stddev": null,
+            "median": 0.769489538,
+            "user": 0.75978338,
+            "system": 0.0037643599999999996,
+            "min": 0.769489538,
+            "max": 0.769489538,
+            "times": [
+              0.769489538
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.741683818,
+            "stddev": null,
+            "median": 0.741683818,
+            "user": 0.73203738,
+            "system": 0.0037573599999999995,
+            "min": 0.741683818,
+            "max": 0.741683818,
+            "times": [
+              0.741683818
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7393998540800001,
+            "stddev": null,
+            "median": 0.7393998540800001,
+            "user": 0.7286051,
+            "system": 0.0058403199999999995,
+            "min": 0.7393998540800001,
+            "max": 0.7393998540800001,
+            "times": [
+              0.7393998540800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7700454010800001,
+            "stddev": null,
+            "median": 0.7700454010800001,
+            "user": 0.7586831,
+            "system": 0.005836320000000001,
+            "min": 0.7700454010800001,
+            "max": 0.7700454010800001,
+            "times": [
+              0.7700454010800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.76963811332,
+            "stddev": null,
+            "median": 0.76963811332,
+            "user": 0.7596734199999999,
+            "system": 0.005771119999999999,
+            "min": 0.76963811332,
+            "max": 0.76963811332,
+            "times": [
+              0.76963811332
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74805645132,
+            "stddev": null,
+            "median": 0.74805645132,
+            "user": 0.7380824199999999,
+            "system": 0.004770119999999999,
+            "min": 0.74805645132,
+            "max": 0.74805645132,
+            "times": [
+              0.74805645132
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74091727364,
+            "stddev": null,
+            "median": 0.74091727364,
+            "user": 0.7298216,
+            "system": 0.005707879999999999,
+            "min": 0.74091727364,
+            "max": 0.74091727364,
+            "times": [
+              0.74091727364
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.8092545376400001,
+            "stddev": null,
+            "median": 0.8092545376400001,
+            "user": 0.7995445999999999,
+            "system": 0.00373188,
+            "min": 0.8092545376400001,
+            "max": 0.8092545376400001,
+            "times": [
+              0.8092545376400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.76867044382,
+            "stddev": null,
+            "median": 0.76867044382,
+            "user": 0.75917702,
+            "system": 0.00381788,
+            "min": 0.76867044382,
+            "max": 0.76867044382,
+            "times": [
+              0.76867044382
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74923325782,
+            "stddev": null,
+            "median": 0.74923325782,
+            "user": 0.74016502,
+            "system": 0.0038268799999999995,
+            "min": 0.74923325782,
+            "max": 0.74923325782,
+            "times": [
+              0.74923325782
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74195258712,
+            "stddev": null,
+            "median": 0.74195258712,
+            "user": 0.73011496,
+            "system": 0.00571888,
+            "min": 0.74195258712,
+            "max": 0.74195258712,
+            "times": [
+              0.74195258712
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7708103501200001,
+            "stddev": null,
+            "median": 0.7708103501200001,
+            "user": 0.75988096,
+            "system": 0.00474488,
+            "min": 0.7708103501200001,
+            "max": 0.7708103501200001,
+            "times": [
+              0.7708103501200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7693902856200001,
+            "stddev": null,
+            "median": 0.7693902856200001,
+            "user": 0.7595299999999999,
+            "system": 0.004029120000000001,
+            "min": 0.7693902856200001,
+            "max": 0.7693902856200001,
+            "times": [
+              0.7693902856200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7419958336200001,
+            "stddev": null,
+            "median": 0.7419958336200001,
+            "user": 0.731877,
+            "system": 0.00503012,
+            "min": 0.7419958336200001,
+            "max": 0.7419958336200001,
+            "times": [
+              0.7419958336200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ],
+    "cli": [
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5826595216200001,
+            "stddev": null,
+            "median": 0.5826595216200001,
+            "user": 0.5472004199999999,
+            "system": 0.031188659999999997,
+            "min": 0.5826595216200001,
+            "max": 0.5826595216200001,
+            "times": [
+              0.5826595216200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7723152206200001,
+            "stddev": null,
+            "median": 0.7723152206200001,
+            "user": 0.7304984199999999,
+            "system": 0.03588566,
+            "min": 0.7723152206200001,
+            "max": 0.7723152206200001,
+            "times": [
+              0.7723152206200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7716050515,
+            "stddev": null,
+            "median": 0.7716050515,
+            "user": 0.7302293400000001,
+            "system": 0.03548462,
+            "min": 0.7716050515,
+            "max": 0.7716050515,
+            "times": [
+              0.7716050515
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5805565655,
+            "stddev": null,
+            "median": 0.5805565655,
+            "user": 0.54301234,
+            "system": 0.03352662,
+            "min": 0.5805565655,
+            "max": 0.5805565655,
+            "times": [
+              0.5805565655
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.58107009486,
+            "stddev": null,
+            "median": 0.58107009486,
+            "user": 0.5434975200000001,
+            "system": 0.0324845,
+            "min": 0.58107009486,
+            "max": 0.58107009486,
+            "times": [
+              0.58107009486
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7695179698600001,
+            "stddev": null,
+            "median": 0.7695179698600001,
+            "user": 0.73076152,
+            "system": 0.0328375,
+            "min": 0.7695179698600001,
+            "max": 0.7695179698600001,
+            "times": [
+              0.7695179698600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.76952323174,
+            "stddev": null,
+            "median": 0.76952323174,
+            "user": 0.72767976,
+            "system": 0.03619912,
+            "min": 0.76952323174,
+            "max": 0.76952323174,
+            "times": [
+              0.76952323174
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.57821092074,
+            "stddev": null,
+            "median": 0.57821092074,
+            "user": 0.54261676,
+            "system": 0.03108912,
+            "min": 0.57821092074,
+            "max": 0.57821092074,
+            "times": [
+              0.57821092074
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5820006439200001,
+            "stddev": null,
+            "median": 0.5820006439200001,
+            "user": 0.5453169,
+            "system": 0.03193181999999999,
+            "min": 0.5820006439200001,
+            "max": 0.5820006439200001,
+            "times": [
+              0.5820006439200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.77030848192,
+            "stddev": null,
+            "median": 0.77030848192,
+            "user": 0.7304859,
+            "system": 0.03469082,
+            "min": 0.77030848192,
+            "max": 0.77030848192,
+            "times": [
+              0.77030848192
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.77144575946,
+            "stddev": null,
+            "median": 0.77144575946,
+            "user": 0.7369726,
+            "system": 0.029582619999999997,
+            "min": 0.77144575946,
+            "max": 0.77144575946,
+            "times": [
+              0.77144575946
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.58115777946,
+            "stddev": null,
+            "median": 0.58115777946,
+            "user": 0.5479276,
+            "system": 0.029035619999999998,
+            "min": 0.58115777946,
+            "max": 0.58115777946,
+            "times": [
+              0.58115777946
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5793845547600001,
+            "stddev": null,
+            "median": 0.5793845547600001,
+            "user": 0.5468027400000001,
+            "system": 0.02761292,
+            "min": 0.5793845547600001,
+            "max": 0.5793845547600001,
+            "times": [
+              0.5793845547600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7696939267600001,
+            "stddev": null,
+            "median": 0.7696939267600001,
+            "user": 0.73182674,
+            "system": 0.03181091999999999,
+            "min": 0.7696939267600001,
+            "max": 0.7696939267600001,
+            "times": [
+              0.7696939267600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7688940403400001,
+            "stddev": null,
+            "median": 0.7688940403400001,
+            "user": 0.73145218,
+            "system": 0.03216466,
+            "min": 0.7688940403400001,
+            "max": 0.7688940403400001,
+            "times": [
+              0.7688940403400001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.58142221234,
+            "stddev": null,
+            "median": 0.58142221234,
+            "user": 0.54430718,
+            "system": 0.032363659999999995,
+            "min": 0.58142221234,
+            "max": 0.58142221234,
+            "times": [
+              0.58142221234
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5786048379200001,
+            "stddev": null,
+            "median": 0.5786048379200001,
+            "user": 0.54601514,
+            "system": 0.028183679999999996,
+            "min": 0.5786048379200001,
+            "max": 0.5786048379200001,
+            "times": [
+              0.5786048379200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.76778234292,
+            "stddev": null,
+            "median": 0.76778234292,
+            "user": 0.72892114,
+            "system": 0.03353168,
+            "min": 0.76778234292,
+            "max": 0.76778234292,
+            "times": [
+              0.76778234292
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.76833289764,
+            "stddev": null,
+            "median": 0.76833289764,
+            "user": 0.7318891599999999,
+            "system": 0.030706739999999996,
+            "min": 0.76833289764,
+            "max": 0.76833289764,
+            "times": [
+              0.76833289764
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.57794787264,
+            "stddev": null,
+            "median": 0.57794787264,
+            "user": 0.54424316,
+            "system": 0.02904474,
+            "min": 0.57794787264,
+            "max": 0.57794787264,
+            "times": [
+              0.57794787264
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.57920637318,
+            "stddev": null,
+            "median": 0.57920637318,
+            "user": 0.5457637399999999,
+            "system": 0.029690339999999996,
+            "min": 0.57920637318,
+            "max": 0.57920637318,
+            "times": [
+              0.57920637318
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.76559648018,
+            "stddev": null,
+            "median": 0.76559648018,
+            "user": 0.73092074,
+            "system": 0.02974534,
+            "min": 0.76559648018,
+            "max": 0.76559648018,
+            "times": [
+              0.76559648018
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.77899946072,
+            "stddev": null,
+            "median": 0.77899946072,
+            "user": 0.7408239,
+            "system": 0.03266466,
+            "min": 0.77899946072,
+            "max": 0.77899946072,
+            "times": [
+              0.77899946072
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5848383757200001,
+            "stddev": null,
+            "median": 0.5848383757200001,
+            "user": 0.5491359,
+            "system": 0.031378659999999996,
+            "min": 0.5848383757200001,
+            "max": 0.5848383757200001,
+            "times": [
+              0.5848383757200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "isolated_retained_candidate": {
+    "verify": [
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.73879442226,
+            "stddev": null,
+            "median": 0.73879442226,
+            "user": 0.73085256,
+            "system": 0.0029117199999999996,
+            "min": 0.73879442226,
+            "max": 0.73879442226,
+            "times": [
+              0.73879442226
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7673198092600001,
+            "stddev": null,
+            "median": 0.7673198092600001,
+            "user": 0.76011856,
+            "system": 0.00194172,
+            "min": 0.7673198092600001,
+            "max": 0.7673198092600001,
+            "times": [
+              0.7673198092600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7713892669,
+            "stddev": null,
+            "median": 0.7713892669,
+            "user": 0.75908362,
+            "system": 0.00670488,
+            "min": 0.7713892669,
+            "max": 0.7713892669,
+            "times": [
+              0.7713892669
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7440811809000001,
+            "stddev": null,
+            "median": 0.7440811809000001,
+            "user": 0.73384662,
+            "system": 0.00473388,
+            "min": 0.7440811809000001,
+            "max": 0.7440811809000001,
+            "times": [
+              0.7440811809000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7366982523400001,
+            "stddev": null,
+            "median": 0.7366982523400001,
+            "user": 0.7287942599999999,
+            "system": 0.00283056,
+            "min": 0.7366982523400001,
+            "max": 0.7366982523400001,
+            "times": [
+              0.7366982523400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.76740907434,
+            "stddev": null,
+            "median": 0.76740907434,
+            "user": 0.75731326,
+            "system": 0.0048115599999999994,
+            "min": 0.76740907434,
+            "max": 0.76740907434,
+            "times": [
+              0.76740907434
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7666364451200001,
+            "stddev": null,
+            "median": 0.7666364451200001,
+            "user": 0.75954486,
+            "system": 0.0016867800000000001,
+            "min": 0.7666364451200001,
+            "max": 0.7666364451200001,
+            "times": [
+              0.7666364451200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.73795998912,
+            "stddev": null,
+            "median": 0.73795998912,
+            "user": 0.73043786,
+            "system": 0.0016977800000000003,
+            "min": 0.73795998912,
+            "max": 0.73795998912,
+            "times": [
+              0.73795998912
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.73838542114,
+            "stddev": null,
+            "median": 0.73838542114,
+            "user": 0.7309609599999999,
+            "system": 0.0017708,
+            "min": 0.73838542114,
+            "max": 0.73838542114,
+            "times": [
+              0.73838542114
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7716968421400001,
+            "stddev": null,
+            "median": 0.7716968421400001,
+            "user": 0.75930296,
+            "system": 0.0067398,
+            "min": 0.7716968421400001,
+            "max": 0.7716968421400001,
+            "times": [
+              0.7716968421400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7731970155600001,
+            "stddev": null,
+            "median": 0.7731970155600001,
+            "user": 0.76292988,
+            "system": 0.00563328,
+            "min": 0.7731970155600001,
+            "max": 0.7731970155600001,
+            "times": [
+              0.7731970155600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7450554935600001,
+            "stddev": null,
+            "median": 0.7450554935600001,
+            "user": 0.7363848799999999,
+            "system": 0.00365428,
+            "min": 0.7450554935600001,
+            "max": 0.7450554935600001,
+            "times": [
+              0.7450554935600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74330328052,
+            "stddev": null,
+            "median": 0.74330328052,
+            "user": 0.7326041799999999,
+            "system": 0.0048810599999999996,
+            "min": 0.74330328052,
+            "max": 0.74330328052,
+            "times": [
+              0.74330328052
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7691964575200001,
+            "stddev": null,
+            "median": 0.7691964575200001,
+            "user": 0.7603961799999999,
+            "system": 0.00289306,
+            "min": 0.7691964575200001,
+            "max": 0.7691964575200001,
+            "times": [
+              0.7691964575200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.77116429208,
+            "stddev": null,
+            "median": 0.77116429208,
+            "user": 0.7618118199999999,
+            "system": 0.00390494,
+            "min": 0.77116429208,
+            "max": 0.77116429208,
+            "times": [
+              0.77116429208
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.73915177708,
+            "stddev": null,
+            "median": 0.73915177708,
+            "user": 0.72923982,
+            "system": 0.00489694,
+            "min": 0.73915177708,
+            "max": 0.73915177708,
+            "times": [
+              0.73915177708
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7429541274400001,
+            "stddev": null,
+            "median": 0.7429541274400001,
+            "user": 0.7332059999999999,
+            "system": 0.00471026,
+            "min": 0.7429541274400001,
+            "max": 0.7429541274400001,
+            "times": [
+              0.7429541274400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7747164914400001,
+            "stddev": null,
+            "median": 0.7747164914400001,
+            "user": 0.765581,
+            "system": 0.00372426,
+            "min": 0.7747164914400001,
+            "max": 0.7747164914400001,
+            "times": [
+              0.7747164914400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7959706952000001,
+            "stddev": null,
+            "median": 0.7959706952000001,
+            "user": 0.78846652,
+            "system": 0.0018636999999999998,
+            "min": 0.7959706952000001,
+            "max": 0.7959706952000001,
+            "times": [
+              0.7959706952000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7367850942,
+            "stddev": null,
+            "median": 0.7367850942,
+            "user": 0.72932952,
+            "system": 0.0028626999999999993,
+            "min": 0.7367850942,
+            "max": 0.7367850942,
+            "times": [
+              0.7367850942
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7436161035000001,
+            "stddev": null,
+            "median": 0.7436161035000001,
+            "user": 0.7316041799999999,
+            "system": 0.006889940000000001,
+            "min": 0.7436161035000001,
+            "max": 0.7436161035000001,
+            "times": [
+              0.7436161035000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7708268935,
+            "stddev": null,
+            "median": 0.7708268935,
+            "user": 0.76137718,
+            "system": 0.00385994,
+            "min": 0.7708268935,
+            "max": 0.7708268935,
+            "times": [
+              0.7708268935
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7680937120600001,
+            "stddev": null,
+            "median": 0.7680937120600001,
+            "user": 0.75744218,
+            "system": 0.0049184599999999995,
+            "min": 0.7680937120600001,
+            "max": 0.7680937120600001,
+            "times": [
+              0.7680937120600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7445678780600001,
+            "stddev": null,
+            "median": 0.7445678780600001,
+            "user": 0.73356218,
+            "system": 0.00492146,
+            "min": 0.7445678780600001,
+            "max": 0.7445678780600001,
+            "times": [
+              0.7445678780600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ],
+    "cli": [
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5848882285800001,
+            "stddev": null,
+            "median": 0.5848882285800001,
+            "user": 0.5501469999999999,
+            "system": 0.03070342,
+            "min": 0.5848882285800001,
+            "max": 0.5848882285800001,
+            "times": [
+              0.5848882285800001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7483614255800001,
+            "stddev": null,
+            "median": 0.7483614255800001,
+            "user": 0.716583,
+            "system": 0.026403419999999997,
+            "min": 0.7483614255800001,
+            "max": 0.7483614255800001,
+            "times": [
+              0.7483614255800001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.74891501024,
+            "stddev": null,
+            "median": 0.74891501024,
+            "user": 0.7099080799999999,
+            "system": 0.03316884,
+            "min": 0.74891501024,
+            "max": 0.74891501024,
+            "times": [
+              0.74891501024
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.58041936624,
+            "stddev": null,
+            "median": 0.58041936624,
+            "user": 0.54570108,
+            "system": 0.03016784,
+            "min": 0.58041936624,
+            "max": 0.58041936624,
+            "times": [
+              0.58041936624
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.58596644176,
+            "stddev": null,
+            "median": 0.58596644176,
+            "user": 0.5545894,
+            "system": 0.02706076,
+            "min": 0.58596644176,
+            "max": 0.58596644176,
+            "times": [
+              0.58596644176
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.75189328676,
+            "stddev": null,
+            "median": 0.75189328676,
+            "user": 0.7178314,
+            "system": 0.027949759999999997,
+            "min": 0.75189328676,
+            "max": 0.75189328676,
+            "times": [
+              0.75189328676
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7484577010600001,
+            "stddev": null,
+            "median": 0.7484577010600001,
+            "user": 0.71571998,
+            "system": 0.02712942,
+            "min": 0.7484577010600001,
+            "max": 0.7484577010600001,
+            "times": [
+              0.7484577010600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.57866693806,
+            "stddev": null,
+            "median": 0.57866693806,
+            "user": 0.54136798,
+            "system": 0.032681419999999996,
+            "min": 0.57866693806,
+            "max": 0.57866693806,
+            "times": [
+              0.57866693806
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.57941428754,
+            "stddev": null,
+            "median": 0.57941428754,
+            "user": 0.540058,
+            "system": 0.03537832,
+            "min": 0.57941428754,
+            "max": 0.57941428754,
+            "times": [
+              0.57941428754
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.74921132254,
+            "stddev": null,
+            "median": 0.74921132254,
+            "user": 0.718771,
+            "system": 0.02537432,
+            "min": 0.74921132254,
+            "max": 0.74921132254,
+            "times": [
+              0.74921132254
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.74830787002,
+            "stddev": null,
+            "median": 0.74830787002,
+            "user": 0.7100279199999999,
+            "system": 0.03289686,
+            "min": 0.74830787002,
+            "max": 0.74830787002,
+            "times": [
+              0.74830787002
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5786926130200001,
+            "stddev": null,
+            "median": 0.5786926130200001,
+            "user": 0.54198392,
+            "system": 0.03229186,
+            "min": 0.5786926130200001,
+            "max": 0.5786926130200001,
+            "times": [
+              0.5786926130200001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.57936227894,
+            "stddev": null,
+            "median": 0.57936227894,
+            "user": 0.54711076,
+            "system": 0.0274412,
+            "min": 0.57936227894,
+            "max": 0.57936227894,
+            "times": [
+              0.57936227894
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.74722410894,
+            "stddev": null,
+            "median": 0.74722410894,
+            "user": 0.71237976,
+            "system": 0.028911199999999998,
+            "min": 0.74722410894,
+            "max": 0.74722410894,
+            "times": [
+              0.74722410894
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.74710893848,
+            "stddev": null,
+            "median": 0.74710893848,
+            "user": 0.70931584,
+            "system": 0.03200748,
+            "min": 0.74710893848,
+            "max": 0.74710893848,
+            "times": [
+              0.74710893848
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.57726405148,
+            "stddev": null,
+            "median": 0.57726405148,
+            "user": 0.54239584,
+            "system": 0.030167480000000003,
+            "min": 0.57726405148,
+            "max": 0.57726405148,
+            "times": [
+              0.57726405148
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5780161450600001,
+            "stddev": null,
+            "median": 0.5780161450600001,
+            "user": 0.54253174,
+            "system": 0.03100004,
+            "min": 0.5780161450600001,
+            "max": 0.5780161450600001,
+            "times": [
+              0.5780161450600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7472923530600001,
+            "stddev": null,
+            "median": 0.7472923530600001,
+            "user": 0.71106974,
+            "system": 0.030513039999999998,
+            "min": 0.7472923530600001,
+            "max": 0.7472923530600001,
+            "times": [
+              0.7472923530600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.74436169168,
+            "stddev": null,
+            "median": 0.74436169168,
+            "user": 0.70817972,
+            "system": 0.0304717,
+            "min": 0.74436169168,
+            "max": 0.74436169168,
+            "times": [
+              0.74436169168
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.57634841268,
+            "stddev": null,
+            "median": 0.57634841268,
+            "user": 0.5383577199999999,
+            "system": 0.0333677,
+            "min": 0.57634841268,
+            "max": 0.57634841268,
+            "times": [
+              0.57634841268
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.57766824728,
+            "stddev": null,
+            "median": 0.57766824728,
+            "user": 0.54196104,
+            "system": 0.03144096,
+            "min": 0.57766824728,
+            "max": 0.57766824728,
+            "times": [
+              0.57766824728
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7482403362800001,
+            "stddev": null,
+            "median": 0.7482403362800001,
+            "user": 0.7166050399999999,
+            "system": 0.02599496,
+            "min": 0.7482403362800001,
+            "max": 0.7482403362800001,
+            "times": [
+              0.7482403362800001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.75070795838,
+            "stddev": null,
+            "median": 0.75070795838,
+            "user": 0.71298652,
+            "system": 0.03263464,
+            "min": 0.75070795838,
+            "max": 0.75070795838,
+            "times": [
+              0.75070795838
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.57995144738,
+            "stddev": null,
+            "median": 0.57995144738,
+            "user": 0.54490152,
+            "system": 0.03074164,
+            "min": 0.57995144738,
+            "max": 0.57995144738,
+            "times": [
+              0.57995144738
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "isolated_parser_screen": {
+    "results": [
+      {
+        "command": "before",
+        "mean": 0.5786531772733333,
+        "stddev": 0.002258398041214494,
+        "median": 0.5782239419399999,
+        "user": 0.5452516466666667,
+        "system": 0.029452133333333335,
+        "min": 0.5766401999399999,
+        "max": 0.58109538994,
+        "times": [
+          0.58109538994,
+          0.5782239419399999,
+          0.5766401999399999
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "command": "after",
+        "mean": 0.7752157819400001,
+        "stddev": 0.0007285387407653286,
+        "median": 0.77535194594,
+        "user": 0.7370776466666666,
+        "system": 0.03223846666666667,
+        "min": 0.77442876794,
+        "max": 0.7758666319399999,
+        "times": [
+          0.77535194594,
+          0.77442876794,
+          0.7758666319399999
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "transactional_table_screen": {
+    "results": [
+      {
+        "command": "before",
+        "mean": 0.58063736854,
+        "stddev": 0.0025467348618057905,
+        "median": 0.5796824565400001,
+        "user": 0.5484766933333333,
+        "system": 0.02834238,
+        "min": 0.57870609754,
+        "max": 0.58352355154,
+        "times": [
+          0.58352355154,
+          0.57870609754,
+          0.5796824565400001
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "command": "after",
+        "mean": 0.7496461232066668,
+        "stddev": 0.0003844540047032137,
+        "median": 0.7497802665400001,
+        "user": 0.7164850266666666,
+        "system": 0.027618713333333333,
+        "min": 0.74921256954,
+        "max": 0.74994553354,
+        "times": [
+          0.7497802665400001,
+          0.74921256954,
+          0.74994553354
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "isolated_loop_screen": {
+    "results": [
+      {
+        "command": "before",
+        "mean": 0.5884869379466667,
+        "stddev": 0.0007265516031923309,
+        "median": 0.58866119528,
+        "user": 0.5418281066666667,
+        "system": 0.04200058,
+        "min": 0.58768910328,
+        "max": 0.58911051528,
+        "times": [
+          0.58911051528,
+          0.58768910328,
+          0.58866119528
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "command": "after",
+        "mean": 0.7813623056133334,
+        "stddev": 0.0011239283650928845,
+        "median": 0.7814704492800001,
+        "user": 0.7379727733333334,
+        "system": 0.03733058,
+        "min": 0.7801882142800001,
+        "max": 0.7824282532800001,
+        "times": [
+          0.7814704492800001,
+          0.7824282532800001,
+          0.7801882142800001
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "forced_inline_screen": {
+    "results": [
+      {
+        "command": "before",
+        "mean": 0.5881598233199999,
+        "stddev": 0.0019746037602260823,
+        "median": 0.58760951632,
+        "user": 0.5423743999999999,
+        "system": 0.04122215333333333,
+        "min": 0.58651874832,
+        "max": 0.59035120532,
+        "times": [
+          0.59035120532,
+          0.58760951632,
+          0.58651874832
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "command": "after",
+        "mean": 0.78377472632,
+        "stddev": 0.0004417263180929649,
+        "median": 0.78357343032,
+        "user": 0.7401647333333333,
+        "system": 0.03724782000000001,
+        "min": 0.78346950232,
+        "max": 0.78428124632,
+        "times": [
+          0.78346950232,
+          0.78357343032,
+          0.78428124632
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "stdlib_loop_shape_screen": {
+    "results": [
+      {
+        "command": "before",
+        "mean": 0.5802673550066667,
+        "stddev": 0.0011192251494892731,
+        "median": 0.58028097434,
+        "user": 0.5455361333333334,
+        "system": 0.030370313333333333,
+        "min": 0.57914138234,
+        "max": 0.58137970834,
+        "times": [
+          0.58137970834,
+          0.58028097434,
+          0.57914138234
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "command": "after",
+        "mean": 0.7410419040066666,
+        "stddev": 0.000779314881249092,
+        "median": 0.74085021034,
+        "user": 0.7025467999999999,
+        "system": 0.032923313333333336,
+        "min": 0.74037632334,
+        "max": 0.74189917834,
+        "times": [
+          0.74189917834,
+          0.74037632334,
+          0.74085021034
+        ],
+        "memory_usage_byte": [
+          20512768,
+          20512768,
+          20512768
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "direct_output_screen": {
+    "results": [
+      {
+        "command": "before",
+        "mean": 0.5834700742533334,
+        "stddev": 0.0011917712671281884,
+        "median": 0.58391761092,
+        "user": 0.5451524933333333,
+        "system": 0.03419356666666667,
+        "min": 0.58211931792,
+        "max": 0.58437329392,
+        "times": [
+          0.58437329392,
+          0.58391761092,
+          0.58211931792
+        ],
+        "memory_usage_byte": [
+          19296256,
+          19296256,
+          19296256
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "command": "after",
+        "mean": 0.5762176082533333,
+        "stddev": 0.0032638608781445618,
+        "median": 0.5774526629200001,
+        "user": 0.5455081599999999,
+        "system": 0.026456899999999995,
+        "min": 0.57251645192,
+        "max": 0.5786837099200001,
+        "times": [
+          0.5786837099200001,
+          0.5774526629200001,
+          0.57251645192
+        ],
+        "memory_usage_byte": [
+          19296256,
+          19296256,
+          19296256
+        ],
+        "exit_codes": [
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "direct_output_final": {
+    "verify": [
+      {
+        "pair": 0,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74775122758,
+            "stddev": null,
+            "median": 0.74775122758,
+            "user": 0.7366768599999999,
+            "system": 0.006743900000000001,
+            "min": 0.74775122758,
+            "max": 0.74775122758,
+            "times": [
+              0.74775122758
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.75012404058,
+            "stddev": null,
+            "median": 0.75012404058,
+            "user": 0.7422598599999999,
+            "system": 0.0027709000000000006,
+            "min": 0.75012404058,
+            "max": 0.75012404058,
+            "times": [
+              0.75012404058
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 1,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7447502419400001,
+            "stddev": null,
+            "median": 0.7447502419400001,
+            "user": 0.73255238,
+            "system": 0.00689482,
+            "min": 0.7447502419400001,
+            "max": 0.7447502419400001,
+            "times": [
+              0.7447502419400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7474192619400001,
+            "stddev": null,
+            "median": 0.7474192619400001,
+            "user": 0.73822038,
+            "system": 0.00392182,
+            "min": 0.7474192619400001,
+            "max": 0.7474192619400001,
+            "times": [
+              0.7474192619400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 2,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7404391681800001,
+            "stddev": null,
+            "median": 0.7404391681800001,
+            "user": 0.7294254800000001,
+            "system": 0.006087459999999999,
+            "min": 0.7404391681800001,
+            "max": 0.7404391681800001,
+            "times": [
+              0.7404391681800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7497401961800001,
+            "stddev": null,
+            "median": 0.7497401961800001,
+            "user": 0.73954248,
+            "system": 0.00510446,
+            "min": 0.7497401961800001,
+            "max": 0.7497401961800001,
+            "times": [
+              0.7497401961800001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 3,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7477006235,
+            "stddev": null,
+            "median": 0.7477006235,
+            "user": 0.73738114,
+            "system": 0.00487608,
+            "min": 0.7477006235,
+            "max": 0.7477006235,
+            "times": [
+              0.7477006235
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7441868045,
+            "stddev": null,
+            "median": 0.7441868045,
+            "user": 0.7318541399999999,
+            "system": 0.00685808,
+            "min": 0.7441868045,
+            "max": 0.7441868045,
+            "times": [
+              0.7441868045
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 4,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7422207337600001,
+            "stddev": null,
+            "median": 0.7422207337600001,
+            "user": 0.73035586,
+            "system": 0.0067756199999999996,
+            "min": 0.7422207337600001,
+            "max": 0.7422207337600001,
+            "times": [
+              0.7422207337600001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.74764431876,
+            "stddev": null,
+            "median": 0.74764431876,
+            "user": 0.73820186,
+            "system": 0.00479262,
+            "min": 0.74764431876,
+            "max": 0.74764431876,
+            "times": [
+              0.74764431876
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 5,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7530388102200001,
+            "stddev": null,
+            "median": 0.7530388102200001,
+            "user": 0.7435204,
+            "system": 0.0038412199999999994,
+            "min": 0.7530388102200001,
+            "max": 0.7530388102200001,
+            "times": [
+              0.7530388102200001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.74211576722,
+            "stddev": null,
+            "median": 0.74211576722,
+            "user": 0.7317743999999999,
+            "system": 0.00481422,
+            "min": 0.74211576722,
+            "max": 0.74211576722,
+            "times": [
+              0.74211576722
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 6,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.7434856568,
+            "stddev": null,
+            "median": 0.7434856568,
+            "user": 0.73332054,
+            "system": 0.0049394799999999996,
+            "min": 0.7434856568,
+            "max": 0.7434856568,
+            "times": [
+              0.7434856568
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.7488764378,
+            "stddev": null,
+            "median": 0.7488764378,
+            "user": 0.73717954,
+            "system": 0.006931479999999999,
+            "min": 0.7488764378,
+            "max": 0.7488764378,
+            "times": [
+              0.7488764378
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 7,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7497056325000001,
+            "stddev": null,
+            "median": 0.7497056325000001,
+            "user": 0.7391642399999999,
+            "system": 0.00491334,
+            "min": 0.7497056325000001,
+            "max": 0.7497056325000001,
+            "times": [
+              0.7497056325000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7437159435000001,
+            "stddev": null,
+            "median": 0.7437159435000001,
+            "user": 0.73378824,
+            "system": 0.0039023400000000007,
+            "min": 0.7437159435000001,
+            "max": 0.7437159435000001,
+            "times": [
+              0.7437159435000001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 8,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74296466562,
+            "stddev": null,
+            "median": 0.74296466562,
+            "user": 0.73214558,
+            "system": 0.00570194,
+            "min": 0.74296466562,
+            "max": 0.74296466562,
+            "times": [
+              0.74296466562
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.74795475962,
+            "stddev": null,
+            "median": 0.74795475962,
+            "user": 0.73803058,
+            "system": 0.00468894,
+            "min": 0.74795475962,
+            "max": 0.74795475962,
+            "times": [
+              0.74795475962
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 9,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7499738396,
+            "stddev": null,
+            "median": 0.7499738396,
+            "user": 0.7418006799999999,
+            "system": 0.002841,
+            "min": 0.7499738396,
+            "max": 0.7499738396,
+            "times": [
+              0.7499738396
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7512555326,
+            "stddev": null,
+            "median": 0.7512555326,
+            "user": 0.7427706799999999,
+            "system": 0.0028280000000000002,
+            "min": 0.7512555326,
+            "max": 0.7512555326,
+            "times": [
+              0.7512555326
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 10,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.74500861238,
+            "stddev": null,
+            "median": 0.74500861238,
+            "user": 0.73421264,
+            "system": 0.00488608,
+            "min": 0.74500861238,
+            "max": 0.74500861238,
+            "times": [
+              0.74500861238
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.75406116438,
+            "stddev": null,
+            "median": 0.75406116438,
+            "user": 0.74316464,
+            "system": 0.0029040800000000007,
+            "min": 0.75406116438,
+            "max": 0.75406116438,
+            "times": [
+              0.75406116438
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 11,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.7540326311400001,
+            "stddev": null,
+            "median": 0.7540326311400001,
+            "user": 0.74371622,
+            "system": 0.00476844,
+            "min": 0.7540326311400001,
+            "max": 0.7540326311400001,
+            "times": [
+              0.7540326311400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.7441601991400001,
+            "stddev": null,
+            "median": 0.7441601991400001,
+            "user": 0.73322822,
+            "system": 0.00576644,
+            "min": 0.7441601991400001,
+            "max": 0.7441601991400001,
+            "times": [
+              0.7441601991400001
+            ],
+            "memory_usage_byte": [
+              2097152
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ],
+    "cli": [
+      {
+        "pair": 0,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5877468764,
+            "stddev": null,
+            "median": 0.5877468764,
+            "user": 0.55112642,
+            "system": 0.03195536,
+            "min": 0.5877468764,
+            "max": 0.5877468764,
+            "times": [
+              0.5877468764
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.5812681024,
+            "stddev": null,
+            "median": 0.5812681024,
+            "user": 0.54810542,
+            "system": 0.02868736,
+            "min": 0.5812681024,
+            "max": 0.5812681024,
+            "times": [
+              0.5812681024
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 1,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.5827711518,
+            "stddev": null,
+            "median": 0.5827711518,
+            "user": 0.55327532,
+            "system": 0.025669099999999997,
+            "min": 0.5827711518,
+            "max": 0.5827711518,
+            "times": [
+              0.5827711518
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5869190928,
+            "stddev": null,
+            "median": 0.5869190928,
+            "user": 0.54795032,
+            "system": 0.0345481,
+            "min": 0.5869190928,
+            "max": 0.5869190928,
+            "times": [
+              0.5869190928
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 2,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.58493283496,
+            "stddev": null,
+            "median": 0.58493283496,
+            "user": 0.54662292,
+            "system": 0.033567480000000004,
+            "min": 0.58493283496,
+            "max": 0.58493283496,
+            "times": [
+              0.58493283496
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.58192999496,
+            "stddev": null,
+            "median": 0.58192999496,
+            "user": 0.54426292,
+            "system": 0.03209448,
+            "min": 0.58192999496,
+            "max": 0.58192999496,
+            "times": [
+              0.58192999496
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 3,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.5781740892,
+            "stddev": null,
+            "median": 0.5781740892,
+            "user": 0.54171198,
+            "system": 0.03188206,
+            "min": 0.5781740892,
+            "max": 0.5781740892,
+            "times": [
+              0.5781740892
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5890727352,
+            "stddev": null,
+            "median": 0.5890727352,
+            "user": 0.54994298,
+            "system": 0.03427206,
+            "min": 0.5890727352,
+            "max": 0.5890727352,
+            "times": [
+              0.5890727352
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 4,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5873965847,
+            "stddev": null,
+            "median": 0.5873965847,
+            "user": 0.55203664,
+            "system": 0.02974466,
+            "min": 0.5873965847,
+            "max": 0.5873965847,
+            "times": [
+              0.5873965847
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.5778919777,
+            "stddev": null,
+            "median": 0.5778919777,
+            "user": 0.5489166400000001,
+            "system": 0.024126659999999998,
+            "min": 0.5778919777,
+            "max": 0.5778919777,
+            "times": [
+              0.5778919777
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 5,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.5765547686,
+            "stddev": null,
+            "median": 0.5765547686,
+            "user": 0.5427117,
+            "system": 0.02903732,
+            "min": 0.5765547686,
+            "max": 0.5765547686,
+            "times": [
+              0.5765547686
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5822253656,
+            "stddev": null,
+            "median": 0.5822253656,
+            "user": 0.5419847,
+            "system": 0.03553232,
+            "min": 0.5822253656,
+            "max": 0.5822253656,
+            "times": [
+              0.5822253656
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 6,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.58454677852,
+            "stddev": null,
+            "median": 0.58454677852,
+            "user": 0.55050924,
+            "system": 0.028922319999999998,
+            "min": 0.58454677852,
+            "max": 0.58454677852,
+            "times": [
+              0.58454677852
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.57694004452,
+            "stddev": null,
+            "median": 0.57694004452,
+            "user": 0.54601424,
+            "system": 0.025912319999999996,
+            "min": 0.57694004452,
+            "max": 0.57694004452,
+            "times": [
+              0.57694004452
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 7,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.5735045763000001,
+            "stddev": null,
+            "median": 0.5735045763000001,
+            "user": 0.5407134,
+            "system": 0.028306599999999998,
+            "min": 0.5735045763000001,
+            "max": 0.5735045763000001,
+            "times": [
+              0.5735045763000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5816487593,
+            "stddev": null,
+            "median": 0.5816487593,
+            "user": 0.5413724,
+            "system": 0.035414600000000004,
+            "min": 0.5816487593,
+            "max": 0.5816487593,
+            "times": [
+              0.5816487593
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 8,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.5819402787800001,
+            "stddev": null,
+            "median": 0.5819402787800001,
+            "user": 0.5473444199999999,
+            "system": 0.0299066,
+            "min": 0.5819402787800001,
+            "max": 0.5819402787800001,
+            "times": [
+              0.5819402787800001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.57704631878,
+            "stddev": null,
+            "median": 0.57704631878,
+            "user": 0.54407742,
+            "system": 0.0283356,
+            "min": 0.57704631878,
+            "max": 0.57704631878,
+            "times": [
+              0.57704631878
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 9,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.5772260381000001,
+            "stddev": null,
+            "median": 0.5772260381000001,
+            "user": 0.53847112,
+            "system": 0.033410739999999994,
+            "min": 0.5772260381000001,
+            "max": 0.5772260381000001,
+            "times": [
+              0.5772260381000001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5851722821,
+            "stddev": null,
+            "median": 0.5851722821,
+            "user": 0.54822312,
+            "system": 0.032203739999999995,
+            "min": 0.5851722821,
+            "max": 0.5851722821,
+            "times": [
+              0.5851722821
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 10,
+        "results": [
+          {
+            "command": "before",
+            "mean": 0.58221514492,
+            "stddev": null,
+            "median": 0.58221514492,
+            "user": 0.54624798,
+            "system": 0.03134928,
+            "min": 0.58221514492,
+            "max": 0.58221514492,
+            "times": [
+              0.58221514492
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "after",
+            "mean": 0.57539452492,
+            "stddev": null,
+            "median": 0.57539452492,
+            "user": 0.53807098,
+            "system": 0.03263328,
+            "min": 0.57539452492,
+            "max": 0.57539452492,
+            "times": [
+              0.57539452492
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      },
+      {
+        "pair": 11,
+        "results": [
+          {
+            "command": "after",
+            "mean": 0.5724727836600001,
+            "stddev": null,
+            "median": 0.5724727836600001,
+            "user": 0.54071386,
+            "system": 0.027508019999999998,
+            "min": 0.5724727836600001,
+            "max": 0.5724727836600001,
+            "times": [
+              0.5724727836600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          },
+          {
+            "command": "before",
+            "mean": 0.5810758856600001,
+            "stddev": null,
+            "median": 0.5810758856600001,
+            "user": 0.54365686,
+            "system": 0.03280502,
+            "min": 0.5810758856600001,
+            "max": 0.5810758856600001,
+            "times": [
+              0.5810758856600001
+            ],
+            "memory_usage_byte": [
+              4222976
+            ],
+            "exit_codes": [
+              0
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "binary_sha256": {
+    "verify-before": "2183c2ba4b43bb4a2e53dec781d415f25b7644c2c93063a45e0451b6128947d3",
+    "cli-before": "557fefbd7440e4fc39ec58478640fdcc5ceff13262a535691aec545c919c02b7",
+    "verify-after": "c6569c6024fb516b28c0b0e70fb1950b029ccd56f987370c5085b2f391905020",
+    "cli-after": "09edc9fd9c0e8e22cab0908816ba882855fb604e6f6e6c6b6827c963adfafa1e",
+    "verify-retained": "3f86911ffe57865bb0683ac8be572cc662acae13721cb0f0ed9f2fd129844e00",
+    "cli-retained": "c26b6b1a2d14aac680a01200f9296bdb64ca1814447c3057e5e67e157030e509",
+    "verify-inplace": "bac1e152c536ec18bb7c36bc71a33778f58fd69d0947a5081d2add555c2ec189",
+    "cli-inplace": "a87db79c8ce8411ec65913cc483d29d35420e22d9f918ae0b7f5a8f9c1d110fb",
+    "verify-isolated": "76760bcd82de9221f1dd6f95a56c60ca4a885702effa1b94c39d9a0d742dfafc",
+    "cli-isolated": "5477122a3e75c140595a7a34f0db95511378704fc83c9a4e8ae4db783bfac863",
+    "verify-parser": "3b7bd32c9317fb40d56e08e6d358bb60be1da3eaba4c04fbaacc3f5f893df244",
+    "cli-parser": "36cf31b4d9380ad1bc9907b79f9e7db6b015816a40ec01a6adc7866207c83669",
+    "verify-table": "88644daa4115354065eb8c35d5be5d60ae834302125419711318494f710cff8f",
+    "cli-table": "79212034519470b77c28e6b36fb9033ccb5298c234d647bd74382c47aec2ebd1",
+    "verify-loop": "12afb61bd9ed248a60fcabe9a1a452db50c74faaf64bc0ffbd998f60f5dbcdfb",
+    "cli-loop": "7adfde0d22195ef4ca5f7eb4d27696f24f7381647b0c9e404b78481c55c43513",
+    "verify-inline": "e3f80a024b49882448b58806e06d0536fc53201f80a729aecb54d7bea6388a26",
+    "cli-inline": "0e6e657e21bab22a9e1878d3efdb8dd76d42c4e5622bad647970034d6462688a",
+    "verify-switch": "e7c66a887fb1fc3b2c9ea173f19b7279d1d004be1bf92cc786cccb8c6cf6b193",
+    "cli-switch": "e549d57c818d86fd6e37b64a84b5c84c539ca7b164b3e88c208a55034d1a7822",
+    "verify-direct": "697c4989263d94785bda3b07f64242232ddce6ad98f16c5f4979eb212c281e74",
+    "cli-direct": "5e4d00a06069cddd9b06c5570ce03d57aac24003b579a91d12870a867dc81246"
+  },
+  "corpus": {
+    "recipe": "2026-09-04-deflate.md",
+    "seed": 271828,
+    "payload_bytes": 1048576,
+    "archive_bytes": 851422,
+    "archive_sha256": "a0ca426466073975fbc94283b2d208ee38a660d1d622a467e5f702064d3c5912",
+    "distribution": "Gaussian bytes, mean 128, standard deviation 20"
+  },
+  "method": "Nix ReleaseFast; CPU 24; 12 alternating-order pairs; one warmup and one measured sample per command per pair; ten verifications per command; MUTE_DEBUG_STATUS unset and DEBUG BUILD rejected; no concurrent project builds; other fleet activity uncontrolled.",
+  "summary": {
+    "initial_sink_adapter": {
+      "verify": {
+        "wall": {
+          "before_seconds": 0.7438587449250001,
+          "after_seconds": 0.7757688222583333,
+          "change_percent": 4.289803346541365,
+          "median_paired_change_percent": 4.307981036108643
+        },
+        "cpu": {
+          "before_seconds": 0.7392514666666666,
+          "after_seconds": 0.7708564666666665,
+          "change_percent": 4.27527051687957,
+          "median_paired_change_percent": 4.380520066084481
+        }
+      },
+      "cli": {
+        "wall": {
+          "before_seconds": 0.5825807261033333,
+          "after_seconds": 0.7646157178533334,
+          "change_percent": 31.24631207207362,
+          "median_paired_change_percent": 31.28676034277199
+        },
+        "cpu": {
+          "before_seconds": 0.5780117033333333,
+          "after_seconds": 0.7586825366666669,
+          "change_percent": 31.257296745277596,
+          "median_paired_change_percent": 31.300325916741635
+        }
+      }
+    },
+    "direct_accumulator_candidate": {
+      "verify": {
+        "wall": {
+          "before_seconds": 0.74944942626,
+          "after_seconds": 0.7671422205933335,
+          "change_percent": 2.3607722834116274,
+          "median_paired_change_percent": 3.0531323200473137
+        },
+        "cpu": {
+          "before_seconds": 0.7438012450000001,
+          "after_seconds": 0.7615436616666665,
+          "change_percent": 2.3853706599625824,
+          "median_paired_change_percent": 3.088865451304934
+        }
+      },
+      "cli": {
+        "wall": {
+          "before_seconds": 0.5961754534383333,
+          "after_seconds": 0.7663008149383335,
+          "change_percent": 28.53612313603875,
+          "median_paired_change_percent": 28.95790576640228
+        },
+        "cpu": {
+          "before_seconds": 0.5903677166666667,
+          "after_seconds": 0.7585710499999999,
+          "change_percent": 28.491282396510886,
+          "median_paired_change_percent": 28.91199335052623
+        }
+      }
+    },
+    "inplace_reader_candidate": {
+      "verify": {
+        "wall": {
+          "before_seconds": 0.7427237857216668,
+          "after_seconds": 0.7740572636383334,
+          "change_percent": 4.218725523408606,
+          "median_paired_change_percent": 3.9239009948383585
+        },
+        "cpu": {
+          "before_seconds": 0.7372106400000001,
+          "after_seconds": 0.76836064,
+          "change_percent": 4.225386654755803,
+          "median_paired_change_percent": 3.93064956616328
+        }
+      },
+      "cli": {
+        "wall": {
+          "before_seconds": 0.5805883127216668,
+          "after_seconds": 0.7703345719716667,
+          "change_percent": 32.68172215877243,
+          "median_paired_change_percent": 32.71918525263504
+        },
+        "cpu": {
+          "before_seconds": 0.5761141450000001,
+          "after_seconds": 0.7648138116666666,
+          "change_percent": 32.75386801458702,
+          "median_paired_change_percent": 32.798843879227014
+        }
+      }
+    },
+    "isolated_retained_candidate": {
+      "verify": {
+        "wall": {
+          "before_seconds": 0.74094608501,
+          "after_seconds": 0.7723014162600003,
+          "change_percent": 4.231796602255766,
+          "median_paired_change_percent": 3.873490824421788
+        },
+        "cpu": {
+          "before_seconds": 0.7356320333333333,
+          "after_seconds": 0.7668375333333334,
+          "change_percent": 4.241998524534085,
+          "median_paired_change_percent": 3.9152031372833074
+        }
+      },
+      "cli": {
+        "wall": {
+          "before_seconds": 0.5797215381683334,
+          "after_seconds": 0.7483401669183333,
+          "change_percent": 29.086141819529598,
+          "median_paired_change_percent": 29.295333791064657
+        },
+        "cpu": {
+          "before_seconds": 0.5752957200000001,
+          "after_seconds": 0.7427361366666667,
+          "change_percent": 29.105103835409494,
+          "median_paired_change_percent": 29.309763656398978
+        }
+      }
+    },
+    "direct_output_final": {
+      "verify": {
+        "wall": {
+          "before_seconds": 0.7445602977683333,
+          "after_seconds": 0.749800224685,
+          "change_percent": 0.7037612578017161,
+          "median_paired_change_percent": 0.7278962947826928
+        },
+        "cpu": {
+          "before_seconds": 0.7392498666666665,
+          "after_seconds": 0.7443201166666666,
+          "change_percent": 0.6858641751079864,
+          "median_paired_change_percent": 0.7939598426998873
+        }
+      },
+      "cli": {
+        "wall": {
+          "before_seconds": 0.5845743849116667,
+          "after_seconds": 0.577597864245,
+          "change_percent": -1.1934359162385944,
+          "median_paired_change_percent": -1.2363996772324748
+        },
+        "cpu": {
+          "before_seconds": 0.5797699616666666,
+          "after_seconds": 0.5728873783333334,
+          "change_percent": -1.1871231330350174,
+          "median_paired_change_percent": -1.2443135122865878
+        }
+      }
+    }
+  }
+}

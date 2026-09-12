@@ -85,6 +85,19 @@ fn ffiAllocator() std.mem.Allocator {
 // FFI exports
 // ============================================================================
 
+test "FFI: LZMA2 flush mutation is rejected without an archive handle" {
+    const fixture = @embedFile("fixtures/lzma2-strict/plain.7z");
+    var handle: ?*ArchiveHandle = null;
+    try std.testing.expectEqual(Z7Z_OK, z7z_open(fixture.ptr, fixture.len, &handle));
+    z7z_close(handle);
+    handle = null;
+    const bad = try std.testing.allocator.dupe(u8, fixture);
+    defer std.testing.allocator.free(bad);
+    bad[6867] ^= 0xff;
+    try std.testing.expectEqual(Z7Z_ERR_STRUCTURAL, z7z_open(bad.ptr, bad.len, &handle));
+    try std.testing.expect(handle == null);
+}
+
 /// Open a .7z archive from a memory buffer.
 /// On success, writes opaque handle to `out` and returns Z7Z_OK.
 export fn z7z_open(data: ?[*]const u8, len: usize, out: ?*?*ArchiveHandle) c_int {

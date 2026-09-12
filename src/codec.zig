@@ -384,7 +384,7 @@ fn decompressSingleCoder(coder: anytype, packed_data: []const u8, unpack_size: u
 	if (mid.len == 1 and mid[0] == METHOD_COPY) {
 		return decodeCopy(packed_data, allocator);
 	} else if (mid.len == 1 and mid[0] == METHOD_LZMA2) {
-		return decodeLzma2(packed_data, unpack_size, allocator);
+		return decodeLzma2(packed_data, unpack_size, coder.properties, allocator);
 	} else if (mid.len == 3 and std.mem.eql(u8, mid, &METHOD_LZMA)) {
 		return decodeLzma(packed_data, unpack_size, coder.properties, allocator);
 	} else if (std.mem.eql(u8, mid, &METHOD_DEFLATE)) {
@@ -1343,28 +1343,85 @@ fn decodeLzma(packed_data: []const u8, unpack_size: u64, properties: []const u8,
 	return allocating.toOwnedSlice() catch return CodecError.OutOfMemory;
 }
 
-fn decodeLzma2(packed_data: []const u8, unpack_size: u64, allocator: std.mem.Allocator) CodecError![]u8 {
-	// Zig 0.16: std.compress.lzma2.decompress is now a method on Decode,
-	// taking a *Reader + *Writer.Allocating.
-	var in: std.Io.Reader = .fixed(packed_data);
-	var allocating: std.Io.Writer.Allocating = std.Io.Writer.Allocating.initCapacity(allocator, @intCast(unpack_size)) catch
-		return CodecError.OutOfMemory;
-	errdefer allocating.deinit();
-
-	var dec = std.compress.lzma2.Decode.init(allocator) catch return CodecError.OutOfMemory;
-	defer dec.deinit(allocator);
-
-	_ = dec.decompress(&in, &allocating) catch {
-		return CodecError.DecompressFailed;
+fn decodeLzma2(packed_data: []const u8, unpack_size: u64, properties: []const u8, allocator: std.mem.Allocator) CodecError![]u8 {
+	return decodeLzma2Retained(packed_data, unpack_size, properties, allocator) catch |err| return switch (err) {
+		error.OutOfMemory => CodecError.OutOfMemory,
+		else => CodecError.DecompressFailed,
 	};
+}
 
-	const written = allocating.written();
-	if (written.len != @as(usize, @intCast(unpack_size))) {
-		return CodecError.DecompressFailed;
+fn decodeLzma2Retained(packed_data: []const u8, unpack_size: u64, properties: []const u8, allocator: std.mem.Allocator) ![]u8 {
+	_ = try lzma2DictSize(properties, unpack_size);
+	var in: std.Io.Reader = .fixed(packed_data);
+	const output = try allocator.alloc(u8, @intCast(unpack_size));
+	errdefer allocator.free(output);
+	var allocating: std.Io.Writer.Allocating = .{
+		.allocator = allocator,
+		.writer = std.Io.Writer.failing,
+		.alignment = .of(u8),
+	};
+	var accum = RetainedLzBuffer{ .output = output };
+	var ld = try std.compress.lzma.Decode.init(allocator, .{ .lc = 0, .lp = 0, .pb = 0 });
+	defer ld.deinit(allocator);
+	var n_read: u64 = 0;
+	while (true) {
+		const status = try in.takeByte();
+		n_read += 1;
+		switch (status) {
+			0 => break,
+			1, 2 => {
+				const size = @as(u17, try in.takeInt(u16, .big)) + 1;
+				if (status == 1) try accum.reset(&allocating.writer);
+				try accum.appendRaw(try in.take(size));
+				n_read += 2 + @as(u64, size);
+			},
+			else => n_read += try parseLzma2Compressed(&ld, &in, &allocating, &accum, status),
+		}
+	}
+	if (n_read != packed_data.len or accum.written != unpack_size) return error.CorruptInput;
+	return output;
+}
+
+const RetainedLzBuffer = struct {
+	output: []u8,
+	written: usize = 0,
+	len: usize = 0,
+
+	pub fn reset(self: *RetainedLzBuffer, _: *std.Io.Writer) !void {
+		self.len = 0;
 	}
 
-	return allocating.toOwnedSlice() catch return CodecError.OutOfMemory;
-}
+	pub fn lastOr(self: RetainedLzBuffer, fallback: u8) u8 {
+		return if (self.len == 0) fallback else self.output[self.written - 1];
+	}
+
+	pub fn lastN(self: RetainedLzBuffer, distance: usize) !u8 {
+		if (distance == 0 or distance > self.len) return error.CorruptInput;
+		return self.output[self.written - distance];
+	}
+
+	pub fn appendLiteral(self: *RetainedLzBuffer, _: std.mem.Allocator, byte: u8, _: *std.Io.Writer) !void {
+		if (self.written == self.output.len) return error.DecompressedSizeMismatch;
+		self.output[self.written] = byte;
+		self.written += 1;
+		self.len += 1;
+	}
+
+	pub fn appendLz(self: *RetainedLzBuffer, _: std.mem.Allocator, length: usize, distance: usize, _: *std.Io.Writer) !void {
+		if (distance == 0 or distance > self.len) return error.CorruptInput;
+		if (length > self.output.len - self.written) return error.DecompressedSizeMismatch;
+		for (0..length) |i| self.output[self.written + i] = self.output[self.written + i - distance];
+		self.written += length;
+		self.len += length;
+	}
+
+	fn appendRaw(self: *RetainedLzBuffer, bytes: []const u8) !void {
+		if (bytes.len > self.output.len - self.written) return error.DecompressedSizeMismatch;
+		@memcpy(self.output[self.written..][0..bytes.len], bytes);
+		self.written += bytes.len;
+		self.len += bytes.len;
+	}
+};
 
 fn lzma2DictSize(properties: []const u8, unpack_size: u64) CodecError!usize {
 	if (unpack_size == 0) return 1;
@@ -1576,7 +1633,7 @@ fn parseLzma2Compressed(
 	ld: *std.compress.lzma.Decode,
 	reader: *std.Io.Reader,
 	allocating: *std.Io.Writer.Allocating,
-	accum: *StreamingLzBuffer,
+	accum: anytype,
 	status: u8,
 ) !u64 {
 	if (status & 0x80 == 0) return error.CorruptInput;
@@ -1626,22 +1683,44 @@ fn parseLzma2Compressed(
 			if (lc + lp > 4) return error.CorruptInput;
 			new_props = .{ .lc = lc, .lp = lp, .pb = pb };
 		}
+		if (ld.properties.lc + ld.properties.lp != new_props.lc + new_props.lp) {
+			// Allocate before freeing: stdlib resetState leaves stale ownership on OOM.
+			const replacement = try std.compress.lzma.Decode.Vec2d.init(allocating.allocator, 0x400, @as(usize, 1) << (new_props.lc + new_props.lp), 0x300);
+			ld.literal_probs.deinit(allocating.allocator);
+			ld.literal_probs = replacement;
+			ld.properties = new_props;
+		}
 		try ld.resetState(allocating.allocator, new_props);
 	}
 
 	const expected_unpacked_size = accum.len + unpacked_size;
-	const start_count = n_read;
-	var range_decoder = try std.compress.lzma.RangeDecoder.initCounting(reader, &n_read);
+	try decodeLzma2Chunk(ld, try reader.take(packed_size), allocating, accum, expected_unpacked_size);
+	return n_read + packed_size;
+}
 
-	while (accum.len < expected_unpacked_size) {
-		const status_result = try ld.process(reader, allocating, accum, &range_decoder, &n_read);
-		if (status_result == .finished) break;
+// Keep header/reset work outside the hot loop and expose a fixed chunk bound.
+fn decodeLzma2Chunk(
+	ld: *std.compress.lzma.Decode,
+	chunk_data: []const u8,
+	allocating: *std.Io.Writer.Allocating,
+	accum: anytype,
+	expected_unpacked_size: u64,
+) !void {
+	var reader: std.Io.Reader = .fixed(chunk_data);
+	var n_read: u64 = 0;
+	var range_decoder = try std.compress.lzma.RangeDecoder.initCounting(&reader, &n_read);
+
+	while (true) {
+		if (accum.len >= expected_unpacked_size) break;
+		switch (try ld.process(&reader, allocating, accum, &range_decoder, &n_read)) {
+			.more => continue,
+			.finished => break,
+		}
 	}
 
 	if (accum.len != expected_unpacked_size) return error.DecompressedSizeMismatch;
-	if (n_read - start_count != packed_size) return error.CompressedSizeMismatch;
-
-	return n_read;
+	if (n_read != chunk_data.len) return error.CompressedSizeMismatch;
+	if (!range_decoder.isFinished()) return error.InvalidRangeCode;
 }
 
 fn decodeLzma2ToSink(
@@ -3040,6 +3119,132 @@ test "codec: BCJ2 decompressFolder does not double-free on unpack_size mismatch"
 	};
 
 	try std.testing.expectError(CodecError.DecompressFailed, decompressFolder(folder, pack_buf, &ps, 33, null, allocator));
+}
+
+test "codec: LZMA2 chunk boundary cannot consume following bytes" {
+    const allocator = std.testing.allocator;
+    const original = @embedFile("fixtures/lzma2-strict/plain.7z")[32..6870];
+    const truncated_chunk = try allocator.dupe(u8, original);
+    defer allocator.free(truncated_chunk);
+    truncated_chunk[4] -= 1;
+    const decoder = try Lzma2Pull.create(truncated_chunk, 62352, &.{8}, allocator);
+    defer decoder.deinit(allocator);
+    try std.testing.expectError(error.DecompressFailed, decoder.readByte());
+    // Six header bytes plus the deliberately shortened 6830-byte payload.
+    try std.testing.expectEqual(@as(usize, 6836), decoder.reader.seek);
+    truncated_chunk[4] += 2;
+    const oversized = try Lzma2Pull.create(truncated_chunk, 62352, &.{8}, allocator);
+    defer oversized.deinit(allocator);
+    try std.testing.expectError(error.DecompressFailed, oversized.readByte());
+}
+
+test "codec: retained LZMA2 buffer bounds overlapping matches and dictionary resets" {
+    var storage: [8]u8 = undefined;
+    var buffer = RetainedLzBuffer{ .output = &storage };
+    var writer = std.Io.Writer.failing;
+    try buffer.appendRaw("ab");
+    try buffer.appendLz(std.testing.allocator, 4, 2, &writer);
+    try std.testing.expectEqualStrings("ababab", storage[0..buffer.written]);
+    try std.testing.expectError(error.DecompressedSizeMismatch, buffer.appendLz(std.testing.allocator, 3, 2, &writer));
+    try std.testing.expectEqual(@as(usize, 6), buffer.written);
+    try buffer.reset(&writer);
+    try std.testing.expectEqual(@as(u8, '?'), buffer.lastOr('?'));
+    try std.testing.expectError(error.CorruptInput, buffer.lastN(1));
+    try std.testing.expectError(error.CorruptInput, buffer.appendLz(std.testing.allocator, 1, 1, &writer));
+    try buffer.appendRaw("xy");
+    try std.testing.expectEqualStrings("abababxy", &storage);
+    try std.testing.expectError(error.DecompressedSizeMismatch, buffer.appendLiteral(std.testing.allocator, 'z', &writer));
+    try std.testing.expectError(error.DecompressedSizeMismatch, buffer.appendRaw("z"));
+}
+
+fn lzma2StrictAllocationProbe(allocator: std.mem.Allocator) !void {
+    const bytes = @embedFile("fixtures/lzma2-strict/plain.7z")[32..6870];
+    const output = try decodeLzma2(bytes, 62352, &.{8}, allocator);
+    defer allocator.free(output);
+    try std.testing.expectEqual(@as(usize, 62352), output.len);
+}
+
+test "codec: LZMA2 retained decoding releases each failed allocation" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, lzma2StrictAllocationProbe, .{});
+}
+
+fn lzma2StrictSinkAllocationProbe(allocator: std.mem.Allocator) !void {
+    const bytes = @embedFile("fixtures/lzma2-strict/plain.7z")[32..6870];
+    var state = DeflateTestSink{};
+    var sink = state.sink();
+    try decodeLzma2ToSink(bytes, 62352, &.{8}, &sink, allocator);
+}
+
+fn lzma2StrictPullAllocationProbe(allocator: std.mem.Allocator) !void {
+    const bytes = @embedFile("fixtures/lzma2-strict/plain.7z")[32..6870];
+    const decoder = try Lzma2Pull.create(bytes, 62352, &.{8}, allocator);
+    defer decoder.deinit(allocator);
+    for (0..62352) |_| _ = try decoder.readByte();
+    try std.testing.expectError(error.EndOfStream, decoder.readByte());
+}
+
+test "codec: LZMA2 streaming decoding releases each failed allocation" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, lzma2StrictSinkAllocationProbe, .{});
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, lzma2StrictPullAllocationProbe, .{});
+}
+
+test "codec: LZMA2 flush byte acceptance matches the complete oracle set" {
+    const allocator = std.testing.allocator;
+    const bytes = try allocator.dupe(u8, @embedFile("fixtures/lzma2-strict/plain.7z")[32..6870]);
+    defer allocator.free(bytes);
+    var retained = [_]bool{false} ** 256;
+    var streamed = [_]bool{false} ** 256;
+    var pulled = [_]bool{false} ** 256;
+    for (0..256) |value| {
+        bytes[6867 - 32] = @intCast(value);
+        if (decodeLzma2(bytes, 62352, &.{8}, allocator)) |output| {
+            allocator.free(output);
+            retained[value] = true;
+        } else |err| try std.testing.expectEqual(error.DecompressFailed, err);
+        var state = DeflateTestSink{};
+        var sink = state.sink();
+        if (decodeLzma2ToSink(bytes, 62352, &.{8}, &sink, allocator)) |_| {
+            streamed[value] = true;
+        } else |err| try std.testing.expectEqual(error.DecompressFailed, err);
+        const decoder = try Lzma2Pull.create(bytes, 62352, &.{8}, allocator);
+        defer decoder.deinit(allocator);
+        var count: usize = 0;
+        while (true) {
+            _ = decoder.readByte() catch |err| {
+                if (err == error.EndOfStream) {
+                    pulled[value] = count == 62352;
+                } else try std.testing.expectEqual(error.DecompressFailed, err);
+                break;
+            };
+            count += 1;
+        }
+    }
+    var expected = [_]bool{false} ** 256;
+    expected[0x31] = true;
+    try std.testing.expectEqualSlices(bool, &expected, &retained);
+    try std.testing.expectEqualSlices(bool, &expected, &streamed);
+    try std.testing.expectEqualSlices(bool, &expected, &pulled);
+}
+
+test "codec: LZMA2 checks flush at nonfinal chunks and rejects trailing bytes" {
+    const allocator = std.testing.allocator;
+    const original = @embedFile("fixtures/lzma2-strict/plain.7z")[32..6870];
+    const following_raw_chunk = [_]u8{ 1, 0, 0, '!', 0 };
+    const multi = try std.mem.concat(allocator, u8, &.{ original[0 .. original.len - 1], &following_raw_chunk });
+    defer allocator.free(multi);
+    const good = try decodeLzma2(multi, 62353, &.{8}, allocator);
+    defer allocator.free(good);
+    try std.testing.expectEqual(@as(u8, '!'), good[62352]);
+    multi[6867 - 32] ^= 0xff;
+    try std.testing.expectError(error.DecompressFailed, decodeLzma2(multi, 62353, &.{8}, allocator));
+    var state = DeflateTestSink{};
+    var sink = state.sink();
+    try std.testing.expectError(error.DecompressFailed, decodeLzma2ToSink(multi, 62353, &.{8}, &sink, allocator));
+
+    const trailing = try std.mem.concat(allocator, u8, &.{ original, &.{0} });
+    defer allocator.free(trailing);
+    try std.testing.expectError(error.DecompressFailed, decodeLzma2(trailing, 62352, &.{8}, allocator));
+    try std.testing.expectError(error.DecompressFailed, decodeLzma2ToSink(trailing, 62352, &.{8}, &sink, allocator));
 }
 
 test "codec: lzma2 rejects declared-vs-actual unpack_size mismatch" {
