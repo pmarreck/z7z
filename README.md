@@ -3,7 +3,7 @@
 [![Mechatron Prime CI](https://img.shields.io/endpoint?url=https%3A%2F%2Fthelio-nixos.tail66c90.ts.net%2Fbadges%2Fz7z.json&style=for-the-badge)](https://thelio-nixos.tail66c90.ts.net/mechatron-prime/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-A cleanroom 7z archive implementation in Zig. Creates, extracts, and verifies archives using the methods listed below. Complete current 7z verification coverage for `validate` and `validate_gui` is the goal; remaining codecs and archive features are tracked in [PLAN.md](PLAN.md). ZIP and RAR containers belong to separate libraries.
+A cleanroom 7z archive implementation in Zig. Creates, extracts, and verifies archives using the methods listed below. Complete current 7z verification coverage for `validate` and `validate_gui` is the [goal](INTENT.md); remaining codecs and archive features are tracked in [PLAN.md](PLAN.md). ZIP and RAR containers belong to separate libraries.
 
 ## Features
 
