@@ -11,19 +11,19 @@
   };
 
   outputs = { self, nixpkgs, flake-utils, zig-overlay }:
-    flake-utils.lib.eachDefaultSystem (system:
+    flake-utils.lib.eachSystem [ "aarch64-darwin" "aarch64-linux" "x86_64-linux" ] (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
         zig = zig-overlay.packages.${system}."0.16.0";
-        isDarwin = pkgs.stdenv.isDarwin;
-        isLinux = pkgs.stdenv.isLinux;
+        isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
+        isLinux = pkgs.stdenv.hostPlatform.isLinux;
 
         # Pre-fetched Zig dependencies (fixed-output derivation)
         # Update this hash when build.zig.zon changes:
         #   1. Set zigDepsHash = "";
         #   2. Run `nix build` — it fails and prints the correct hash
         #   3. Replace zigDepsHash with the printed hash
-        zigDepsHash = "sha256-c8QpZA9KFPIQ52gNIiLClfxTmP8B4SzHoieQCnKMLgg=";
+        zigDepsHash = "sha256-5LA04nPRUXAZ9KuN4M8FJsQaBORwzIS/imdH2PWenWc=";
 
         zigDeps = pkgs.stdenv.mkDerivation {
           pname = "z7z-zig-deps";

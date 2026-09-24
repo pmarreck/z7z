@@ -9,12 +9,12 @@
             .hash = "bzip2z-0.1.0-m5NdluccCAAHOlMkmGvJHFqYCFjK6KlL6qSL3UDrirUY",
         },
         .libmagic = .{
-            .url = "https://github.com/pmarreck/libmagic/archive/refs/tags/zig-0.16.0.tar.gz",
-            .hash = "libmagic-5.46.0-RysxHIBfCACiotJjtfnDqQ6tBCd8-7SfHvT4Z2TlvEUm",
+            .url = "https://github.com/pmarreck/libmagic/archive/ddcd65805af4f7edd39db63a14811f325cd54a02.tar.gz",
+            .hash = "libmagic-5.46.0-RysxHMNjCADKbfFeVJvvXPwxyrmC7dt6HEkT5icYkQQk",
         },
         .progrez = .{
-            .url = "https://github.com/pmarreck/progrez/archive/7d70ce8.tar.gz",
-            .hash = "progrez-0.1.0-0YJXrpMFAgARHkoD6RpFfS8kNgQEiYNu2ZbswsuBm2hf",
+            .url = "https://github.com/pmarreck/progrez/archive/9f7cc53d6ecdf216d15fe8dd8327b00fc240ec09.tar.gz",
+            .hash = "progrez-0.1.0-0YJXrvcHAgCLC8LMnQUppHj9fowlnE7I0EQo4-hHwb3n",
         },
     },
     .paths = .{

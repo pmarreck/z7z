@@ -423,4 +423,3 @@ Source section: Code-review follow-ups (fleet review 2026-06-01) — done + defe
 Source section: Code-review follow-ups (fleet review 2026-06-01) — done + deferred.
 
 **Deferred (partial):** exhaustive metadata/encoder per-feature test matrix (truncation-at-every-NID, per-flag encode roundtrips) — highest-value subset added; remainder is incremental.
-
