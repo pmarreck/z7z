@@ -12,6 +12,10 @@ const filters = @import("filters.zig");
 const bzip2 = @import("bzip2_adapter.zig");
 const ProgressContext = @import("progress.zig").ProgressContext;
 
+test {
+	_ = @import("codec_reader_tests.zig");
+}
+
 pub const CodecError = error{
 	UnsupportedMethod,
 	DecompressFailed,
@@ -27,6 +31,174 @@ pub const SinkError = error{
 };
 
 pub const StreamingError = CodecError || SinkError;
+
+pub const ReaderCoderError = CodecError || error{ ReadFailed, WriteFailed };
+
+/// Relative to the start of the raw compressed payload, excluding properties.
+/// This is the decoder's consumption cursor at return, not the damaged byte.
+/// A byte offset equal to packed_size denotes the end of the payload.
+pub const CoderDiagnostic = struct {
+	input_byte_offset: u64 = 0,
+	input_bit_offset: u3 = 0,
+};
+
+pub const ReaderCoderOptions = struct {
+	/// ZIP LZMA general-purpose flag bit 1 requires an end marker.
+	require_lzma_end_marker: bool = false,
+	/// Maximum LZMA dictionary allocation; probability tables and fixed buffers
+	/// are additional. A caller's allocator can enforce an overall memory budget.
+	max_dictionary_size: usize = std.math.maxInt(usize),
+};
+
+/// Verify raw single-input/single-output Deflate64 or LZMA data into a caller's
+/// writer (typically a CRC sink). No full input/output allocation. Other methods
+/// return UnsupportedMethod. Consumes at most packed_size logical input bytes;
+/// source prefetch may remain in the caller's reader. Never flushes its writer.
+/// Output is provisional until success; a CRC must
+/// still be checked by the caller. On failure the reader/writer may be advanced.
+pub fn verifySingleCoder(
+	coder: meta.Coder,
+	reader: *std.Io.Reader,
+	writer: *std.Io.Writer,
+	packed_size: u64,
+	unpack_size: u64,
+	options: ReaderCoderOptions,
+	diagnostic: *CoderDiagnostic,
+	allocator: std.mem.Allocator,
+) ReaderCoderError!void {
+	diagnostic.* = .{};
+	if (coder.num_in_streams != 1 or coder.num_out_streams != 1) return error.UnsupportedMethod;
+	if (std.mem.eql(u8, coder.method_id, &METHOD_DEFLATE64)) {
+		const decoder = try deflate64.Decoder.createReader(reader, packed_size, unpack_size, coder.properties, allocator);
+		defer decoder.deinit(allocator);
+		defer {
+			const bits = decoder.consumedInputBits();
+			diagnostic.* = .{ .input_byte_offset = @intCast(bits / 8), .input_bit_offset = @intCast(bits % 8) };
+		}
+		const buffer = try allocator.alloc(u8, 16 * 1024);
+		defer allocator.free(buffer);
+		while (true) {
+			const n = try decoder.readReader(buffer);
+			if (n == 0) break;
+			try writer.writeAll(buffer[0..n]);
+		}
+		return;
+	}
+	if (!std.mem.eql(u8, coder.method_id, &METHOD_LZMA)) return error.UnsupportedMethod;
+	return verifyLzmaReader(coder.properties, reader, writer, packed_size, unpack_size, options, diagnostic, allocator);
+}
+
+const BoundedCoderReader = struct {
+	source: *std.Io.Reader,
+	remaining: u64,
+	fetched: u64 = 0,
+	interface: std.Io.Reader,
+
+	fn consumed(self: *const @This()) u64 {
+		return self.fetched - self.interface.bufferedLen();
+	}
+
+	fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
+		const self: *@This() = @fieldParentPtr("interface", r);
+		if (self.remaining == 0) return error.EndOfStream;
+		const n = try self.source.stream(w, limit.min(.limited64(self.remaining)));
+		self.remaining -= n;
+		self.fetched += n;
+		return n;
+	}
+};
+
+const CoderWriterSink = struct {
+	writer: *std.Io.Writer,
+	failed: bool = false,
+
+	fn write(ctx: *anyopaque, bytes: []const u8) SinkError!void {
+		const self: *@This() = @ptrCast(@alignCast(ctx));
+		self.writer.writeAll(bytes) catch {
+			self.failed = true;
+			return error.StructuralError;
+		};
+	}
+};
+
+// Limit before dictionary mutation or output emission, including the optional
+// extra decoding step that distinguishes an end marker from surplus output.
+const SizedLzBuffer = struct {
+	buffer: StreamingLzBuffer,
+	limit: u64,
+	len: usize = 0,
+
+	pub fn lastOr(self: @This(), fallback: u8) u8 {
+		return self.buffer.lastOr(fallback);
+	}
+	pub fn lastN(self: @This(), distance: usize) !u8 {
+		return self.buffer.lastN(distance);
+	}
+	pub fn appendLiteral(self: *@This(), allocator: std.mem.Allocator, byte: u8, writer: *std.Io.Writer) !void {
+		if (self.buffer.total_len == self.limit) return error.CorruptInput;
+		try self.buffer.appendLiteral(allocator, byte, writer);
+		self.len = self.buffer.len;
+	}
+	pub fn appendLz(self: *@This(), allocator: std.mem.Allocator, length: usize, distance: usize, writer: *std.Io.Writer) !void {
+		if (length > self.limit - self.buffer.total_len) return error.CorruptInput;
+		try self.buffer.appendLz(allocator, length, distance, writer);
+		self.len = self.buffer.len;
+	}
+};
+
+fn verifyLzmaReader(
+	properties: []const u8,
+	source: *std.Io.Reader,
+	writer: *std.Io.Writer,
+	packed_size: u64,
+	unpack_size: u64,
+	options: ReaderCoderOptions,
+	diagnostic: *CoderDiagnostic,
+	allocator: std.mem.Allocator,
+) ReaderCoderError!void {
+	if (properties.len != 5 or properties[0] >= 225) return error.DecompressFailed;
+	const lc: u4 = @intCast(properties[0] % 9);
+	const lp: u3 = @intCast((properties[0] / 9) % 5);
+	const pb: u3 = @intCast(properties[0] / 45);
+	const declared_dictionary = @max(@as(u32, 4096), std.mem.readInt(u32, properties[1..5], .little));
+	const dictionary_size: usize = @intCast(@max(@as(u64, 1), @min(@as(u64, declared_dictionary), unpack_size)));
+	if (dictionary_size > options.max_dictionary_size or unpack_size > std.math.maxInt(usize)) return error.ResourceLimitExceeded;
+	const window = try allocator.alloc(u8, dictionary_size);
+	defer allocator.free(window);
+	const input_buffer = try allocator.alloc(u8, 4096);
+	defer allocator.free(input_buffer);
+	var bounded: BoundedCoderReader = .{
+		.source = source, .remaining = packed_size,
+		.interface = .{ .vtable = &.{ .stream = BoundedCoderReader.stream }, .buffer = input_buffer, .seek = 0, .end = 0 },
+	};
+	defer diagnostic.input_byte_offset = bounded.consumed();
+	var sink_adapter: CoderWriterSink = .{ .writer = writer };
+	var sink: OutputSink = .{ .ptr = &sink_adapter, .writeFn = CoderWriterSink.write };
+	const accum = try allocator.create(SizedLzBuffer);
+	defer allocator.destroy(accum);
+	accum.* = .{ .buffer = StreamingLzBuffer.init(window, &sink), .limit = unpack_size };
+	var dec = std.compress.lzma.Decode.init(allocator, .{ .lc = lc, .lp = lp, .pb = pb }) catch |err| return mapReaderCoderError(err, false);
+	defer dec.deinit(allocator);
+	var allocating: std.Io.Writer.Allocating = .{ .allocator = allocator, .writer = std.Io.Writer.failing, .alignment = .of(u8) };
+	var n_read: u64 = 0;
+	var range = std.compress.lzma.RangeDecoder.initCounting(&bounded.interface, &n_read) catch |err| return mapReaderCoderError(err, sink_adapter.failed);
+	while (true) {
+		if (accum.buffer.total_len == unpack_size and !options.require_lzma_end_marker and range.isFinished() and bounded.consumed() == packed_size) break;
+		const status = dec.process(&bounded.interface, &allocating, accum, &range, &n_read) catch |err| return mapReaderCoderError(err, sink_adapter.failed);
+		if (status == .finished) break;
+	}
+	if (accum.buffer.total_len != unpack_size or bounded.consumed() != packed_size or !range.isFinished()) return error.DecompressFailed;
+	accum.buffer.finish(&allocating.writer) catch |err| return mapReaderCoderError(err, sink_adapter.failed);
+}
+
+fn mapReaderCoderError(err: anyerror, writer_failed: bool) ReaderCoderError {
+	if (writer_failed) return error.WriteFailed;
+	return switch (err) {
+		error.ReadFailed => error.ReadFailed,
+		error.OutOfMemory => error.OutOfMemory,
+		else => error.DecompressFailed,
+	};
+}
 
 pub const OutputSink = struct {
 	ptr: *anyopaque,

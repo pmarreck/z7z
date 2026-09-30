@@ -32,6 +32,38 @@ CLI (C) ──► C FFI boundary ──► Zig core (pure logic, no I/O)
 
 All business logic lives in the Zig core with no direct I/O. The C FFI is exercised by the C CLI, so Zig consumers can import the Zig module directly when they need allocator-aware APIs such as `archive.inspect()`, `archive.verify()`, and `archive.verifyRange()`.
 
+### Raw Streaming Verification
+
+`codec.verifySingleCoder(coder, reader, writer, packed_size, unpack_size,
+options, diagnostic, allocator)` accepts a `metadata.Coder`, `*std.Io.Reader`,
+and `*std.Io.Writer`. It currently supports raw Deflate64 (`04 01 09`) and
+LZMA (`03 01 01`), with one input and one output stream. Other methods or
+coder graphs return `UnsupportedMethod`; there is no whole-buffer fallback.
+
+The caller supplies the compressed payload length and exact decoded length.
+Memory depends on the dictionary and fixed buffers, not entry size. Set
+`ReaderCoderOptions.max_dictionary_size` to bound the LZMA dictionary allocation,
+and use a budgeted allocator for a total memory limit. Decoded bytes go to the
+caller's writer, which can compute CRC-32 without retaining output. The caller
+must check that checksum and flush its writer; the codec does neither. Partial
+output on any error is unverified.
+
+For ZIP LZMA, parse the nine-byte ZIP method header first, pass its five-byte
+properties separately in `coder`, and subtract nine from the packed size.
+Set `require_lzma_end_marker` when ZIP general-purpose flag bit 1 is set.
+Otherwise both marker-bearing and correctly terminated size-delimited streams
+are accepted. Trailing compressed bytes and decoded-size mismatches are rejected.
+
+`CoderDiagnostic` is populated on return, including failure. Its byte/bit cursor
+is relative to the raw compressed payload and excludes decoder read-ahead;
+Deflate64 reports consumed bits (excluding final padding), LZMA reports consumed
+bytes. This is a parser stopping position, not a claim about which byte was
+originally damaged. Add the container payload offset when reporting a file
+location. Allocation, property, and unsupported-method errors before decoding
+leave a zero cursor. Reader/writer failures remain `ReadFailed`/`WriteFailed`,
+separate from `DecompressFailed` and resource errors. A failed operation must
+not be resumed from the underlying reader's current position.
+
 The [feature matrix](docs/coverage/feature-matrix.json) records tested paths and
 remaining gaps. PPMd and general coder-graph support are still incomplete;
 development oracles are retained until the verification inventory is complete.

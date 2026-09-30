@@ -4,6 +4,9 @@ Completed work: [log](docs/PLAN_LOG.md). Details and original wording: [context]
 
 ## First Priority
 
+- [x] Implement validate's bounded reader-to-writer Deflate64/LZMA API with located failures; full tests and all seven Nix targets passed (done 2026-09-30 02:54 EDT; evidence: docs/PLAN_LOG.md#reader-to-writer-verification-2026-09-30-edt).
+- [ ] Audit local corruption-probe usage for sparse shotgun (8..16 distinct bits/32-byte window), dense nuke (4096-byte default), and badonkachomp naming; preserve historical results and record replay definitions/parameters (fleet decision 2026-09-29 EDT).
+
 - [x] Refresh upstream revisions and flake pins; full tests, all-system evaluation, and seven Nix targets passed (done 2026-09-24 17:09 EDT). (context: docs/plan_context/2026-09-24-migration-context.md#task-01)
 
 ## Active Roadmap: Complete 7z Verification and Oracle Removal (2026-09-04 EDT)
@@ -43,6 +46,7 @@ Completed work: [log](docs/PLAN_LOG.md). Details and original wording: [context]
 - [ ] Finish verified bzip2z integration with sink/error/allocator contracts and legacy/multiblock coverage. (context: docs/plan_context/2026-09-24-migration-context.md#task-17)
 - [ ] Implement the 7z PPMd variant with property, reset, memory-limit, and truncation coverage after approval. (context: docs/plan_context/2026-09-24-migration-context.md#task-18)
 - [ ] Audit LZMA/LZMA2/BCJ/BCJ2/AES retained, sink, and range decoding and verification. (context: docs/plan_context/2026-09-24-migration-context.md#task-19)
+- [ ] Audit legacy LZMA slice/sink/pull property handling against the reader API's 4 KiB dictionary minimum and full lc/lp range.
 - [ ] Preserve Zstd extension behavior and establish its status separately from official 7z capabilities. (context: docs/plan_context/2026-09-24-migration-context.md#task-20)
 - [ ] Integrate each codec through archive/verification/C ABI/CLI with TDD, full checks, and measurements. (context: docs/plan_context/2026-09-24-migration-context.md#task-21)
 - [ ] Cover legal parameter combinations and tail conditions beyond defaults. (context: docs/plan_context/2026-09-24-migration-context.md#task-22)

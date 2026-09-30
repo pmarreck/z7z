@@ -1,22 +1,31 @@
 //! Allocator-owned raw Deflate64 decoder (7z method 04 01 09).
-//! Input is borrowed until deinit. Properties must be empty. State and the
-//! 64 KiB history occupy one fixed-size heap allocation; reads never allocate.
+//! Slice input or the input reader is borrowed until deinit. Properties must be
+//! empty. State and the 64 KiB history occupy one fixed-size heap allocation;
+//! reads never allocate.
 //! Reaching expected_size validates the final block and rejects trailing bytes.
 //! Unused bits in the final byte are padding. A failed decoder cannot be reused.
 const std = @import("std");
 pub const Error = error{ DecompressFailed, OutOfMemory };
+pub const ReaderError = Error || error{ReadFailed};
 pub const window_size = 65536;
 
 const Bits = struct {
-	data: []const u8,
-	pos: usize = 0,
+	data: []const u8 = &.{},
+	reader: ?*std.Io.Reader = null,
+	packed_size: u64,
+	pos: u64 = 0,
 	value: u32 = 0,
 	count: u5 = 0,
 
-	fn take(self: *Bits, n: u5) Error!u32 {
+	fn take(self: *Bits, n: u5) ReaderError!u32 {
 		while (self.count < n) {
-			if (self.pos == self.data.len) return error.DecompressFailed;
-			self.value |= @as(u32, self.data[self.pos]) << self.count;
+			if (self.pos == self.packed_size) return error.DecompressFailed;
+			const byte = if (self.reader) |reader| byte: {
+				var buffer: [1]u8 = undefined;
+				if (try reader.readSliceShort(&buffer) == 0) return error.DecompressFailed;
+				break :byte buffer[0];
+			} else self.data[@intCast(self.pos)];
+			self.value |= @as(u32, byte) << self.count;
 			self.pos += 1;
 			self.count += 8;
 		}
@@ -68,7 +77,7 @@ const Huffman = struct {
 		}
 	}
 
-	fn symbol(self: *const Huffman, bits: *Bits) Error!u16 {
+	fn symbol(self: *const Huffman, bits: *Bits) ReaderError!u16 {
 		var code: u32 = 0;
 		var first: u32 = 0;
 		var offset: usize = 0;
@@ -105,16 +114,50 @@ pub const Decoder = struct {
 		if (properties.len != 0) return error.DecompressFailed;
 		const self = try allocator.create(Decoder);
 		errdefer allocator.destroy(self);
-		self.* = .{ .bits = .{ .data = data }, .expected_size = expected_size };
-		if (expected_size == 0) try self.finish();
+		self.* = .{ .bits = .{ .data = data, .packed_size = data.len }, .expected_size = expected_size };
+		if (expected_size == 0) self.finish() catch |err| switch (err) {
+			error.ReadFailed => unreachable,
+			else => |e| return e,
+		};
 		return self;
+	}
+
+	/// Borrows reader at its current logical position. Consumes at most packed_size
+	/// bytes; any underlying reader prefetch remains available through that reader.
+	/// Creation performs no reads, even for empty output. A nonempty read validates
+	/// empty streams, retaining the decoder and its diagnostic on failure.
+	pub fn createReader(reader: *std.Io.Reader, packed_size: u64, expected_size: u64, properties: []const u8, allocator: std.mem.Allocator) ReaderError!*Decoder {
+		if (properties.len != 0) return error.DecompressFailed;
+		const self = try allocator.create(Decoder);
+		self.* = .{ .bits = .{ .reader = reader, .packed_size = packed_size }, .expected_size = expected_size };
+		return self;
+	}
+
+	/// Zero-based bit position relative to input start, after the last successful
+	/// bit take or byte alignment. Includes skipped stored-block alignment bits,
+	/// excludes final padding and fetched bits pending an incomplete take. On
+	/// failure this is the parser stopping position, not the offending field's
+	/// start; subsequent reads leave it unchanged. u128 covers all u64 byte sizes.
+	pub fn consumedInputBits(self: *const Decoder) u128 {
+		return @as(u128, self.bits.pos) * 8 - self.bits.count;
 	}
 
 	pub fn deinit(self: *Decoder, allocator: std.mem.Allocator) void {
 		allocator.destroy(self);
 	}
 
+	/// Legacy slice API. Use readReader to preserve underlying reader failures.
 	pub fn read(self: *Decoder, output: []u8) Error!usize {
+		return self.readReader(output) catch |err| switch (err) {
+			error.ReadFailed => error.DecompressFailed,
+			else => |e| e,
+		};
+	}
+
+	/// Preserves ReadFailed from the borrowed reader. Empty output is a no-op;
+	/// nonempty reads validate the final block as soon as expected_size is reached.
+	/// A failed read may have written a prefix of output; discard it on error.
+	pub fn readReader(self: *Decoder, output: []u8) ReaderError!usize {
 		if (self.failed) return error.DecompressFailed;
 		errdefer self.failed = true;
 		if (output.len == 0) return 0;
@@ -133,9 +176,9 @@ pub const Decoder = struct {
 		return byte[0];
 	}
 
-	fn finish(self: *Decoder) Error!void {
+	fn finish(self: *Decoder) ReaderError!void {
 		if (self.total != self.expected_size or try self.next() != null) return error.DecompressFailed;
-		if (self.bits.pos != self.bits.data.len) return error.DecompressFailed;
+		if (self.bits.pos != self.bits.packed_size) return error.DecompressFailed;
 	}
 
 	fn emit(self: *Decoder, byte: u8) Error!u8 {
@@ -150,7 +193,7 @@ pub const Decoder = struct {
 		self.state = if (self.last) .done else .block;
 	}
 
-	fn next(self: *Decoder) Error!?u8 {
+	fn next(self: *Decoder) ReaderError!?u8 {
 		while (true) switch (self.state) {
 			.done => return null,
 			.block => {
@@ -215,7 +258,7 @@ pub const Decoder = struct {
 		};
 	}
 
-	fn dynamic(self: *Decoder) Error!void {
+	fn dynamic(self: *Decoder) ReaderError!void {
 		const literal_count = 257 + try self.bits.take(5);
 		const distance_count = 1 + try self.bits.take(5);
 		const code_count = 4 + try self.bits.take(4);
@@ -585,4 +628,205 @@ test "Deflate64 exact-sized reads validate EOB immediately and do not overwrite 
 	const truncated = try Decoder.create(data[0 .. data.len - 1], 17, "", std.testing.allocator);
 	defer truncated.deinit(std.testing.allocator);
 	try std.testing.expectError(error.DecompressFailed, truncated.read(buffer[0..17]));
+}
+
+const FragmentedInput = struct {
+	reader: std.Io.Reader = .{ .vtable = &.{ .stream = stream }, .buffer = &.{}, .seek = 0, .end = 0 },
+	data: []const u8,
+	pos: usize = 0,
+	fragment: usize = 1,
+	fail_after: usize = std.math.maxInt(usize),
+
+	fn stream(reader: *std.Io.Reader, writer: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
+		const self: *FragmentedInput = @fieldParentPtr("reader", reader);
+		if (self.pos == self.fail_after) return error.ReadFailed;
+		if (self.pos == self.data.len) return error.EndOfStream;
+		const n = limit.minInt(@min(self.fragment, @min(self.data.len - self.pos, self.fail_after - self.pos)));
+		const written = try writer.write(self.data[self.pos..][0..n]);
+		self.pos += written;
+		return written;
+	}
+};
+
+fn readerByte(decoder: *Decoder) (ReaderError || error{EndOfStream})!u8 {
+	var byte: [1]u8 = undefined;
+	if (try decoder.readReader(&byte) == 0) return error.EndOfStream;
+	return byte[0];
+}
+
+test "Deflate64 reader fragmented oracle parity and packed boundary" {
+	inline for (.{ "stored", "fixed", "dynamic", "history49152", "length285", "extended-0", "extended-255", "extended-65535", "distance65536" }) |name| {
+		const data = @embedFile("fixtures/deflate64/" ++ name ++ ".raw");
+		const plain = @embedFile("fixtures/deflate64/" ++ name ++ ".plain");
+		for ([_]usize{ 1, 7, 127 }) |fragment| {
+			var input: FragmentedInput = .{ .data = data ++ "NEXT", .fragment = fragment };
+			var input_buffer: [127]u8 = undefined;
+			input.reader.buffer = input_buffer[0 .. fragment - 1];
+			const decoder = try Decoder.createReader(&input.reader, data.len, plain.len, "", std.testing.allocator);
+			defer decoder.deinit(std.testing.allocator);
+			const slice = try Decoder.create(data, plain.len, "", std.testing.allocator);
+			defer slice.deinit(std.testing.allocator);
+			try std.testing.expectEqual(@as(usize, 0), input.pos);
+			try std.testing.expectEqual(@as(usize, 0), try decoder.read(&.{}));
+			for (plain) |byte| {
+				try std.testing.expectEqual(byte, try decoder.readByte());
+				try std.testing.expectEqual(byte, try slice.readByte());
+				try std.testing.expectEqual(slice.consumedInputBits(), decoder.consumedInputBits());
+			}
+			try std.testing.expectError(error.EndOfStream, decoder.readByte());
+			try std.testing.expectEqual(data.len, input.pos - input.reader.bufferedLen());
+			var next: [4]u8 = undefined;
+			try input.reader.readSliceAll(&next);
+			try std.testing.expectEqualStrings("NEXT", &next);
+		}
+	}
+}
+
+test "Deflate64 reader empty validation retains precise failure offsets" {
+	const Case = struct { data: []const u8, offset: u64, valid: bool = false };
+	for ([_]Case{
+		.{ .data = &.{}, .offset = 0 },
+		.{ .data = &.{7}, .offset = 3 },
+		.{ .data = &.{1}, .offset = 8 },
+		.{ .data = &.{ 1, 0 }, .offset = 8 },
+		.{ .data = &.{ 3, 252 }, .offset = 10, .valid = true },
+		.{ .data = &.{ 3, 0, 42 }, .offset = 10 },
+		.{ .data = &.{ 1, 0, 0, 255, 255 }, .offset = 40, .valid = true },
+	}) |case| {
+		var input = std.Io.Reader.fixed(case.data);
+		const decoder = try Decoder.createReader(&input, case.data.len, 0, "", std.testing.allocator);
+		defer decoder.deinit(std.testing.allocator);
+		try std.testing.expectEqual(@as(u64, 0), decoder.consumedInputBits());
+		try std.testing.expectEqual(@as(usize, 0), input.seek);
+		try std.testing.expectEqual(@as(usize, 0), try decoder.read(&.{}));
+		try std.testing.expectError(if (case.valid) error.EndOfStream else error.DecompressFailed, decoder.readByte());
+		try std.testing.expectEqual(case.offset, decoder.consumedInputBits());
+		try std.testing.expectError(if (case.valid) error.EndOfStream else error.DecompressFailed, decoder.readByte());
+		try std.testing.expectEqual(case.offset, decoder.consumedInputBits());
+	}
+}
+
+test "Deflate64 reader propagates read failure and does not cross declared size" {
+	for (0..3) |fail_after| {
+		var input: FragmentedInput = .{ .data = &.{ 1, 0, 0, 255, 255 }, .fail_after = fail_after };
+		const decoder = try Decoder.createReader(&input.reader, 5, 0, "", std.testing.allocator);
+		defer decoder.deinit(std.testing.allocator);
+		try std.testing.expectError(error.ReadFailed, readerByte(decoder));
+		try std.testing.expectEqual(@as(u64, if (fail_after == 0) 0 else 8), decoder.consumedInputBits());
+		try std.testing.expectError(error.DecompressFailed, decoder.readByte());
+		try std.testing.expectEqual(fail_after, input.pos);
+	}
+	var input: FragmentedInput = .{ .data = &.{ 3, 0 }, .fail_after = 1 };
+	const decoder = try Decoder.createReader(&input.reader, 1, 0, "", std.testing.allocator);
+	defer decoder.deinit(std.testing.allocator);
+	try std.testing.expectError(error.DecompressFailed, decoder.readByte());
+	try std.testing.expectEqual(@as(u64, 8), decoder.consumedInputBits());
+	try std.testing.expectEqual(@as(usize, 1), input.pos);
+}
+
+fn expectReaderInvalid(data: []const u8, packed_size: u64, expected_size: u64) !void {
+	var input = std.Io.Reader.fixed(data);
+	const decoder = try Decoder.createReader(&input, packed_size, expected_size, "", std.testing.allocator);
+	defer decoder.deinit(std.testing.allocator);
+	var output: [997]u8 = undefined;
+	while (true) {
+		const n = decoder.read(&output) catch |err| {
+			try std.testing.expectEqual(error.DecompressFailed, err);
+			try std.testing.expect(input.seek <= packed_size);
+			const offset = decoder.consumedInputBits();
+			try std.testing.expectError(error.DecompressFailed, decoder.read(&output));
+			try std.testing.expectEqual(offset, decoder.consumedInputBits());
+			return;
+		};
+		if (n == 0) return error.TestExpectedError;
+	}
+}
+
+test "Deflate64 reader rejects truncation trailing bytes and output mismatch" {
+	inline for (.{ "fixed", "dynamic", "extended-65535" }) |name| {
+		const data = @embedFile("fixtures/deflate64/" ++ name ++ ".raw");
+		const plain = @embedFile("fixtures/deflate64/" ++ name ++ ".plain");
+		for (0..data.len) |n| {
+			try expectReaderInvalid(data, n, plain.len);
+			try expectReaderInvalid(data[0..n], data.len, plain.len);
+		}
+		for ([_]u64{ 0, plain.len - 1, plain.len + 1 }) |size| {
+			try expectReaderInvalid(data, data.len, size);
+		}
+		try expectReaderInvalid(data ++ "x", data.len + 1, plain.len);
+		try expectReaderInvalid(data, data.len + 1, plain.len);
+		try expectReaderInvalid(data, std.math.maxInt(u64), plain.len);
+	}
+	var reader: std.Io.Reader = .failing;
+	try std.testing.expectError(error.DecompressFailed, Decoder.createReader(&reader, 1, 0, "x", std.testing.allocator));
+}
+
+fn readerAllocationScenario(allocator: std.mem.Allocator) !void {
+	const data = @embedFile("fixtures/deflate64/distance65536.raw");
+	const plain = @embedFile("fixtures/deflate64/distance65536.plain");
+	var input = std.Io.Reader.fixed(data);
+	const decoder = try Decoder.createReader(&input, data.len, plain.len, "", allocator);
+	defer decoder.deinit(allocator);
+	for (plain) |byte| try std.testing.expectEqual(byte, try decoder.readByte());
+	try std.testing.expectError(error.EndOfStream, decoder.readByte());
+}
+
+test "Deflate64 reader allocation failures and fixed memory cap" {
+	try std.testing.checkAllAllocationFailures(std.testing.allocator, readerAllocationScenario, .{});
+	const memory = try std.testing.allocator.alloc(u8, 70 * 1024);
+	defer std.testing.allocator.free(memory);
+	var fixed = std.heap.FixedBufferAllocator.init(memory);
+	try readerAllocationScenario(fixed.allocator());
+}
+
+test "Deflate64 slice read error signatures remain narrow" {
+	try std.testing.expect(@typeInfo(@TypeOf(Decoder.read)).@"fn".return_type.? == Error!usize);
+	try std.testing.expect(@typeInfo(@TypeOf(Decoder.readByte)).@"fn".return_type.? == (Error || error{EndOfStream})!u8);
+	var input: std.Io.Reader = .failing;
+	const decoder = try Decoder.createReader(&input, 1, 0, "", std.testing.allocator);
+	defer decoder.deinit(std.testing.allocator);
+	var byte: [1]u8 = undefined;
+	try std.testing.expectError(error.ReadFailed, decoder.readReader(&byte));
+}
+
+test "Deflate64 reader failures after output retain slice truncation offsets" {
+	const data = @embedFile("fixtures/deflate64/fixed.raw");
+	const plain = @embedFile("fixtures/deflate64/fixed.plain");
+	for (0..data.len) |n| {
+		var input: FragmentedInput = .{ .data = data, .fail_after = n };
+		const decoder = try Decoder.createReader(&input.reader, data.len, plain.len, "", std.testing.allocator);
+		defer decoder.deinit(std.testing.allocator);
+		const slice = try Decoder.create(data[0..n], plain.len, "", std.testing.allocator);
+		defer slice.deinit(std.testing.allocator);
+		var output: [plain.len]u8 = undefined;
+		try std.testing.expectError(error.ReadFailed, decoder.readReader(&output));
+		try std.testing.expectError(error.DecompressFailed, slice.read(&output));
+		try std.testing.expectEqual(slice.consumedInputBits(), decoder.consumedInputBits());
+		try std.testing.expectEqual(n, input.pos);
+	}
+	var input: std.Io.Reader = .failing;
+	const decoder = try Decoder.createReader(&input, 1, 0, "", std.testing.allocator);
+	defer decoder.deinit(std.testing.allocator);
+	var output: [1]u8 = undefined;
+	try std.testing.expectError(error.DecompressFailed, decoder.read(&output));
+}
+
+test "Deflate64 huge declared sizes and consumed bit offsets do not overflow" {
+	for ([_]u64{ std.math.maxInt(u64) / 8, std.math.maxInt(u64) / 8 + 1, std.math.maxInt(u64) }) |size| {
+		var input: std.Io.Reader = .failing;
+		const decoder = try Decoder.createReader(&input, size, size, "", std.testing.allocator);
+		defer decoder.deinit(std.testing.allocator);
+		try std.testing.expectEqual(@as(u128, 0), decoder.consumedInputBits());
+		var output: [1]u8 = undefined;
+		try std.testing.expectError(error.ReadFailed, decoder.readReader(&output));
+		try std.testing.expectEqual(@as(u128, 0), decoder.consumedInputBits());
+	}
+	var input = std.Io.Reader.fixed(&.{});
+	const decoder = try Decoder.createReader(&input, std.math.maxInt(u64), 0, "", std.testing.allocator);
+	defer decoder.deinit(std.testing.allocator);
+	// Seed the bit cursor to test arithmetic without processing exabytes.
+	decoder.bits.pos = std.math.maxInt(u64);
+	try std.testing.expectEqual(@as(u128, 147573952589676412920), decoder.consumedInputBits());
+	decoder.bits.count = 7;
+	try std.testing.expectEqual(@as(u128, 147573952589676412913), decoder.consumedInputBits());
 }
