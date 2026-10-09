@@ -1,4 +1,4 @@
-//! Pure adapter for bzip2z commit 6113a10a9073c4076a5be5409868b1c868192b38.
+//! Pure adapter for the pinned bzip2z dependency.
 //! Uses the dependency's exported library module to share downstream identity.
 const std = @import("std");
 const bzip2 = @import("bzip2z").bzip2;
@@ -33,6 +33,7 @@ pub fn decodeToSink(allocator: std.mem.Allocator, input: []const u8, options: Op
 	decoder.decompress(&reader, &writer) catch |err| {
 		if (writer.failure) |downstream| return downstream;
 		if (err == error.OutOfMemory) return budget.failure();
+		if (err == error.UnexpectedEof and decoder.diag.streams > 0 and decoder.diag.phase == .stream_header) return error.TrailingData;
 		return err;
 	};
 	if (reader.pos != input.len or !hasExactFooter(input, decoder.stream_crc)) return error.TrailingData;
@@ -78,7 +79,7 @@ const SliceReader = struct {
 	}
 };
 
-// Upstream ignores short counts and collapses writer errors to CorruptData.
+// Upstream collapses writer errors to WriteFailed.
 // A void-returning sink and a saved error preserve the caller's contract.
 fn CheckedWriter(comptime Sink: type) type {
 	return struct {
@@ -88,13 +89,16 @@ fn CheckedWriter(comptime Sink: type) type {
 		crc: std.hash.Crc32 = .init(),
 		failure: ?anyerror = null,
 		pub fn write(self: *@This(), bytes: []const u8) anyerror!usize {
-			self.writeAll(bytes) catch |err| {
+			try self.writeAll(bytes);
+			return bytes.len;
+		}
+		pub fn writeAll(self: *@This(), bytes: []const u8) anyerror!void {
+			self.accept(bytes) catch |err| {
 				self.failure = err;
 				return err;
 			};
-			return bytes.len;
 		}
-		fn writeAll(self: *@This(), bytes: []const u8) anyerror!void {
+		fn accept(self: *@This(), bytes: []const u8) anyerror!void {
 			if (bytes.len > self.options.max_output - self.count) return error.ResourceLimitExceeded;
 			if (bytes.len > self.options.expected_size - self.count) return error.OutputSizeMismatch;
 			const accepted: void = try self.sink.write(bytes);
@@ -105,8 +109,7 @@ fn CheckedWriter(comptime Sink: type) type {
 	};
 }
 
-// Upstream treats EOF within a following 4-byte header as successful completion.
-// Require its verified final footer to end exactly at the supplied byte boundary.
+// Require the verified final footer to end exactly at the supplied byte boundary.
 // Unused bits in that final byte may be nonzero in a 7z packed stream.
 fn hasExactFooter(input: []const u8, stream_crc: u32) bool {
 	if (input.len < 10) return false;
@@ -269,8 +272,11 @@ test "bzip2 adapter permits valid RLE expansion above 900k" {
 
 test "bzip2 adapter memory budget stops expansion before sink" {
 	var sink = TestSink{};
-	try std.testing.expectError(error.ResourceLimitExceeded, decodeToSink(std.testing.allocator, @embedFile("fixtures/bzip2/rle-expansion.bz2"), .{ .expected_size = 1_200_000, .memory_limit = 6_000_000 }, &sink));
+	try std.testing.expectError(error.ResourceLimitExceeded, decodeToSink(std.testing.allocator, @embedFile("fixtures/bzip2/rle-expansion.bz2"), .{ .expected_size = 1_200_000, .memory_limit = 4_000_000 }, &sink));
 	try std.testing.expectEqual(0, sink.calls);
+	const stats = try decodeToSink(std.testing.allocator, @embedFile("fixtures/bzip2/rle-expansion.bz2"), .{ .expected_size = 1_200_000, .memory_limit = 6_000_000 }, &sink);
+	try std.testing.expect(stats.peak_memory <= 6_000_000);
+	try std.testing.expectEqual(1_200_000, sink.count);
 }
 
 test "bzip2 adapter independent multiblock payload" {

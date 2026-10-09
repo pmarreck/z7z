@@ -2219,7 +2219,7 @@ test "codec: BZip2 allocation failure ownership" {
 test "codec: BZip2 explicit sink budget is enforced before emission" {
 	var state = DeflateTestSink{};
 	var sink = state.sink();
-	try std.testing.expectError(error.ResourceLimitExceeded, decodeBzip2ToSink(@embedFile("fixtures/bzip2/rle-expansion.bz2"), 1_200_000, &.{}, &sink, std.testing.allocator, 6_000_000));
+	try std.testing.expectError(error.ResourceLimitExceeded, decodeBzip2ToSink(@embedFile("fixtures/bzip2/rle-expansion.bz2"), 1_200_000, &.{}, &sink, std.testing.allocator, 4_000_000));
 	try std.testing.expectEqual(0, state.count);
 }
 

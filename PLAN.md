@@ -4,6 +4,9 @@ Completed work: [log](docs/PLAN_LOG.md). Details and original wording: [context]
 
 ## First Priority
 
+- [x] Refresh dependency pins against upstream heads under the Zig 0.16.x policy; fix BZip2 API compatibility, pass full tests, native build, and seven Nix targets (done 2026-10-08 20:59 EDT; evidence: docs/PLAN_LOG.md#dependency-refresh-2026-10-08-edt).
+- [ ] Add default-true archive verification checksum control that skips only start/next-header, pack, folder, and substream CRC comparisons; preserve malformed-field, structural, decoding, and cursor checks with paired CRC/structure regressions (requested 2026-10-06).
+
 - [x] Implement validate's bounded reader-to-writer Deflate64/LZMA API with located failures; full tests and all seven Nix targets passed (done 2026-09-30 02:54 EDT; evidence: docs/PLAN_LOG.md#reader-to-writer-verification-2026-09-30-edt).
 - [ ] Audit local corruption-probe usage for sparse shotgun (8..16 distinct bits/32-byte window), dense nuke (4096-byte default), and badonkachomp naming; preserve historical results and record replay definitions/parameters (fleet decision 2026-09-29 EDT).
 
