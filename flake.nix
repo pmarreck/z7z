@@ -23,7 +23,7 @@
         #   1. Set zigDepsHash = "";
         #   2. Run `nix build` — it fails and prints the correct hash
         #   3. Replace zigDepsHash with the printed hash
-        zigDepsHash = "sha256-D8ZkElnTXwE+JeX05ekwkFLDt79CFJjXcgfiKAR03LY=";
+        zigDepsHash = "sha256-FZlRy9rXNbfjNlYaX2BMCYCUU+h+f8yTJQr3/2/fM4c=";
 
         zigDeps = pkgs.stdenv.mkDerivation {
           pname = "z7z-zig-deps";
