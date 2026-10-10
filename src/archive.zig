@@ -3217,6 +3217,37 @@ test "archive: createWithOptions encrypted without header encryption" {
     try std.testing.expectEqualStrings(content, contents.file_data[0]);
 }
 
+fn verifyAllocationUnwind(allocator: std.mem.Allocator, data: []const u8) !void {
+    _ = try verify(data, .{
+        .max_total_unpack_size = 64 * 1024 * 1024 * 1024,
+        .max_expansion_ratio = 256,
+    }, allocator);
+}
+
+test "archive: allocation unwind preserves every verify OOM" {
+    for ([_][]const u8{
+        @embedFile("fixtures/lzma2-strict/plain.7z"),
+        @embedFile("fixtures/crc/encoded-good.7z"),
+    }) |data| {
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, verifyAllocationUnwind, .{data});
+    }
+}
+
+fn verifyDamagedAllocationUnwind(allocator: std.mem.Allocator, data: []const u8) !void {
+    if (verify(data, .{}, allocator)) |_| {
+        return error.AcceptedDamagedArchive;
+    } else |err| {
+        if (err == error.OutOfMemory) return err;
+        try std.testing.expectEqual(error.StructuralError, err);
+    }
+}
+
+test "archive: allocation unwind distinguishes damaged payload from OOM" {
+    const bad = try flushMutation(std.testing.allocator);
+    defer std.testing.allocator.free(bad);
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, verifyDamagedAllocationUnwind, .{bad});
+}
+
 test "archive: create (LZMA2) leaks nothing and never double-frees under allocation failure" {
     // Regression for the errdefer-gap: createLzma2WithThreads performed ~8
     // allocations but only `coders` had an errdefer, so a failure mid-build leaked

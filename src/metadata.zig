@@ -320,6 +320,8 @@ fn parsePackInfo(r: *Reader, allocator: std.mem.Allocator) ParseError!PackInfo {
 
     var pack_sizes: []u64 = &.{};
     var pack_crcs: ?[]?u32 = null;
+    errdefer allocator.free(pack_sizes);
+    errdefer if (pack_crcs) |crcs| allocator.free(crcs);
 
     while (true) {
         const tag = r.readNid() catch return ParseError.EndOfStream;
@@ -356,6 +358,13 @@ fn parseUnpackInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.Allo
 
     // Parse folder records
     result.folders = try allocator.alloc(Folder, @intCast(num_folders));
+    @memset(result.folders, .{
+        .coders = &.{},
+        .bind_pairs = &.{},
+        .packed_indices = &.{},
+        .unpack_sizes = &.{},
+        .unpack_crc = null,
+    });
     for (result.folders) |*folder| {
         folder.* = try parseFolderRecord(r, allocator);
     }
@@ -393,7 +402,14 @@ fn parseUnpackInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.Allo
 fn parseFolderRecord(r: *Reader, allocator: std.mem.Allocator) ParseError!Folder {
     const num_coders = r.readUint64() catch return ParseError.EndOfStream;
     const coders = try allocator.alloc(Coder, @intCast(num_coders));
-    errdefer allocator.free(coders);
+    var initialized: usize = 0;
+    errdefer {
+        for (coders[0..initialized]) |coder| {
+            allocator.free(coder.method_id);
+            allocator.free(coder.properties);
+        }
+        allocator.free(coders);
+    }
 
     var total_in: u64 = 0;
     var total_out: u64 = 0;
@@ -410,6 +426,7 @@ fn parseFolderRecord(r: *Reader, allocator: std.mem.Allocator) ParseError!Folder
 
         // Read codec ID
         const method_id = try allocator.alloc(u8, codec_id_size);
+        errdefer allocator.free(method_id);
         if (codec_id_size > 0) {
             const id_bytes = r.readBytes(codec_id_size) catch return ParseError.EndOfStream;
             @memcpy(method_id, id_bytes);
@@ -425,6 +442,7 @@ fn parseFolderRecord(r: *Reader, allocator: std.mem.Allocator) ParseError!Folder
 
         // Properties
         var properties: []u8 = &.{};
+        errdefer allocator.free(properties);
         if (has_props) {
             const props_size = r.readUint64() catch return ParseError.EndOfStream;
             properties = try allocator.alloc(u8, @intCast(props_size));
@@ -438,6 +456,7 @@ fn parseFolderRecord(r: *Reader, allocator: std.mem.Allocator) ParseError!Folder
             .num_in_streams = num_in,
             .num_out_streams = num_out,
         };
+        initialized += 1;
 
         total_in += num_in;
         total_out += num_out;
@@ -446,6 +465,7 @@ fn parseFolderRecord(r: *Reader, allocator: std.mem.Allocator) ParseError!Folder
     // Bind pairs
     const num_bind_pairs = total_out - 1;
     const bind_pairs = try allocator.alloc(BindPair, @intCast(num_bind_pairs));
+    errdefer allocator.free(bind_pairs);
     for (bind_pairs) |*bp| {
         bp.in_index = r.readUint64() catch return ParseError.EndOfStream;
         bp.out_index = r.readUint64() catch return ParseError.EndOfStream;
@@ -454,6 +474,7 @@ fn parseFolderRecord(r: *Reader, allocator: std.mem.Allocator) ParseError!Folder
     // Packed stream indices
     const num_packed = total_in - num_bind_pairs;
     var packed_indices: []u64 = &.{};
+    errdefer allocator.free(packed_indices);
     if (num_packed > 1) {
         packed_indices = try allocator.alloc(u64, @intCast(num_packed));
         for (packed_indices) |*idx| {
@@ -562,10 +583,15 @@ fn parseSubStreamsInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.
         }
     }
 
+    const counts = try allocator.dupe(u64, num_unpack_streams);
+    errdefer allocator.free(counts);
+    const sizes = try allocator.dupe(u64, all_sizes.items);
+    errdefer allocator.free(sizes);
+    const digests = try allocator.dupe(?u32, all_digests.items);
     result.sub_streams = .{
-        .num_unpack_per_folder = try allocator.dupe(u64, num_unpack_streams),
-        .unpack_sizes = try allocator.dupe(u64, all_sizes.items),
-        .digests = try allocator.dupe(?u32, all_digests.items),
+        .num_unpack_per_folder = counts,
+        .unpack_sizes = sizes,
+        .digests = digests,
     };
 }
 
@@ -602,7 +628,7 @@ fn parseFilesInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.Alloc
         switch (prop_type) {
             .name => try parseFileNames(r, result.files, allocator),
             .empty_stream => {
-                empty_stream_flags = r.readBoolVector(@intCast(num_files), allocator) catch return ParseError.EndOfStream;
+                empty_stream_flags = try r.readBoolVector(@intCast(num_files), allocator);
                 for (result.files, 0..) |*f, i| {
                     f.is_empty_stream = empty_stream_flags.?[i];
                 }
@@ -614,7 +640,7 @@ fn parseFilesInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.Alloc
                         if (f) empty_count += 1;
                     }
                 }
-                const ef = r.readBoolVector(empty_count, allocator) catch return ParseError.EndOfStream;
+                const ef = try r.readBoolVector(empty_count, allocator);
                 defer allocator.free(ef);
                 var ei: usize = 0;
                 for (result.files) |*f| {
@@ -631,7 +657,7 @@ fn parseFilesInfo(r: *Reader, result: *ArchiveMetadata, allocator: std.mem.Alloc
                         if (f) empty_count += 1;
                     }
                 }
-                const af = r.readBoolVector(empty_count, allocator) catch return ParseError.EndOfStream;
+                const af = try r.readBoolVector(empty_count, allocator);
                 defer allocator.free(af);
                 var ai: usize = 0;
                 for (result.files) |*f| {
@@ -702,7 +728,7 @@ fn parseFileNames(r: *Reader, files: []FileInfo, allocator: std.mem.Allocator) P
 }
 
 fn parseTimeProperty(r: *Reader, files: []FileInfo, prop_type: nid.Nid, allocator: std.mem.Allocator) ParseError!void {
-    const defined = r.readBoolVector2(files.len, allocator) catch return ParseError.EndOfStream;
+    const defined = try r.readBoolVector2(files.len, allocator);
     defer allocator.free(defined);
 
     const external = r.readByte() catch return ParseError.EndOfStream;
@@ -723,7 +749,7 @@ fn parseTimeProperty(r: *Reader, files: []FileInfo, prop_type: nid.Nid, allocato
 }
 
 fn parseWinAttrib(r: *Reader, files: []FileInfo, allocator: std.mem.Allocator) ParseError!void {
-    const defined = r.readBoolVector2(files.len, allocator) catch return ParseError.EndOfStream;
+    const defined = try r.readBoolVector2(files.len, allocator);
     defer allocator.free(defined);
 
     const external = r.readByte() catch return ParseError.EndOfStream;
@@ -739,7 +765,7 @@ fn parseWinAttrib(r: *Reader, files: []FileInfo, allocator: std.mem.Allocator) P
 /// Parse per-file xattr blobs (custom property 0x7A).
 /// Format: BOOL_VECTOR2 | External(0) | for each defined: varint blob_len + blob_bytes
 fn parseXattrProperty(r: *Reader, files: []FileInfo, allocator: std.mem.Allocator) ParseError!void {
-    const defined = r.readBoolVector2(files.len, allocator) catch return ParseError.EndOfStream;
+    const defined = try r.readBoolVector2(files.len, allocator);
     defer allocator.free(defined);
 
     const external = r.readByte() catch return ParseError.EndOfStream;
@@ -759,10 +785,11 @@ fn parseXattrProperty(r: *Reader, files: []FileInfo, allocator: std.mem.Allocato
 }
 
 fn readDigestVector(r: *Reader, count: usize, allocator: std.mem.Allocator) ParseError![]?u32 {
-    const defined = r.readBoolVector2(count, allocator) catch return ParseError.EndOfStream;
+    const defined = try r.readBoolVector2(count, allocator);
     defer allocator.free(defined);
 
     const result = try allocator.alloc(?u32, count);
+    errdefer allocator.free(result);
     for (result, 0..) |*d, i| {
         if (defined[i]) {
             d.* = r.readU32Le() catch return ParseError.EndOfStream;
@@ -790,6 +817,128 @@ const tv_a_next_header = [74]u8{
     0x15, 0x06, 0x01, 0x00, 0x20, 0x80, 0xA4, 0x81,
     0x00, 0x00,
 };
+
+fn parseAllocationUnwind(allocator: std.mem.Allocator) !void {
+    var parsed = try parseNextHeader(&tv_a_next_header, allocator);
+    defer parsed.deinit();
+    try std.testing.expectEqualStrings("hello.txt", parsed.files[0].name.?);
+}
+
+test "metadata: allocation unwind owns every TV-A allocation" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, parseAllocationUnwind, .{});
+}
+
+fn truncatedAllocationUnwind(allocator: std.mem.Allocator, data: []const u8) !void {
+    if (parseNextHeader(data, allocator)) |value| {
+        var parsed = value;
+        parsed.deinit();
+        return error.AcceptedTruncatedHeader;
+    } else |err| {
+        if (err == error.OutOfMemory) return err;
+        try std.testing.expectEqual(error.EndOfStream, err);
+    }
+}
+
+test "metadata: allocation unwind rejects every TV-A truncation" {
+    for (0..tv_a_next_header.len) |len| {
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, truncatedAllocationUnwind, .{tv_a_next_header[0..len]});
+    }
+}
+
+const allocation_multi_coder = [_]u8{
+    0x01, 0x04, 0x07, 0x0b, 2, 0,
+    // Two coders, owned properties, one bind pair and three packed indices.
+    2, 0x21, 0x03, 1, 0, 0x11, 0, 3, 1, 0, 1, 1, 2, 3,
+    // Second folder, a single Copy coder.
+    1, 1, 0,
+    0x0c, 4, 4, 4, 0, 0, 0,
+};
+
+fn multiCoderAllocationUnwind(allocator: std.mem.Allocator) !void {
+    var parsed = try parseNextHeader(&allocation_multi_coder, allocator);
+    defer parsed.deinit();
+    try std.testing.expectEqual(2, parsed.folders.len);
+    try std.testing.expectEqual(2, parsed.folders[0].coders.len);
+    try std.testing.expectEqualSlices(u8, &.{0}, parsed.folders[0].coders[0].properties);
+    try std.testing.expectEqualSlices(u64, &.{ 1, 2, 3 }, parsed.folders[0].packed_indices);
+}
+
+test "metadata: allocation unwind owns partial multi-coder and multi-folder records" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, multiCoderAllocationUnwind, .{});
+    for (0..allocation_multi_coder.len) |len| {
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, truncatedAllocationUnwind, .{allocation_multi_coder[0..len]});
+    }
+}
+
+const allocation_pack_crc = [_]u8{
+    1, 4, // header, main streams
+    6, 0, 1, // pack info: position zero, one stream
+    9, 1, // size
+    0x0a, 1, 0x11, 0x22, 0x33, 0x44, // all-defined CRC
+    0, 0, 0,
+};
+
+fn packCrcAllocationUnwind(allocator: std.mem.Allocator) !void {
+    var parsed = try parseNextHeader(&allocation_pack_crc, allocator);
+    defer parsed.deinit();
+    const pack = parsed.pack_info.?;
+    try std.testing.expectEqualSlices(u64, &.{1}, pack.pack_sizes);
+    try std.testing.expectEqualSlices(?u32, &.{0x44332211}, pack.pack_crcs.?);
+}
+
+test "metadata: allocation unwind covers packed CRCs and every truncation" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, packCrcAllocationUnwind, .{});
+    for (0..allocation_pack_crc.len) |len| {
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, truncatedAllocationUnwind, .{allocation_pack_crc[0..len]});
+    }
+}
+
+const allocation_file_properties = [_]u8{
+    1, 5, 2,
+    0x11, 9, 0, 'a', 0, 0, 0, 'b', 0, 0, 0, // names
+    0x0e, 1, 0xc0, // both streams empty
+    0x0f, 1, 0x80, // first is a file
+    0x10, 1, 0x40, // second is anti
+    0x12, 11, 0, 0x80, 0, 1, 0, 0, 0, 0, 0, 0, 0, // ctime, first only
+    0x13, 18, 1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, // atime
+    0x14, 18, 1, 0, 4, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, // mtime
+    0x15, 10, 1, 0, 6, 0, 0, 0, 7, 0, 0, 0, // attributes
+    0x18, 18, 1, 0, 8, 0, 0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0, 0, // start positions
+    0x7a, 7, 1, 0, 1, 'x', 2, 'y', 'z', // owned xattrs for both files
+    0, 0,
+};
+
+fn filePropertiesAllocationUnwind(allocator: std.mem.Allocator) !void {
+    var parsed = try parseNextHeader(&allocation_file_properties, allocator);
+    defer parsed.deinit();
+    try std.testing.expectEqual(2, parsed.files.len);
+    const a = parsed.files[0];
+    const b = parsed.files[1];
+    try std.testing.expectEqualStrings("a", a.name.?);
+    try std.testing.expectEqualStrings("b", b.name.?);
+    try std.testing.expect(a.is_empty_stream and b.is_empty_stream);
+    try std.testing.expect(a.is_empty_file and !b.is_empty_file);
+    try std.testing.expect(!a.is_anti and b.is_anti);
+    try std.testing.expectEqual(@as(?u64, 1), a.ctime);
+    try std.testing.expectEqual(@as(?u64, null), b.ctime);
+    try std.testing.expectEqual(@as(?u64, 2), a.atime);
+    try std.testing.expectEqual(@as(?u64, 3), b.atime);
+    try std.testing.expectEqual(@as(?u64, 4), a.mtime);
+    try std.testing.expectEqual(@as(?u64, 5), b.mtime);
+    try std.testing.expectEqual(@as(?u32, 6), a.win_attrib);
+    try std.testing.expectEqual(@as(?u32, 7), b.win_attrib);
+    try std.testing.expectEqual(@as(?u64, 8), a.start_pos);
+    try std.testing.expectEqual(@as(?u64, 9), b.start_pos);
+    try std.testing.expectEqualStrings("x", a.xattrs.?);
+    try std.testing.expectEqualStrings("yz", b.xattrs.?);
+}
+
+test "metadata: allocation unwind covers every owned file property and truncation" {
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, filePropertiesAllocationUnwind, .{});
+    for (0..allocation_file_properties.len) |len| {
+        try std.testing.checkAllAllocationFailures(std.testing.allocator, truncatedAllocationUnwind, .{allocation_file_properties[0..len]});
+    }
+}
 
 test "metadata: parse TV-A next-header" {
     const allocator = std.testing.allocator;
