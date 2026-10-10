@@ -6,8 +6,8 @@
 	.dependencies = .{
 		.z7z = .{ .path = "z7z" },
 		.bzip2z = .{
-			.url = "https://github.com/pmarreck/bzip2z/archive/d7ff8cb297ec9f880ab64ecab3fbd55db7130837.tar.gz",
-			.hash = "bzip2z-0.1.0-m5NdlsqFCAABSRVDbQn58Cahq1dh7gwlKj0hmO80rTbH",
+			.url = "https://github.com/pmarreck/bzip2z/archive/cfd3b7c50f75a0bcd871f369dc566f4676e4ff55.tar.gz",
+			.hash = "bzip2z-0.1.0-m5NdlqPDCAB3k1pVHmpfdm9PjCXMP5WLOm3sbry7bRQ4",
 		},
 	},
 	.paths = .{ "build.zig", "build.zig.zon", "main.zig" },

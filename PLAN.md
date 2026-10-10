@@ -4,6 +4,7 @@ Completed work: [log](docs/PLAN_LOG.md). Details and original wording: [context]
 
 ## First Priority
 
+- [ ] Adopt BZip2 cfd3b7c in both manifests and regenerate the Nix dependency hash; complete bounded full tests, optimized build, and seven Nix gates, then report exact readiness before publication (requested 2026-10-10).
 - [x] Refresh dependency pins against upstream heads under the Zig 0.16.x policy; fix BZip2 API compatibility, pass full tests, native build, and seven Nix targets (done 2026-10-08 20:59 EDT; evidence: docs/PLAN_LOG.md#dependency-refresh-2026-10-08-edt).
 - [ ] Add default-true archive verification checksum control that skips only start/next-header, pack, folder, and substream CRC comparisons; preserve malformed-field, structural, decoding, and cursor checks with paired CRC/structure regressions (requested 2026-10-06).
 
