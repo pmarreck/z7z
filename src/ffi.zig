@@ -101,17 +101,33 @@ test "FFI: LZMA2 flush mutation is rejected without an archive handle" {
 /// Open a .7z archive from a memory buffer.
 /// On success, writes opaque handle to `out` and returns Z7Z_OK.
 export fn z7z_open(data: ?[*]const u8, len: usize, out: ?*?*ArchiveHandle) c_int {
+	return openWithAllocator(data, len, null, .{}, out, ffiAllocator());
+}
+
+fn openWithAllocator(
+	data: ?[*]const u8,
+	len: usize,
+	password: ?[*:0]const u8,
+	progress: archive.ProgressContext,
+	out: ?*?*ArchiveHandle,
+	allocator: std.mem.Allocator,
+) c_int {
 	const out_ptr = out orelse return Z7Z_ERR_INVALID_ARG;
+	out_ptr.* = null;
 	const data_ptr = data orelse return Z7Z_ERR_INVALID_ARG;
 
-	const allocator = ffiAllocator();
 	const slice = data_ptr[0..len];
+	const pw: ?[]const u8 = if (password) |p| std.mem.span(p) else null;
 
-	const contents = archive.read(slice, allocator) catch |e| {
+	var contents = archive.readWithProgress(slice, pw, progress, allocator) catch |e| {
 		return mapArchiveError(e);
 	};
 
-	const handle = ArchiveHandle.init(contents, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
+	// Ownership transfers only after every handle allocation succeeds.
+	const handle = ArchiveHandle.init(contents, allocator) catch {
+		contents.deinit();
+		return Z7Z_ERR_OUT_OF_MEMORY;
+	};
 	out_ptr.* = handle;
 	return Z7Z_OK;
 }
@@ -325,24 +341,10 @@ export fn z7z_open_ex(
 	user_data: ?*anyopaque,
 	out: ?*?*ArchiveHandle,
 ) c_int {
-	const out_ptr = out orelse return Z7Z_ERR_INVALID_ARG;
-	const data_ptr = data orelse return Z7Z_ERR_INVALID_ARG;
-
-	const allocator = ffiAllocator();
-	const slice = data_ptr[0..len];
-
-	const progress = archive.ProgressContext{
+	return openWithAllocator(data, len, null, .{
 		.callback = progress_cb,
 		.user_data = user_data,
-	};
-
-	const contents = archive.readWithProgress(slice, null, progress, allocator) catch |e| {
-		return mapArchiveError(e);
-	};
-
-	const handle = ArchiveHandle.init(contents, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
-	out_ptr.* = handle;
-	return Z7Z_OK;
+	}, out, ffiAllocator());
 }
 
 /// Open a .7z archive with password and progress reporting.
@@ -354,26 +356,10 @@ export fn z7z_open_ex_pw(
 	user_data: ?*anyopaque,
 	out: ?*?*ArchiveHandle,
 ) c_int {
-	const out_ptr = out orelse return Z7Z_ERR_INVALID_ARG;
-	const data_ptr = data orelse return Z7Z_ERR_INVALID_ARG;
-
-	const allocator = ffiAllocator();
-	const slice = data_ptr[0..len];
-
-	const pw: ?[]const u8 = if (password) |p| std.mem.span(p) else null;
-
-	const progress = archive.ProgressContext{
+	return openWithAllocator(data, len, password, .{
 		.callback = progress_cb,
 		.user_data = user_data,
-	};
-
-	const contents = archive.readWithProgress(slice, pw, progress, allocator) catch |e| {
-		return mapArchiveError(e);
-	};
-
-	const handle = ArchiveHandle.init(contents, allocator) catch return Z7Z_ERR_OUT_OF_MEMORY;
-	out_ptr.* = handle;
-	return Z7Z_OK;
+	}, out, ffiAllocator());
 }
 
 /// Create a .7z archive with progress reporting during compression.
@@ -575,6 +561,107 @@ fn mapCreateError(e: anyerror) c_int {
 // ============================================================================
 // Tests
 // ============================================================================
+
+const OpenProgressRecorder = struct {
+	calls: usize = 0,
+	done: u64 = 0,
+	total: u64 = 0,
+
+	fn callback(done: u64, total: u64, context: ?*anyopaque) callconv(.c) void {
+		const self: *@This() = @ptrCast(@alignCast(context.?));
+		self.calls += 1;
+		self.done = done;
+		self.total = total;
+	}
+};
+
+test "ffi: open custody releases decoded contents at every handle allocation failure" {
+	const files = [_]archive.FileEntry{
+		.{ .name = "first.txt", .data = "first payload" },
+		.{ .name = "second.txt", .data = "second payload" },
+	};
+	const data = try archive.createWithMethod(&files, .copy, std.testing.allocator);
+	defer std.testing.allocator.free(data);
+
+	var counter = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+	var contents = try archive.read(data, counter.allocator());
+	contents.deinit();
+	try std.testing.expectEqual(counter.allocated_bytes, counter.freed_bytes);
+	const decode_allocations = counter.alloc_index;
+	for (0..3) |variant| {
+		var recorder = OpenProgressRecorder{};
+		const progress: archive.ProgressContext = if (variant == 0) .{} else .{
+			.callback = OpenProgressRecorder.callback,
+			.user_data = &recorder,
+		};
+		const password: ?[*:0]const u8 = if (variant == 2) "unused-for-copy" else null;
+		// Two copied names, the name-pointer array, and the handle itself.
+		const total_allocations = decode_allocations + files.len + 2;
+		for (decode_allocations..total_allocations) |fail_index| {
+			var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
+			var handle: ?*ArchiveHandle = null;
+			const rc = openWithAllocator(data.ptr, data.len, password, progress, &handle, failing.allocator());
+			defer z7z_close(handle);
+			try std.testing.expectEqual(Z7Z_ERR_OUT_OF_MEMORY, rc);
+			try std.testing.expect(failing.has_induced_failure);
+			try std.testing.expect(handle == null);
+			try std.testing.expectEqual(failing.allocated_bytes, failing.freed_bytes);
+		}
+
+		var successful = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+		var handle: ?*ArchiveHandle = null;
+		try std.testing.expectEqual(Z7Z_OK, openWithAllocator(data.ptr, data.len, password, progress, &handle, successful.allocator()));
+		{
+			defer z7z_close(handle);
+			try std.testing.expectEqual(total_allocations, successful.alloc_index);
+			try std.testing.expectEqual(files.len, z7z_file_count(handle));
+			for (files, 0..) |file, i| {
+				try std.testing.expectEqualStrings(file.name, std.mem.span(z7z_file_name(handle, i).?));
+				try std.testing.expectEqualStrings(file.data, z7z_file_data(handle, i).?[0..z7z_file_size(handle, i)]);
+			}
+		}
+		try std.testing.expectEqual(successful.allocated_bytes, successful.freed_bytes);
+		if (variant != 0) {
+			try std.testing.expect(recorder.calls > 0);
+			try std.testing.expectEqual(recorder.total, recorder.done);
+			try std.testing.expect(recorder.total > 0);
+		}
+	}
+}
+
+test "ffi: open custody clears output on all exported error paths" {
+	const invalid = [_]u8{0} ** 32;
+	const valid = @embedFile("fixtures/crc/encoded-good.7z");
+	var damaged: [valid.len]u8 = valid.*;
+	damaged[8] ^= 1;
+	var untouched: ArchiveHandle = undefined;
+	const cases = .{
+		.{ @as(?[*]const u8, null), @as(usize, 0), Z7Z_ERR_INVALID_ARG },
+		.{ @as(?[*]const u8, &invalid), invalid.len, Z7Z_ERR_NOT_ARCHIVE },
+		.{ @as(?[*]const u8, valid), @as(usize, 10), Z7Z_ERR_TRUNCATED },
+		.{ @as(?[*]const u8, &damaged), damaged.len, Z7Z_ERR_CHECKSUM },
+	};
+	inline for (.{ z7z_open, z7z_open_ex, z7z_open_ex_pw }, 0..) |open, variant| {
+		inline for (cases) |case| {
+			var handle: ?*ArchiveHandle = &untouched;
+			const rc = if (variant == 0)
+				open(case[0], case[1], &handle)
+			else if (variant == 1)
+				open(case[0], case[1], null, null, &handle)
+			else
+				open(case[0], case[1], null, null, null, &handle);
+			try std.testing.expectEqual(case[2], rc);
+			try std.testing.expect(handle == null);
+		}
+		const rc = if (variant == 0)
+			open(valid, valid.len, null)
+		else if (variant == 1)
+			open(valid, valid.len, null, null, null)
+		else
+			open(valid, valid.len, null, null, null, null);
+		try std.testing.expectEqual(Z7Z_ERR_INVALID_ARG, rc);
+	}
+}
 
 test "ffi: error mapping covers all archive errors" {
 	try std.testing.expectEqual(Z7Z_ERR_NOT_ARCHIVE, mapArchiveError(error.NotArchive));

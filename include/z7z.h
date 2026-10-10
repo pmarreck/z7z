@@ -36,7 +36,9 @@ typedef struct z7z_archive z7z_archive;
 
 /* Open a .7z archive from a memory buffer.
  * Returns Z7Z_OK on success, error code otherwise.
- * On success, *out receives an opaque handle (free with z7z_close). */
+ * On success, *out receives an opaque handle (free with z7z_close).
+ * On failure, *out is NULL when out is non-NULL.
+ * Close any previous handle before reusing its output slot. */
 int z7z_open(const uint8_t *data, size_t len, z7z_archive **out);
 
 /* Number of files in the archive. Returns 0 if handle is NULL. */
@@ -118,12 +120,14 @@ typedef void (*z7z_progress_fn)(uint64_t bytes_done, uint64_t bytes_total,
                                 void *user_data);
 
 /* Open a .7z archive with progress reporting during decompression.
- * The callback fires per-folder with packed bytes decompressed. */
+ * The callback fires per-folder with packed bytes decompressed.
+ * Output ownership and failure behavior are the same as z7z_open. */
 int z7z_open_ex(const uint8_t *data, size_t len,
                 z7z_progress_fn progress, void *user_data,
                 z7z_archive **out);
 
-/* Open a .7z archive with password and progress reporting. */
+/* Open a .7z archive with password and progress reporting.
+ * Output ownership and failure behavior are the same as z7z_open. */
 int z7z_open_ex_pw(const uint8_t *data, size_t len,
                    const char *password,
                    z7z_progress_fn progress, void *user_data,
